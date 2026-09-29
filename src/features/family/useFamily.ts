@@ -1,0 +1,129 @@
+import { daysBetween } from '@domain/gestation';
+import { GRACE_DAYS, taskStatus, type TaskStatus } from '@domain/schedules';
+
+import type { DbState } from '@/data/store';
+import { useDb } from '@/data/store';
+import type { Baby, Caregiver, CaregiverScopes, Mother, Pregnancy } from '@/data/types';
+import { useSession } from '@/state/session';
+
+export type FamilyContext = {
+  mother?: Mother;
+  pregnancy?: Pregnancy;
+  babies: Baby[];
+  isCaregiver: boolean;
+  caregiver?: Caregiver;
+  scopes: CaregiverScopes;
+  accountName: string;
+  accountId: string;
+};
+
+const ALL: CaregiverScopes = { schedule: true, baby: true, logs: true };
+
+/** Resolves the signed-in Family account to the mother it belongs to (mother or consented caregiver). */
+export function useFamily(): FamilyContext {
+  const account = useSession((s) => s.account);
+  const db = useDb();
+  const isCaregiver = account?.family?.role === 'caregiver';
+  const mother = isCaregiver ? db.mothers.find((m) => m.name === account?.family?.motherName) : db.mothers.find((m) => m.phone === account?.phone);
+  const pregnancy = mother ? db.pregnancies.filter((p) => p.motherId === mother.id).sort((a, b) => b.registeredOn.getTime() - a.registeredOn.getTime())[0] : undefined;
+  const caregiver = isCaregiver ? db.caregivers.find((c) => c.phone === account?.phone && c.motherId === mother?.id && !c.revokedAt) : undefined;
+  return {
+    mother,
+    pregnancy,
+    babies: mother ? db.babies.filter((b) => b.motherId === mother.id && b.outcome === 'live') : [],
+    isCaregiver,
+    caregiver,
+    scopes: isCaregiver ? (caregiver?.scopes ?? { schedule: false, baby: false, logs: false }) : ALL,
+    accountName: account?.name ?? '',
+    accountId: account?.id ?? '',
+  };
+}
+
+export type FamilyItem = {
+  id: string;
+  kind: 'visit' | 'test' | 'referral' | 'postnatal' | 'baby' | 'vaccine';
+  subject: 'mother' | 'baby';
+  /** i18n key + params for the title. */
+  titleKey: string;
+  titleParams?: Record<string, string>;
+  date: Date;
+  dueBy?: Date;
+  place?: string;
+  status: TaskStatus;
+  bring: string[];
+  prep: string[];
+  taskId?: string;
+};
+
+const TEST_KEYS = ['ogtt', 'hb1', 'hb2', 'hb3', 'anomaly', 'dating', 'bg', 'urine', 'rbs', 'tsh', 'ict'];
+
+/**
+ * Everything upcoming for the family, in plain terms (FH-10). Sensitive tests are never
+ * included; statuses are date-based only.
+ */
+export function familyItems(db: DbState, ctx: FamilyContext, now: Date): FamilyItem[] {
+  const out: FamilyItem[] = [];
+  const p = ctx.pregnancy;
+  if (!p) return out;
+  const grace = GRACE_DAYS[p.intensity];
+  const babyIds = new Set(ctx.babies.map((b) => b.id));
+
+  for (const t of db.tasks.filter((x) => (x.subjectId === p.id || babyIds.has(x.subjectId)) && !x.completedAt && !x.cancelledAt)) {
+    const st = taskStatus({ dueFrom: t.dueFrom, dueBy: t.dueBy, completed: false }, now, grace);
+    if (daysBetween(now, t.dueBy) > 60) continue;
+    const isBaby = babyIds.has(t.subjectId);
+    if (isBaby && !ctx.scopes.baby) continue;
+    if (!isBaby && !ctx.scopes.schedule) continue;
+    const ref = t.kind === 'referral_appt' ? db.referrals.find((r) => r.id === t.refId) : undefined;
+    out.push({
+      id: t.id,
+      taskId: t.id,
+      kind: t.kind === 'anc_visit' ? 'visit' : t.kind === 'referral_appt' ? 'referral' : isBaby ? 'baby' : 'postnatal',
+      subject: isBaby ? 'baby' : 'mother',
+      titleKey: t.kind === 'anc_visit' ? 'family.task.anc' : t.kind === 'referral_appt' ? 'family.task.referral' : isBaby ? 'family.task.nb' : 'family.task.pn',
+      titleParams: ref ? { dept: ref.department } : undefined,
+      date: t.kind === 'anc_visit' ? withTime(t.dueBy, 10) : t.dueBy,
+      place: ref?.place ?? (t.kind === 'anc_visit' ? 'OPD Block B' : 'OPD'),
+      status: st,
+      bring: ['family.prep.bring'],
+      prep: [],
+    });
+  }
+
+  if (ctx.scopes.schedule && p.status === 'active') {
+    for (const i of db.investigations.filter((x) => x.subjectId === p.id && !x.sensitive && (x.status === 'due' || x.status === 'ordered'))) {
+      if (daysBetween(now, i.dueFrom) > 21) continue;
+      const st = taskStatus({ dueFrom: i.dueFrom, dueBy: i.dueBy, completed: false }, now, Infinity);
+      out.push({
+        id: i.id,
+        kind: 'test',
+        subject: 'mother',
+        titleKey: TEST_KEYS.includes(i.code) ? `family.tests.${i.code}` : 'family.task.test',
+        titleParams: { name: i.label },
+        date: i.dueFrom.getTime() > now.getTime() ? i.dueFrom : now,
+        dueBy: i.dueBy,
+        place: i.kind === 'scan' ? 'Radiology · Block A' : 'Lab · Block A',
+        status: st,
+        bring: ['family.prep.bring'],
+        prep: i.code === 'ogtt' ? ['family.prep.fasting'] : [],
+      });
+    }
+  }
+
+  if (ctx.scopes.baby) {
+    for (const im of db.immunizations.filter((x) => babyIds.has(x.babyId) && !x.givenOn)) {
+      if (daysBetween(now, im.dueOn) > 45) continue;
+      const st = taskStatus({ dueFrom: im.dueOn, dueBy: im.dueOn, completed: false }, now, 7);
+      out.push({ id: im.id, kind: 'vaccine', subject: 'baby', titleKey: 'family.task.vaccine', titleParams: { name: im.label }, date: im.dueOn, place: 'Immunization clinic', status: st === 'missed' ? 'overdue' : st, bring: ['family.prep.bringBaby'], prep: [] });
+    }
+  }
+
+  const order: Record<TaskStatus, number> = { missed: 0, overdue: 1, due: 2, upcoming: 3, done: 4 };
+  return out.sort((a, b) => order[a.status] - order[b.status] || a.date.getTime() - b.date.getTime());
+}
+
+function withTime(d: Date, h: number) {
+  const x = new Date(d);
+  x.setHours(h, 0, 0, 0);
+  return x;
+}

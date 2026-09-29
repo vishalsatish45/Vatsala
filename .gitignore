@@ -41,3 +41,11 @@ example
 # generated native folders
 /ios
 /android
+
+# env
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/

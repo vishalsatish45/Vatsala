@@ -8,8 +8,15 @@
       ],
       "@/assets/*": [
         "./assets/*"
+      ],
+      "@domain/*": [
+        "./shared/domain/*"
       ]
-    }
+    },
+    "types": [
+      "jest",
+      "node"
+    ]
   },
   "include": [
     "**/*.ts",
