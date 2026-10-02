@@ -1,15 +1,15 @@
 import { useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Bell, HeartHandshake, MessageCircle, MessageSquareText, ShieldCheck, Stethoscope, type LucideIcon } from 'lucide-react-native';
 
 import { RemoteError } from '@/data/remote';
 import { recordConsent } from '@/data/sync';
-import { useDb } from '@/data/store';
 import { confirmSignOut } from '@/features/auth/confirmSignOut';
 import { NoAccess } from '@/features/family/NoAccess';
+import { useOnboardingDetails, type DetailsState } from '@/features/family/onboardingDetails';
 import { useFamily } from '@/features/family/useFamily';
-import { LANGUAGES } from '@/lib/i18n';
+import { LANGUAGES, localeFor } from '@/lib/i18n';
 import { useSession } from '@/state/session';
 import { AppText, Button, Card, Chip, GlassSurface, InfoRow, PressableScale, ProgressBar, Screen, palette, space } from '@/ui';
 
@@ -36,8 +36,9 @@ export default function Onboarding() {
   const complete = useSession((s) => s.completeOnboarding);
   const signOut = useSession((s) => s.signOut);
   const account = useSession((s) => s.account);
-  const { mother, pregnancy, accountId, accountName, isCaregiver } = useFamily();
-  const hospitalName = useDb((s) => s.hospital?.name);
+  const { mother, accountId, isCaregiver } = useFamily();
+  // Read before consent (her record loads only after it): see onboardingDetails.ts.
+  const details = useOnboardingDetails();
   const [step, setStep] = useState(0);
   const [channels, setChannels] = useState<string[]>(['app', 'whatsapp']);
 
@@ -61,7 +62,7 @@ export default function Onboarding() {
     }
   }
 
-  if (noAccess) return <NoAccess caregiver={isCaregiver} motherName={mother?.name ?? account?.family?.motherName} />;
+  if (noAccess || details.status === 'noAccess') return <NoAccess caregiver={isCaregiver} motherName={mother?.name ?? account?.family?.motherName} />;
 
   const footer = (
     <View style={{ gap: 8 }}>
@@ -105,17 +106,7 @@ export default function Onboarding() {
         <>
           <AppText variant="display">{t('on.detailsTitle')}</AppText>
           <AppText tone="secondary">{t('on.detailsSub')}</AppText>
-          <Card>
-            <InfoRow label={t('family.me.name')} value={isCaregiver ? accountName : mother?.name} />
-            {isCaregiver && <InfoRow label="↳" value={mother?.name} />}
-            {/* Her number, MCH ID and emergency contact are hers: a caregiver is not sent them. */}
-            {!isCaregiver && <InfoRow label={t('family.me.phone')} value={mother?.phone || undefined} />}
-            <InfoRow label={t('family.card.f.hospital')} value={hospitalName} />
-            {!isCaregiver && <InfoRow label={t('on.mchId')} value={pregnancy?.mchId || undefined} />}
-            {!isCaregiver && (
-              <InfoRow label={t('family.card.f.emergency')} value={mother?.emergencyContact.name ? `${mother.emergencyContact.name} · ${mother.emergencyContact.phone}` : undefined} />
-            )}
-          </Card>
+          <DetailsCard state={details} lang={lang} />
         </>
       )}
 
@@ -147,7 +138,47 @@ export default function Onboarding() {
   );
 }
 
+/** ON-03 "Your details": loading, error (with retry) or her details. Her MCH id and EDD are hers: a caregiver is not sent them. */
+function DetailsCard({ state, lang }: { state: DetailsState; lang: string }) {
+  const { t } = useTranslation();
+  if (state.status === 'loading' || state.status === 'noAccess') {
+    return (
+      <Card style={styles.centered}>
+        <ActivityIndicator color={palette.rose600} />
+        <AppText tone="secondary">{t('on.detailsLoading')}</AppText>
+      </Card>
+    );
+  }
+  if (state.status === 'error') {
+    return (
+      <Card style={styles.centered}>
+        <AppText tone="secondary" align="center">
+          {t('on.detailsError')}
+        </AppText>
+        <Button variant="secondary" label={t('common.tryAgain')} onPress={state.retry} />
+      </Card>
+    );
+  }
+  const d = state.details;
+  const caregiver = d.role === 'caregiver';
+  return (
+    <Card>
+      <InfoRow label={t('family.me.name')} value={d.name || undefined} />
+      {caregiver && <InfoRow label="↳" value={d.motherName || undefined} />}
+      <InfoRow label={t('family.me.phone')} value={d.phone} />
+      <InfoRow label={t('family.card.f.hospital')} value={d.hospitalName} />
+      <InfoRow label={t('family.doctor')} value={d.doctorName ?? t('family.noDoctor')} />
+      {!caregiver && <InfoRow label={t('on.mchId')} value={d.mchId} />}
+      {!caregiver && d.edd ? (
+        <InfoRow label={t('family.dueDate')} value={d.edd.toLocaleDateString(localeFor(lang), { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })} />
+      ) : null}
+      {!caregiver && d.emergency ? <InfoRow label={t('family.card.f.emergency')} value={d.emergency} /> : null}
+    </Card>
+  );
+}
+
 const styles = StyleSheet.create({
+  centered: { alignItems: 'center', gap: space.sm },
   lang: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: space.lg },
   langOn: { borderWidth: 2, borderColor: palette.rose300 },
   point: { flexDirection: 'row', gap: space.sm, alignItems: 'flex-start' },

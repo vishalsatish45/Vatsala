@@ -232,10 +232,22 @@ const F = {
       .strictObject({
         id, mch_id: nstr, registered_on: str, edd: str, status: z.enum(['active', 'delivered', 'closed']), ended_on: nstr, end_reason: nstr,
         closer_follow_up: bool,
+        // Display name of the named doctor of the current obstetric assignment (20261005001050); null when none.
+        doctor: nstr,
       })
       .nullable(),
     babies: z.array(z.strictObject({ id, name: nstr, dob: str, sex: z.enum(['F', 'M', 'U']), live: bool })).nullable(),
     card: z.strictObject({ blood_group: nstr, allergies: texts, conditions: texts, emergency_contact: emergencyContact }).nullable(),
+  }),
+  // Onboarding "Your details", before consent (20261005001050). `phone` is the caller's own; MCH id and EDD mother only.
+  onboarding: z.strictObject({
+    role: z.enum(['mother', 'caregiver']),
+    mother: z.strictObject({ name: str }),
+    phone: nstr,
+    mch_id: nstr,
+    hospital: z.strictObject({ name: str }).nullable(),
+    doctor: nstr,
+    edd: nstr,
   }),
   schedule: z.strictObject({
     visits: z.array(z.strictObject({
@@ -777,6 +789,35 @@ export type FamilyWho = { motherId?: string; phone: string; name: string; role: 
 /** The server has no active app consent for this person (or the caregiver was removed): onboarding comes first. */
 export class NeedsConsent extends Error {}
 
+/** What the onboarding "Your details" step shows (ON-03). Optional fields are simply absent when not on record. */
+export type OnboardingDetails = {
+  role: 'mother' | 'caregiver';
+  motherName: string;
+  /** The signed-in person's own number (10 digits). */
+  phone?: string;
+  /** Mother only. */
+  mchId?: string;
+  hospitalName?: string;
+  doctorName?: string;
+  /** Mother only; missing until the doctor records the dating. */
+  edd?: Date;
+};
+
+/** Onboarding details, readable before consent (family_context answers PT404 until then). */
+export async function loadOnboardingDetails(db: SupabaseClient, who: FamilyWho): Promise<OnboardingDetails> {
+  const forMother: Record<string, unknown> = who.role === 'caregiver' && who.motherId ? { mother_id: who.motherId } : {};
+  const r = await rpc(db, 'family_onboarding_info', F.onboarding, forMother);
+  return {
+    role: r.role,
+    motherName: r.mother.name,
+    phone: localPhone(r.phone) || undefined,
+    mchId: opt(r.mch_id),
+    hospitalName: r.hospital?.name,
+    doctorName: opt(r.doctor),
+    edd: dayOpt(r.edd),
+  };
+}
+
 export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Promise<Snapshot> {
   // A caregiver names the mother; a mother is resolved from her own login.
   const forMother: Record<string, unknown> = who.role === 'caregiver' && who.motherId ? { mother_id: who.motherId } : {};
@@ -838,6 +879,7 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
       endedOn: dayOpt(g.ended_on),
       // Families see only whether follow-up is closer than routine, never the clinician's grading.
       intensity: g.closer_follow_up ? 'enhanced' : 'routine',
+      assignedDoctor: g.doctor ? { name: g.doctor } : undefined,
       history: { conditions: card?.conditions ?? [], allergies: card?.allergies ?? [], medicines: prescriptions.map((p) => p.name), bloodGroup: opt(card?.blood_group) },
       previous: [],
     }];

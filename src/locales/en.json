@@ -54,6 +54,8 @@
     "trimester": "Trimester {{n}}",
     "weeksOf40": "{{weeks}} of 40 weeks",
     "nextStep": "Next step",
+    "nextVisit": "Next visit",
+    "nextTest": "Next test",
     "hospitalVisit": "Hospital visit",
     "seeDetails": "See details",
     "comingUp": "Coming up",
@@ -436,7 +438,9 @@
     "whatsapp": "WhatsApp",
     "sms": "SMS",
     "finish": "Start",
-    "mchId": "MCH ID"
+    "mchId": "MCH ID",
+    "detailsLoading": "Loading your details…",
+    "detailsError": "Couldn't load your details. Check your connection and try again."
   },
   "signs": {
     "bleeding": "Bleeding",
