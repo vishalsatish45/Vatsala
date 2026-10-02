@@ -34,7 +34,11 @@
     "demoTitle": "Demo accounts",
     "demoSub": "Synthetic data · code {{code}}",
     "chooseTitle": "Which would you like to open?",
-    "chooseSub": "Your number is linked to both."
+    "chooseSub": "Your number is linked to both.",
+    "network": "Couldn't reach the hospital server. Check your connection and try again.",
+    "rateLimited": "Too many tries. Please wait a minute and try again.",
+    "expired": "That code has expired. Tap “Resend code”.",
+    "noAccess": "This number has no access yet. Please ask your hospital."
   },
   "family": {
     "tabs": {
@@ -88,7 +92,11 @@
     "forMother": "For the mother",
     "sinceBirth": "Since delivery",
     "day": "day",
-    "focus": { "me": "Me", "mother": "Mother", "baby": "Baby" },
+    "focus": {
+      "me": "Me",
+      "mother": "Mother",
+      "baby": "Baby"
+    },
     "seeMoreOften": "Your doctor wants to see you more often",
     "missedUs": "We missed you — please call to reschedule",
     "noUpcoming": "Nothing scheduled right now",
@@ -220,7 +228,8 @@
       "tested": "Tested",
       "result": "Result"
     },
-    "learn": {      "thisWeek": "This week",
+    "learn": {
+      "thisWeek": "This week",
       "pregnancy": "Pregnancy",
       "afterBirth": "After birth",
       "newborn": "Newborn",

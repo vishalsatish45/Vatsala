@@ -36,7 +36,7 @@ export default function ScanPatient() {
 
   return (
     <Screen blob="none" header={<TopBar back title="Scan patient QR" />}>
-      <AppText tone="secondary">Point the camera at the patient's emergency card, a baby's ID QR, or a printed MCH ID code.</AppText>
+      <AppText tone="secondary">Point the camera at the patient’s emergency card, a baby’s ID QR, or a printed MCH ID code.</AppText>
       <Suspense fallback={<AppText>Starting camera…</AppText>}>
         <QrScanner onScan={onScan} />
       </Suspense>

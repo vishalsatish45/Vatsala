@@ -84,6 +84,8 @@ export type Task = {
   subjectId: Id;
   title: string;
   refId?: Id;
+  /** Where the family should go (referral appointments). */
+  place?: string;
   dueFrom?: Date;
   dueBy: Date;
   completedAt?: Date;
@@ -151,6 +153,8 @@ export type SelfLog = {
   id: Id;
   motherId: Id;
   subject: 'mother' | 'baby';
+  /** Which baby a baby reading is about (needed by the server; the demo store has one baby per mother). */
+  babyId?: Id;
   kind: 'bp' | 'weight' | 'movements' | 'contractions' | 'feeding' | 'note';
   /** As entered, in English (e.g. "120/80", "62 kg", "4 in last hour"). */
   value: string;
@@ -189,7 +193,17 @@ export type Delivery = {
 export type Immunization = { id: Id; babyId: Id; code: string; label: string; group: string; dueOn: Date; givenOn?: Date };
 
 export type DischargeItem = { key: string; label: string; state?: 'done' | 'na' | 'deferred'; reason?: string };
-export type Discharge = { subjectId: Id; subject: 'mother' | 'baby'; items: DischargeItem[]; completedAt?: Date; completedBy?: string };
+/** `id` is the server's discharge id (Supabase mode); the demo store keys discharges by subject. */
+export type Discharge = { id?: Id; subjectId: Id; subject: 'mother' | 'baby'; items: DischargeItem[]; completedAt?: Date; completedBy?: string };
+
+/** A Care Team member of the signed-in clinician's hospital (assignment picker, display names). */
+export type StaffMember = { id: Id; name: string; role: string };
+
+/** A hospital team: departments receive referrals; units hold patients. */
+export type TeamRef = { id: Id; name: string; kind: 'department' | 'unit'; specialty: string };
+
+/** A clinician-entered prescription — the only medicines that drive Family reminders. */
+export type Prescription = { id: Id; motherId: Id; name: string; dose?: string; slots: ('morning' | 'afternoon' | 'night')[]; instructions?: string };
 
 export type AuditEntry = { id: Id; at: Date; actor: string; action: string; entity: string };
 
@@ -220,7 +234,7 @@ export type NewbornObs = {
   jaundice?: string;
 };
 
-export type MedDose = { id: Id; motherId: Id; med: string; date: string; slot: 'morning' | 'afternoon' | 'night'; status: 'taken' | 'skipped'; at: Date };
+export type MedDose = { id: Id; motherId: Id; med: string; medicationId?: Id; date: string; slot: 'morning' | 'afternoon' | 'night'; status: 'taken' | 'skipped'; at: Date };
 
 export type CaptureField = { key: string; label: string; value: string; confidence: number; confirmed: boolean };
 

@@ -9,10 +9,12 @@ import { useDb } from '@/data/store';
 import { useFamily } from '@/features/family/useFamily';
 import { scheduleDaily } from '@/lib/device';
 import { useNow } from '@/lib/clock';
+import { isRemote } from '@/lib/supabase';
 import { localeFor } from '@/lib/i18n';
 import { AppText, Button, Card, Chip, GlassSurface, palette, space } from '@/ui';
 
 const SLOT_HOUR = { morning: 8, afternoon: 14, night: 20 } as const;
+type Med = { name: string; id?: string; slots: ('morning' | 'afternoon' | 'night')[]; note: string };
 const iso = (d: Date) => toDateOnly(d).toISOString().slice(0, 10);
 
 /**
@@ -25,9 +27,12 @@ export function MedicinesView() {
   const db = useDb();
   const ctx = useFamily();
   const [reminders, setReminders] = useState(false);
-  const meds = ctx.pregnancy?.history.medicines ?? [];
   const mother = ctx.mother;
   if (!mother) return <AppText>—</AppText>;
+  // Supabase mode: the prescriptions the clinician entered, with their times of day. Demo: documented medicines.
+  const meds: Med[] = isRemote
+    ? db.prescriptions.filter((p) => p.motherId === mother.id).map((p) => ({ name: p.name, id: p.id, slots: p.slots, note: p.instructions ?? '' }))
+    : (ctx.pregnancy?.history.medicines ?? []).map((name) => ({ name, ...medSlots(name) }));
 
   const today = iso(now);
   const doseFor = (med: string, date: string, slot: string) => db.medDoses.find((d) => d.motherId === mother.id && d.med === med && d.date === date && d.slot === slot);
@@ -35,7 +40,7 @@ export function MedicinesView() {
 
   async function remind() {
     try {
-      const slots = new Set(meds.flatMap((m) => medSlots(m).slots));
+      const slots = new Set(meds.flatMap((m) => m.slots));
       for (const s of slots) await scheduleDaily(t('family.meds.notifTitle'), t('family.meds.notifBody'), SLOT_HOUR[s], 0);
       setReminders(true);
     } catch {
@@ -51,18 +56,18 @@ export function MedicinesView() {
 
       <AppText variant="title">{t('family.meds.today')}</AppText>
       {meds.map((med) =>
-        medSlots(med).slots.map((slot) => {
-          const d = doseFor(med, today, slot);
-          const mark = (status: 'taken' | 'skipped') => db.logDose({ motherId: mother.id, med, date: today, slot, status, at: now });
+        med.slots.map((slot) => {
+          const d = doseFor(med.name, today, slot);
+          const mark = (status: 'taken' | 'skipped') => db.logDose({ motherId: mother.id, med: med.name, medicationId: med.id, date: today, slot, status, at: now });
           return (
-            <GlassSurface key={med + slot} strong radius={22} elevation="card" style={styles.row}>
+            <GlassSurface key={med.name + slot} strong radius={22} elevation="card" style={styles.row}>
               <View style={styles.icon}>
                 <Pill size={20} color={palette.rose600} />
               </View>
               <View style={{ flex: 1 }}>
-                <AppText variant="headline">{med}</AppText>
+                <AppText variant="headline">{med.name}</AppText>
                 <AppText variant="caption" tone="secondary">
-                  {t(`family.meds.${slot}`)} · {medSlots(med).note}
+                  {t(`family.meds.${slot}`)}{med.note ? ` · ${med.note}` : ''}
                 </AppText>
               </View>
               {!ctx.isCaregiver && (
@@ -79,12 +84,12 @@ export function MedicinesView() {
       <Card style={{ gap: space.sm }}>
         <AppText variant="headline">{t('family.meds.week')}</AppText>
         {meds.map((med) => (
-          <View key={med} style={styles.week}>
+          <View key={med.name} style={styles.week}>
             <AppText variant="label" style={{ width: 72 }}>
-              {med}
+              {med.name}
             </AppText>
             {days.map((day) => {
-              const ds = medSlots(med).slots.map((s) => doseFor(med, iso(day), s)?.status);
+              const ds = med.slots.map((s) => doseFor(med.name, iso(day), s)?.status);
               const all = ds.every((x) => x === 'taken');
               const some = ds.some((x) => x === 'skipped');
               return (

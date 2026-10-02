@@ -37,7 +37,8 @@ export default function Otp() {
     if (res.ok) {
       signIn(res.account);
     } else {
-      setError(t('auth.otpWrong'));
+      const key = { wrong_code: 'auth.otpWrong', expired: 'auth.expired', network: 'auth.network', no_access: 'auth.noAccess' }[res.reason];
+      setError(t(key));
       setCode('');
     }
   }

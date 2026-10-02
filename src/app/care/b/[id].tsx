@@ -86,7 +86,7 @@ export default function NewbornView() {
       <PressableScale onPress={() => router.push({ pathname: '/care/p/[id]', params: { id: p.id } })} accessibilityRole="button" accessibilityLabel="Open mother's record">
         <GlassSurface strong style={styles.panel}>
           <View style={styles.panelHead}>
-            <AppText variant="title">Mother's history</AppText>
+            <AppText variant="title">Mother’s history</AppText>
             <AppText variant="label" tone="accent">
               {m.name} ›
             </AppText>
@@ -106,7 +106,7 @@ export default function NewbornView() {
           <InfoRow label="Medicines in labour" value={d?.medicines.join(', ')} />
           <InfoRow label="Complications" value={d?.complications.join(', ') || 'None documented'} />
           <AppText variant="caption" tone="faint">
-            Documented facts from the mother's record. The app makes no statement about what the baby needs.
+            Documented facts from the mother’s record. The app makes no statement about what the baby needs.
           </AppText>
         </GlassSurface>
       </PressableScale>
@@ -188,7 +188,7 @@ export default function NewbornView() {
       )}
 
       <Sheet visible={!!doseItem} onClose={() => setDose(undefined)} title={`Record ${doseItem?.label ?? ''}`} subtitle="Given today at this facility" footer={<Button label="Record dose" onPress={() => { if (doseItem) db.recordVaccine(doseItem.id, now, by); setDose(undefined); }} />}>
-        <AppText tone="secondary">Due {doseItem ? fmtDay(doseItem.dueOn) : ''}. Recording closes the reminder in the family's app.</AppText>
+        <AppText tone="secondary">Due {doseItem ? fmtDay(doseItem.dueOn) : ''}. Recording closes the reminder in the family’s app.</AppText>
       </Sheet>
     </Screen>
   );

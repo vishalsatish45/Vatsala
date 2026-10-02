@@ -1,10 +1,14 @@
 import { create } from 'zustand';
 
+import { env } from './env';
+
 /**
  * Connectivity + outbox state (PRD F-61). Records created while offline are marked
  * pending and shown with ⏳; when the device is back online they sync and show ✓.
- * UI-first phase: "sync" is simulated locally; the Supabase outbox replaces it.
+ * Mock mode simulates the sync locally; in Supabase mode the outbox (src/data/outbox.ts) sets
+ * `pending` / `justSynced` from the intents it actually sends.
  */
+const simulated = env.authMode === 'mock';
 type NetState = {
   online: boolean;
   /** Dev tool: force offline to demo the banner and sync badges. */
@@ -20,7 +24,7 @@ let syncTimer: ReturnType<typeof setTimeout> | undefined;
 
 export const useNetwork = create<NetState>()((set, get) => {
   const flush = () => {
-    if (!isOnline(get())) return;
+    if (!simulated || !isOnline(get())) return;
     const done = get().pending;
     if (!done.length) return;
     clearTimeout(syncTimer);
@@ -43,7 +47,7 @@ export const useNetwork = create<NetState>()((set, get) => {
       flush();
     },
     markPending: (id) => {
-      if (isOnline(get())) return;
+      if (!simulated || isOnline(get())) return;
       set((s) => ({ pending: [...s.pending, id] }));
     },
   };

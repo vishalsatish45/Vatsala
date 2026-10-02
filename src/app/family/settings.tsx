@@ -6,6 +6,7 @@ import { Ambulance, BellRing, Building2, Phone, UserPlus } from 'lucide-react-na
 import { addDays } from '@domain/gestation';
 
 import { useDb } from '@/data/store';
+import { changeChannels } from '@/data/sync';
 import { familyItems, useFamily } from '@/features/family/useFamily';
 import { canUseDeviceLock, scheduleAt } from '@/lib/device';
 import { fmtShort } from '@/features/family/itemText';
@@ -101,7 +102,11 @@ export default function FamilySettings() {
       <Section title={t('family.me.reminders')}>
         <Card style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           {['app', 'whatsapp', 'sms'].map((c) => (
-            <Chip key={c} label={t(`on.${c}`)} variant={channels.includes(c) ? 'selected' : 'soft'} onPress={() => setChannels(ctx.accountId, channels.includes(c) ? channels.filter((x) => x !== c) : [...channels, c])} />
+            <Chip key={c} label={t(`on.${c}`)} variant={channels.includes(c) ? 'selected' : 'soft'} onPress={() => {
+                const next = channels.includes(c) ? channels.filter((x) => x !== c) : [...channels, c];
+                setChannels(ctx.accountId, next);
+                changeChannels(next, i18n.language);
+              }} />
           ))}
         </Card>
       </Section>

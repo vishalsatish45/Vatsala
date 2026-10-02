@@ -99,7 +99,7 @@ export default function RecordDelivery() {
         </Card>
       ))}
       <AppText variant="caption" tone="faint">
-        Saving creates each baby's record ({p.mchId}-B1…), links it to the mother, generates the vaccine schedule and opens the discharge checklists.
+        Saving creates each baby’s record ({p.mchId}-B1…), links it to the mother, generates the vaccine schedule and opens the discharge checklists.
       </AppText>
     </Screen>
   );

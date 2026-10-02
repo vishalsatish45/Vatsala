@@ -1,5 +1,6 @@
 import '@/lib/env'; // validate configuration first — fails fast with a clear message
 import '@/lib/i18n';
+import '@/data/sync'; // Supabase mode: keeps the store in step with the server (no-op in mock mode)
 
 import { useEffect } from 'react';
 import { View } from 'react-native';
@@ -10,6 +11,7 @@ import { useFonts } from 'expo-font';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClientProvider } from '@tanstack/react-query';
 
+import { SyncFailureBanner } from '@/features/sync/SyncGate';
 import { watchNetwork } from '@/lib/device';
 import { useNetwork } from '@/lib/network';
 import { queryClient } from '@/lib/query';
@@ -83,6 +85,7 @@ export default function RootLayout() {
           </Stack.Protected>
         </Stack>
         <OfflineBanner offlineLabel={t('common.offline')} syncingLabel={t('common.syncing')} />
+        <SyncFailureBanner />
       </QueryClientProvider>
     </GestureHandlerRootView>
   );

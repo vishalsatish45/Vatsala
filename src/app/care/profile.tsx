@@ -1,4 +1,4 @@
-import { View } from 'react-native';
+import { Alert, View } from 'react-native';
 import { router } from 'expo-router';
 import { BarChart3, BedDouble, ScanLine, ScrollText } from 'lucide-react-native';
 
@@ -6,6 +6,7 @@ import { useDb } from '@/data/store';
 import { env } from '@/lib/env';
 import { useClock } from '@/lib/clock';
 import { useNetwork } from '@/lib/network';
+import { isRemote } from '@/lib/supabase';
 import { useCareLock } from '@/state/careLock';
 import { useSession } from '@/state/session';
 import { AppText, Avatar, Button, Card, Chip, Screen, TopBar, space } from '@/ui';
@@ -50,7 +51,17 @@ export default function CareProfile() {
             <Chip label="+1 day" onPress={() => shift(1)} />
             <Chip label="+7 days" onPress={() => shift(7)} />
             <Chip label="Reset clock" onPress={reset} />
-            <Chip label="Reset demo data" onPress={() => resetDb(new Date())} />
+            <Chip
+              label="Reset demo data"
+              onPress={() =>
+                isRemote
+                  ? Alert.alert('Reset demo data?', 'This replaces every patient on the server with the synthetic demo cast — including patients registered for testing.', [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Reset', style: 'destructive', onPress: () => resetDb(new Date()) },
+                    ])
+                  : resetDb(new Date())
+              }
+            />
             <Chip label="Lock now" onPress={lockNow} />
             <Chip label={offline ? 'Back online' : 'Simulate offline'} variant={offline ? 'selected' : 'soft'} onPress={() => setOffline(!offline)} />
           </View>

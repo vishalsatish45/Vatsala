@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { Stack } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
+import { SyncGate } from '@/features/sync/SyncGate';
 import { unlock } from '@/lib/device';
 import { useSession } from '@/state/session';
 import { LockScreen } from '@/ui';
@@ -42,14 +43,16 @@ export default function FamilyLayout() {
 
   return (
     <MoodProvider mood="family">
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Protected guard={!onboarded}>
-          <Stack.Screen name="onboarding" />
-        </Stack.Protected>
-        <Stack.Protected guard={onboarded}>
-          <Stack.Screen name="(tabs)" />
-        </Stack.Protected>
-      </Stack>
+      <SyncGate>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Protected guard={!onboarded}>
+            <Stack.Screen name="onboarding" />
+          </Stack.Protected>
+          <Stack.Protected guard={onboarded}>
+            <Stack.Screen name="(tabs)" />
+          </Stack.Protected>
+        </Stack>
+      </SyncGate>
       {lockOn && locked && <FamilyLock onUnlock={() => setLocked(false)} />}
     </MoodProvider>
   );

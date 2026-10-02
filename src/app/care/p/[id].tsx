@@ -11,6 +11,7 @@ import { REFERRAL_STEPS } from '@/data/types';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
 import {
+  OptionChips,
   AncBadge,
   AppText,
   Button,
@@ -57,6 +58,7 @@ export default function PatientView() {
   const [tab, setTab] = useState<Tab>('overview');
   const [draft, setDraft] = useState('');
   const [doctorDraft, setDoctorDraft] = useState('');
+  const [assignReason, setAssignReason] = useState('');
   const by = useActor();
 
   const p = db.pregnancies.find((x) => x.id === id);
@@ -67,6 +69,7 @@ export default function PatientView() {
   if (!p) return <Screen header={<TopBar back title="Patient" />}><AppText>Not found.</AppText></Screen>;
   const m = motherOf(db, p.motherId);
   const ga = gestationalAge(p.edd, now);
+  const obstetricians = db.staff.filter((x) => x.role === 'obstetrician');
   const tags = activeTags(db, p.id);
   const due = stillDue(db, p, now);
   const visits = db.visits.filter((v) => v.pregnancyId === p.id).sort((a, b) => b.at.getTime() - a.at.getTime());
@@ -246,13 +249,23 @@ export default function PatientView() {
               <InfoRow label="Next visit" value={nv ? `${fmtDay(nv.dueBy)} · ${nv.title}` : undefined} />
               <InfoRow label="EDD" value={`${fmtDay(p.edd)} (${p.eddSource.toUpperCase()})`} />
               <InfoRow label="Doctor" value={p.assignedDoctor?.name} />
-              <Field label="Assigned doctor" value={doctorDraft} onChangeText={setDoctorDraft} placeholder="e.g. Dr. Priya Rao" />
+              <OptionChips
+                label="Assign to"
+                options={obstetricians.map((x) => x.name)}
+                value={doctorDraft || undefined}
+                onChange={(v) => setDoctorDraft(v ?? '')}
+              />
+              {!!doctorDraft && <Field label="Reason (recorded)" value={assignReason} onChangeText={setAssignReason} placeholder="e.g. Covering OPD this week" />}
               <Button
                 variant="secondary"
                 label="Assign doctor"
-                disabled={!doctorDraft.trim()}
+                disabled={!doctorDraft || !assignReason.trim()}
                 onPress={() => {
-                  db.assignDoctor(p.id, { name: doctorDraft.trim() }, by, now);
+                  const doctor = obstetricians.find((x) => x.name === doctorDraft);
+                  if (!doctor) return;
+                  db.assignDoctor(p.id, { name: doctor.name, staffId: doctor.id }, assignReason.trim(), by, now);
+                  setDoctorDraft('');
+                  setAssignReason('');
                 }}
               />
               <InfoRow label="Village" value={m.village} />

@@ -114,8 +114,10 @@ select public.family_context()::text as ctx \gset
 select pg_temp.ok((:'ctx'::jsonb ->> 'role') = 'mother' and (:'ctx'::jsonb -> 'card' ->> 'blood_group') = 'B+'
   and (:'ctx'::jsonb -> 'card' -> 'allergies') = '["Penicillin"]' and (:'ctx'::jsonb -> 'hospital' ->> 'phone_labour') is not null,
   'F011 home: her card facts and the hospital''s numbers');
-select pg_temp.ok(:'ctx' not like '%919000000003%' and :'ctx' not like '%MCH-%' and :'ctx' not like '%intensity%'
-  and (:'ctx'::jsonb -> 'pregnancy') ? 'closer_follow_up', 'F012 no phone, no MCH id, no intensity label — only "closer follow-up"');
+select pg_temp.ok(:'ctx' not like '%919000000003%' and :'ctx' not like '%intensity%'
+  and (:'ctx'::jsonb -> 'pregnancy') ? 'closer_follow_up', 'F012 no phone, no intensity label — only "closer follow-up"');
+select pg_temp.ok((:'ctx'::jsonb -> 'pregnancy' ->> 'mch_id') like 'MCH-%' and (:'ctx'::jsonb -> 'mother' ->> 'age')::int = 24
+  and (:'ctx'::jsonb -> 'pregnancy' ->> 'registered_on') is not null, 'F012a her emergency card gets her MCH id and age');
 select public.family_schedule()::text as sch \gset
 select pg_temp.ok(jsonb_array_length(:'sch'::jsonb -> 'visits') = 1 and :'sch' not like '%unwell%' and :'sch' not like '%override%',
   'F013 schedule: her visit, without the staff''s notes on it');
@@ -124,6 +126,8 @@ select pg_temp.ok(not exists (select 1 from jsonb_array_elements(:'sch'::jsonb -
 select public.family_tests()::text as tests \gset
 select pg_temp.ok(not exists (select 1 from jsonb_array_elements(:'tests'::jsonb) t where t ->> 'label' = 'HIV'),
   'F015 sensitive tests never appear, not even as done');
+select pg_temp.ok(not exists (select 1 from jsonb_array_elements(:'tests'::jsonb) t where t ->> 'code' is null or t ->> 'kind' not in ('lab','scan')),
+  'F015a each test carries its code and kind (lab / scan)');
 select pg_temp.ok((select (t -> 'result' ->> 'value_num')::numeric = 11.2 and t -> 'result' ->> 'unit' = 'g/dL'
   from jsonb_array_elements(:'tests'::jsonb) t where t ->> 'label' like 'Repeat Hb%'), 'F016 a reviewed result shows its value, as entered, to the mother');
 select pg_temp.ok((select t ->> 'status' = 'done' and t -> 'result' = 'null'::jsonb from jsonb_array_elements(:'tests'::jsonb) t
@@ -136,8 +140,9 @@ select pg_temp.ok(jsonb_array_length(:'rd'::jsonb -> 'hospital') = 1 and (:'rd':
 
 select pg_temp.as_user(:'ravi');
 select public.family_context(:'ctx_ravi'::jsonb)::text as ctx_r \gset
-select pg_temp.ok((:'ctx_r'::jsonb -> 'card') = 'null'::jsonb and (:'ctx_r'::jsonb -> 'mother' -> 'card_fields') = 'null'::jsonb,
-  'F020 a caregiver never gets her card facts (allergies, conditions, blood group)');
+select pg_temp.ok((:'ctx_r'::jsonb -> 'card') = 'null'::jsonb and (:'ctx_r'::jsonb -> 'mother' -> 'card_fields') = 'null'::jsonb
+  and (:'ctx_r'::jsonb -> 'mother' -> 'age') = 'null'::jsonb and (:'ctx_r'::jsonb -> 'pregnancy' -> 'mch_id') = 'null'::jsonb,
+  'F020 a caregiver never gets her card facts (allergies, conditions, blood group, age, MCH id)');
 select pg_temp.ok(jsonb_array_length(public.family_schedule(:'ctx_ravi'::jsonb) -> 'visits') = 1, 'F021 with the schedule scope he sees her visits');
 call pg_temp.fails(format('select public.family_tests(%L::jsonb)', :'ctx_ravi'), 'F022 without the tests scope, no tests', 'Not found', 'PT404');
 call pg_temp.fails(format('select public.family_readings(%L::jsonb)', :'ctx_ravi'), 'F023 without the logs scope, no readings', 'Not found', 'PT404');

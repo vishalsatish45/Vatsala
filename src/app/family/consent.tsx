@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Alert, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Bell, HeartHandshake, MessageSquareText, ShieldCheck, Stethoscope, type LucideIcon } from 'lucide-react-native';
 
+import { withdrawConsent } from '@/data/sync';
 import { useFamily } from '@/features/family/useFamily';
 import { fmtShort } from '@/features/family/itemText';
 import { cancelAllReminders } from '@/lib/device';
@@ -31,6 +32,11 @@ export default function Consent() {
       await cancelAllReminders();
     } catch {
       /* nothing scheduled or module unavailable */
+    }
+    try {
+      await withdrawConsent(); // reaches the server before this phone signs out
+    } catch {
+      return Alert.alert(t('common.errorTitle'), t('auth.network'));
     }
     withdraw(ctx.accountId);
   }

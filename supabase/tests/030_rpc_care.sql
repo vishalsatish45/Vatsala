@@ -76,8 +76,11 @@ select pg_temp.ok((select (w -> 'staff' ->> 'role') = 'obstetrician' and (w -> '
 select pg_temp.as_user(:'lakshmi_u');
 select pg_temp.ok((select (w -> 'mother' ->> 'consented')::boolean and w -> 'staff' = 'null'::jsonb from public.whoami() w),
   'R002 whoami: a consented mother, not staff');
+select pg_temp.ok((select (w -> 'mother' -> 'purposes') ? 'app' from public.whoami() w), 'R002a whoami: the purposes she accepted');
 select pg_temp.as_user(:'ravi');
 select pg_temp.ok((select jsonb_array_length(w -> 'caregiving') = 1 from public.whoami() w), 'R003 whoami: a caregiver''s mothers');
+select pg_temp.ok((select w -> 'caregiving' -> 0 ->> 'name' = 'Ravi K' and w::text not like '%9190000%' from public.whoami() w),
+  'R003a whoami: a caregiver''s own name, still no phone numbers');
 call pg_temp.fails($$select app.hook_before_user_created('{"user":{"phone":"919999999999"}}')$$,
   'R004a the sign-up hook is callable only by Supabase Auth, not by app users', '%permission denied%');
 reset role;
@@ -109,6 +112,16 @@ call pg_temp.fails(format('select public.register_pregnancy(%L::jsonb)', (:'reg'
   'R012 every write needs a request id', '%idempotency_key is required%', 'PT422');
 select pg_temp.ok((select count(*) from public.pregnancies where id = '00000000-0000-4000-8004-0000000000c1') = 1,
   'R013 the registering obstetrician sees the new pregnancy');
+-- A phone clock ahead of the server (or demo time travel) dates the registration in the future; access to the
+-- record must still start now, not at that future time (found by the app's end-to-end run).
+select public.register_pregnancy(jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(
+         (:'reg'::jsonb - 'investigations' - 'tasks') #- '{mother,id}' #- '{mother,rch_id}' #- '{mother,abha_number}' #- '{mother,abha_address}',
+         '{idempotency_key}', '"00000000-0000-4000-a000-0000000000f7"'),
+         '{mother,phone}', '"919876500077"'), '{mother,name}', '"Clock Skew"'),
+         '{pregnancy,id}', '"00000000-0000-4000-8004-0000000000f7"'),
+         '{pregnancy,registered_on}', to_jsonb(now() + interval '2 days')));
+select pg_temp.ok((select count(*) from public.pregnancies where id = '00000000-0000-4000-8004-0000000000f7') = 1,
+  'R013a a registration dated ahead of the server clock is visible at once');
 reset role;
 select pg_temp.ok((select count(*) from public.pregnancy_datings where pregnancy_id = '00000000-0000-4000-8004-0000000000c1' and is_current) = 1
   and (select count(*) from public.care_assignments where pregnancy_id = '00000000-0000-4000-8004-0000000000c1' and to_at is null) = 2

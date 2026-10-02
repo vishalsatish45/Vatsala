@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, View } from 'react-native';
 import { Stack } from 'expo-router';
 
+import { SyncGate } from '@/features/sync/SyncGate';
 import { canUseDeviceLock, unlock } from '@/lib/device';
 import { useCareLock } from '@/state/careLock';
 import { useSession } from '@/state/session';
@@ -18,7 +19,8 @@ export default function CareLayout() {
   const { locked, lock, release } = useCareLock();
   const signOut = useSession((s) => s.signOut);
   const name = useSession((s) => s.account?.name ?? '');
-  const last = useRef(Date.now());
+  // Last touch; 0 until the first interaction or tick (set outside render, so render stays pure).
+  const last = useRef(0);
   const [hasDeviceLock, setHasDeviceLock] = useState<boolean>();
 
   const touch = useCallback(() => {
@@ -26,6 +28,7 @@ export default function CareLayout() {
   }, []);
 
   useEffect(() => {
+    last.current = Date.now();
     const id = setInterval(() => {
       if (!useCareLock.getState().locked && Date.now() - last.current > IDLE_MS) lock();
     }, 15_000);
@@ -55,7 +58,9 @@ export default function CareLayout() {
   return (
     <MoodProvider mood="care">
       <View style={{ flex: 1 }} onStartShouldSetResponderCapture={() => (touch(), false)}>
-        <Stack screenOptions={{ headerShown: false }} />
+        <SyncGate>
+          <Stack screenOptions={{ headerShown: false }} />
+        </SyncGate>
         {locked && (
           <LockScreen
             title="Locked"

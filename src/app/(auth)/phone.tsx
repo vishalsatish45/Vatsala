@@ -24,7 +24,7 @@ export default function Phone() {
     setError(null);
     const res = await authService.requestOtp(phone);
     setLoading(false);
-    if (!res.ok) return setError(res.reason === 'not_registered' ? t('auth.notRegistered') : t('common.comingSoonBody'));
+    if (!res.ok) return setError(t(res.reason === 'not_registered' ? 'auth.notRegistered' : res.reason === 'rate_limited' ? 'auth.rateLimited' : 'auth.network'));
     router.push({ pathname: '/otp', params: { phone } });
   }
 

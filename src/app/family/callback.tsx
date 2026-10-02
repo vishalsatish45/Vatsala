@@ -37,14 +37,8 @@ export default function AskForCall() {
 
   function send() {
     if (!ctx.mother) return;
-    const labels = signs.map((k) => {
-      for (const st of stages) {
-        const map = WARNING_SIGNS[st] as Record<string, string>;
-        if (map[k]) return map[k];
-      }
-      return k;
-    });
-    setSentId(db.requestCallback(ctx.mother.id, labels, note.trim() || undefined, ctx.isCaregiver ? `${ctx.accountName} (caregiver)` : `${ctx.mother.name} (mother)`, 'app', now, voice));
+    // Signs travel as codes; the care team reads their English labels.
+    setSentId(db.requestCallback(ctx.mother.id, signs, note.trim() || undefined, ctx.isCaregiver ? `${ctx.accountName} (caregiver)` : `${ctx.mother.name} (mother)`, 'app', now, voice));
     setSent(true);
   }
 

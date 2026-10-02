@@ -24,7 +24,13 @@ export function useFamily(): FamilyContext {
   const account = useSession((s) => s.account);
   const db = useDb();
   const isCaregiver = account?.family?.role === 'caregiver';
-  const mother = isCaregiver ? db.mothers.find((m) => m.name === account?.family?.motherName) : db.mothers.find((m) => m.phone === account?.phone);
+  // Supabase mode knows the mother's id; the demo directory matches by name / phone.
+  const motherId = account?.family?.motherId;
+  const mother = motherId
+    ? db.mothers.find((m) => m.id === motherId)
+    : isCaregiver
+      ? db.mothers.find((m) => m.name === account?.family?.motherName)
+      : db.mothers.find((m) => m.phone === account?.phone);
   const pregnancy = mother ? db.pregnancies.filter((p) => p.motherId === mother.id).sort((a, b) => b.registeredOn.getTime() - a.registeredOn.getTime())[0] : undefined;
   const caregiver = isCaregiver ? db.caregivers.find((c) => c.phone === account?.phone && c.motherId === mother?.id && !c.revokedAt) : undefined;
   return {
@@ -81,9 +87,10 @@ export function familyItems(db: DbState, ctx: FamilyContext, now: Date): FamilyI
       kind: t.kind === 'anc_visit' ? 'visit' : t.kind === 'referral_appt' ? 'referral' : isBaby ? 'baby' : 'postnatal',
       subject: isBaby ? 'baby' : 'mother',
       titleKey: t.kind === 'anc_visit' ? 'family.task.anc' : t.kind === 'referral_appt' ? 'family.task.referral' : isBaby ? 'family.task.nb' : 'family.task.pn',
-      titleParams: ref ? { dept: ref.department } : undefined,
+      // A family never sees the referral itself; the appointment's title names the department.
+      titleParams: t.kind === 'referral_appt' ? { dept: ref?.department ?? t.title.replace(/ appointment$/, '') } : undefined,
       date: t.kind === 'anc_visit' ? withTime(t.dueBy, 10) : t.dueBy,
-      place: ref?.place ?? (t.kind === 'anc_visit' ? 'OPD Block B' : 'OPD'),
+      place: t.place ?? ref?.place ?? (t.kind === 'anc_visit' ? 'OPD Block B' : 'OPD'),
       status: st,
       bring: ['family.prep.bring'],
       prep: [],

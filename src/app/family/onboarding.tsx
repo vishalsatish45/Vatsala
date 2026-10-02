@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Bell, HeartHandshake, MessageCircle, MessageSquareText, ShieldCheck, Stethoscope, type LucideIcon } from 'lucide-react-native';
 
+import { recordConsent } from '@/data/sync';
 import { useFamily } from '@/features/family/useFamily';
 import { LANGUAGES } from '@/lib/i18n';
 import { useSession } from '@/state/session';
@@ -35,11 +36,24 @@ export default function Onboarding() {
   const [channels, setChannels] = useState<string[]>(['app', 'whatsapp']);
 
   const toggle = (c: string) => setChannels((x) => (x.includes(c) ? x.filter((y) => y !== c) : [...x, c]));
-  const next = () => (step < TOTAL - 1 ? setStep(step + 1) : complete(accountId, channels));
+  const [saving, setSaving] = useState(false);
+  // The app opens only once the server has her consent (Supabase mode); the demo records it on the phone.
+  async function next() {
+    if (step < TOTAL - 1) return setStep(step + 1);
+    setSaving(true);
+    try {
+      await recordConsent(channels, lang);
+      complete(accountId, channels);
+    } catch {
+      Alert.alert(t('common.errorTitle'), t('auth.network'));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const footer = (
     <View style={{ gap: 8 }}>
-      <Button label={step === 1 ? t('on.agree') : step === TOTAL - 1 ? t('on.finish') : t('common.continue')} onPress={next} disabled={step === 3 && channels.length === 0} />
+      <Button label={step === 1 ? t('on.agree') : step === TOTAL - 1 ? t('on.finish') : t('common.continue')} onPress={next} loading={saving} disabled={step === 3 && channels.length === 0} />
       {step === 1 && <Button variant="secondary" label={t('common.signOut')} onPress={signOut} />}
     </View>
   );

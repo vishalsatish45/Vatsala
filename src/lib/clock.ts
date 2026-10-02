@@ -14,5 +14,7 @@ export const useClock = create<ClockState>()((set) => ({
 
 export function useNow(): Date {
   const offset = useClock((s) => s.offsetDays);
+  // Deliberately read at render: every screen shows "today" as of its latest render (plus demo time travel).
+  // eslint-disable-next-line react-hooks/purity
   return new Date(Date.now() + offset * 86_400_000);
 }

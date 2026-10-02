@@ -9,6 +9,7 @@ import { useDb } from '@/data/store';
 import type { Intensity, Pregnancy } from '@/data/types';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
+import { isRemote } from '@/lib/supabase';
 import { AppText, Button, Card, Chip, Field, OptionChips, ProgressBar, Screen, SegmentedPills, TopBar, space } from '@/ui';
 
 /** Parses DD-MM-YYYY or DD/MM/YYYY into a UTC date. */
@@ -94,8 +95,9 @@ export default function Register() {
       by,
       now,
     );
-    const p = db.pregnancies.find((x) => x.id === id) ?? useDb.getState().pregnancies.find((x) => x.id === id);
-    Alert.alert('Pregnancy registered', `${p?.mchId}\nANC visits and test windows have been scheduled.`);
+    const p = useDb.getState().pregnancies.find((x) => x.id === id);
+    // In Supabase mode the MCH id is assigned by the server and appears on her record once saved.
+    Alert.alert('Pregnancy registered', `${isRemote ? 'MCH id is being assigned.' : p?.mchId}\nANC visits and test windows have been scheduled.`);
     router.replace({ pathname: '/care/p/[id]', params: { id } });
   }
 
