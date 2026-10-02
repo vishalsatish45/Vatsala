@@ -102,6 +102,10 @@ select pg_temp.ok((:'saved'::jsonb ->> 'status') = 'unverified' and (:'saved'::j
   and jsonb_array_length(:'saved'::jsonb -> 'content') = 3
   and (:'saved'::jsonb -> 'content' -> 1 -> 'sources' -> 0 ->> 'id') = :'ref_lakshmi', 'A012 the draft is saved unverified, with its citations');
 select pg_temp.ok(public.save_ai_draft(:'brief'::jsonb) = :'saved'::jsonb, 'A013 a retry returns the same draft');
+select public.save_ai_draft(jsonb_build_object('idempotency_key', pg_temp.k(), 'pregnancy_id', :'p_lakshmi', 'kind', 'brief',
+  'model', 'gemini-3.5-flash', 'content', jsonb_build_array(pg_temp.sentence('Registered.', 'registration', :'p_lakshmi'))))::text as gem \gset
+select pg_temp.ok((:'gem'::jsonb ->> 'engine') = 'gemini' and (:'gem'::jsonb ->> 'model') = 'gemini-3.5-flash',
+  'A013a a Gemini draft records engine gemini');
 call pg_temp.fails(format('select public.save_ai_draft(%L::jsonb)', jsonb_set(:'brief'::jsonb, '{kind}', '"handoff"')),
   'A014 the same request id with other data is refused', '%already used%', 'PT409');
 select pg_temp.ok((select generated_by = :'s_priya' and status = 'unverified' and mother_id = :'m_lakshmi' from public.ai_drafts where id = :'d1'),

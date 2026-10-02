@@ -36,7 +36,7 @@ const draft = z.strictObject({
   id: z.guid(),
   kind: z.enum(['brief', 'handoff', 'discharge']),
   status: z.literal('unverified'),
-  engine: z.literal('claude'),
+  engine: z.enum(['claude', 'gemini']),
   model: z.string().min(1),
   generated_at: z.string(),
   content: z.array(sentence).min(1),

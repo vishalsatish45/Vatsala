@@ -10,7 +10,7 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.117.2';
 
 import { BRIEF_SCHEMA, BRIEF_SYSTEM, DRAFT_KINDS, briefPrompt, filterCited, prepareRecord, type DraftKind, type Identifiers, type RawRecord } from '../_shared/ai.ts';
-import { HttpError, UUID, askClaude, callerClient, fail, fromDb, json, readJson } from '../_shared/http.ts';
+import { HttpError, UUID, askModel, callerClient, fail, fromDb, json, readJson } from '../_shared/http.ts';
 
 type Row = Record<string, any>;
 
@@ -174,7 +174,7 @@ Deno.serve(async (req) => {
     const { raw, ids } = await load(db, { pregnancyId: pregnancyId as string | undefined, babyId: babyId as string | undefined }, kind, today);
     const { items, map } = prepareRecord(raw, ids);
 
-    const { data, model } = await askClaude(BRIEF_SYSTEM, briefPrompt(kind, today, items), BRIEF_SCHEMA);
+    const { data, model } = await askModel(BRIEF_SYSTEM, [{ text: briefPrompt(kind, today, items) }], BRIEF_SCHEMA);
     const { kept, dropped } = filterCited(data, map);
     if (!kept.length) throw new HttpError(502, 'PT502', 'The AI draft had no sentence that could be traced to the record. Try again.');
 

@@ -2,7 +2,7 @@
 //
 // The app has uploaded a photo (or PDF) of a paper ANC card to the private `documents` bucket and created the
 // documents row. As the calling clinician (their JWT → RLS and Storage policies) this reads the row and the file,
-// asks Claude to copy ONLY the known ANC-card fields exactly as written, keeps allowlisted keys only, saves them
+// asks the model (Gemini or Claude) to copy ONLY the known ANC-card fields exactly as written, keeps allowlisted keys only, saves them
 // to documents.fields through save_capture_draft (every field unconfirmed) and returns them. The clinician
 // confirms field by field in the app; nothing enters the record unconfirmed.
 //
@@ -12,7 +12,7 @@
 import { encodeBase64 } from 'jsr:@std/encoding@1/base64';
 
 import { CAPTURE_SCHEMA, CAPTURE_SYSTEM, cleanCaptureFields } from '../_shared/ai.ts';
-import { HttpError, UUID, askClaude, callerClient, fail, fromDb, json, readJson } from '../_shared/http.ts';
+import { HttpError, UUID, askModel, callerClient, fail, fromDb, json, readJson } from '../_shared/http.ts';
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const;
 const MAX_BYTES = 5 * 1024 * 1024; // the Messages API's per-image limit
@@ -39,15 +39,11 @@ Deno.serve(async (req) => {
     const mime = String(doc.mime ?? file.type ?? '').toLowerCase();
     const data = encodeBase64(new Uint8Array(await file.arrayBuffer()));
 
-    const source =
-      mime === 'application/pdf'
-        ? ({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } } as const)
-        : (IMAGE_TYPES as readonly string[]).includes(mime)
-          ? ({ type: 'image', source: { type: 'base64', media_type: mime as (typeof IMAGE_TYPES)[number], data } } as const)
-          : null;
-    if (!source) throw new HttpError(422, 'PT422', 'Only JPEG, PNG, WebP, GIF photos or PDFs can be transcribed');
+    if (mime !== 'application/pdf' && !(IMAGE_TYPES as readonly string[]).includes(mime)) {
+      throw new HttpError(422, 'PT422', 'Only JPEG, PNG, WebP, GIF photos or PDFs can be transcribed');
+    }
 
-    const reply = await askClaude(CAPTURE_SYSTEM, [source, { type: 'text', text: 'Transcribe the ANC card fields from this record.' }], CAPTURE_SCHEMA);
+    const reply = await askModel(CAPTURE_SYSTEM, [{ mime, base64: data }, { text: 'Transcribe the ANC card fields from this record.' }], CAPTURE_SCHEMA);
     const fields = cleanCaptureFields(reply.data);
 
     const { data: saved, error: saveError } = await db.rpc('save_capture_draft', {

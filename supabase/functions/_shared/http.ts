@@ -1,10 +1,11 @@
-// Shared Edge Function plumbing (Deno): the caller's RLS-scoped client, PT-style JSON errors, the Claude client.
+// Shared Edge Function plumbing (Deno): the caller's RLS-scoped client, PT-style JSON errors, the AI model call
+// (Gemini or Claude, by which key is set).
 // Logs carry codes and counts only — never names, record content, prompts or replies.
 import Anthropic from 'npm:@anthropic-ai/sdk@0.131.0';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.117.2';
 
-/** The model both functions use. */
-export const MODEL = 'claude-sonnet-5-5';
+/** The Claude model both functions use when Claude is the provider. */
+const MODEL = 'claude-sonnet-5-5';
 
 export class HttpError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) {
@@ -67,6 +68,85 @@ export async function readJson(req: Request, allowed: string[]): Promise<Record<
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** What the functions send: text, or a file (photo / PDF of a paper card) as base64. */
+export type ModelPart = { text: string } | { mime: string; base64: string };
+
+/**
+ * One structured-output request to the configured model; returns the parsed JSON object and the model that
+ * answered. The provider follows the key that is set: GEMINI_API_KEY (model GEMINI_MODEL, default below) first,
+ * else ANTHROPIC_API_KEY (Claude). The prompts, de-identification and citation filter are the same for both.
+ */
+export function askModel(system: string, parts: ModelPart[], schema: Record<string, unknown>): Promise<{ data: unknown; model: string }> {
+  if (Deno.env.get('GEMINI_API_KEY')) return askGemini(system, parts, schema);
+  if (Deno.env.get('ANTHROPIC_API_KEY')) {
+    return askClaude(
+      system,
+      parts.map((p): Anthropic.Beta.Messages.BetaContentBlockParam =>
+        'text' in p
+          ? { type: 'text', text: p.text }
+          : p.mime === 'application/pdf'
+            ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: p.base64 } }
+            : { type: 'image', source: { type: 'base64', media_type: p.mime as 'image/jpeg', data: p.base64 } },
+      ),
+      schema,
+    );
+  }
+  throw new HttpError(503, 'PT503', 'AI drafting is not set up on this server.');
+}
+
+/** Gemini default: a stable Flash model (ai.google.dev/gemini-api/docs/models); override with GEMINI_MODEL. */
+const GEMINI_MODEL = 'gemini-3.5-flash';
+
+type GeminiReply = {
+  candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[];
+  promptFeedback?: { blockReason?: string };
+  modelVersion?: string;
+};
+
+async function askGemini(system: string, parts: ModelPart[], schema: Record<string, unknown>): Promise<{ data: unknown; model: string }> {
+  const model = Deno.env.get('GEMINI_MODEL') || GEMINI_MODEL;
+  const body = JSON.stringify({
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: 'user', parts: parts.map((p) => ('text' in p ? { text: p.text } : { inlineData: { mimeType: p.mime, data: p.base64 } })) }],
+    generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 8000, temperature: 0 },
+  });
+  let res: Response | undefined;
+  // 60 s per attempt, one retry on a timeout, rate limit or server error — inside the Edge Function wall clock.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': requireEnv('GEMINI_API_KEY') },
+        body,
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch (e) {
+      if (attempt === 0) continue;
+      if (e instanceof DOMException && e.name === 'TimeoutError') throw new HttpError(504, 'PT504', 'The AI took too long. Try again.');
+      throw new HttpError(502, 'PT502', 'The AI could not be reached. Try again.');
+    }
+    if (res.ok || !(res.status === 429 || res.status >= 500) || attempt === 1) break;
+    await res.body?.cancel();
+  }
+  if (!res) throw new HttpError(502, 'PT502', 'The AI could not be reached. Try again.');
+  if (res.status === 429) throw new HttpError(503, 'PT503', 'The AI is busy. Try again in a minute.');
+  if (!res.ok) {
+    console.error(JSON.stringify({ fn: 'gemini', status: res.status }));
+    throw new HttpError(502, 'PT502', 'The AI could not draft this now. Try again.');
+  }
+  const reply = (await res.json()) as GeminiReply;
+  if (reply.promptFeedback?.blockReason) throw new HttpError(502, 'PT502', 'The AI declined to draft this. Write it by hand.');
+  const c = reply.candidates?.[0];
+  if (c?.finishReason === 'MAX_TOKENS') throw new HttpError(502, 'PT502', 'The AI reply was cut short. Try again.');
+  if (c?.finishReason && c.finishReason !== 'STOP') throw new HttpError(502, 'PT502', 'The AI declined to draft this. Write it by hand.');
+  const text = (c?.content?.parts ?? []).flatMap((p) => (p.text && !p.thought ? [p.text] : [])).join('');
+  try {
+    return { data: JSON.parse(text), model: reply.modelVersion || model };
+  } catch {
+    throw new HttpError(502, 'PT502', 'The AI reply could not be read. Try again.');
+  }
+}
+
 let anthropic: Anthropic | undefined;
 function claude(): Anthropic {
   // 60 s per attempt, one retry: the whole call stays well inside the Edge Function wall-clock limit.
@@ -79,7 +159,7 @@ function claude(): Anthropic {
  * Server-side fallback ("default") is on: if a safety classifier declines, the API retries on its recommended
  * fallback model in the same call, and `model` reports which one answered.
  */
-export async function askClaude(
+async function askClaude(
   system: string,
   content: Anthropic.Beta.Messages.BetaContentBlockParam[] | string,
   schema: Record<string, unknown>,
