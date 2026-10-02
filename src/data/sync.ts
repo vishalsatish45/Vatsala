@@ -5,14 +5,16 @@
  *    functions. Reloads when the outbox has sent everything, when a write is refused (undoing it on screen), when
  *    another phone changes something (Realtime), and when the app returns to the foreground.
  *  - Driven by session-store subscriptions, not screen effects.
- *  - Sign-out (or a lost session) stops Realtime, drops unsent writes and clears every record from memory.
+ *  - Sign-out stops Realtime, drops unsent writes and clears every record from memory. A session the server
+ *    ended does the same, except that unsent writes stay saved (encrypted) for the same account's next sign-in.
+ *    A session that merely cannot be refreshed right now (offline) keeps the account signed in.
  */
 import { AppState } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import { create } from 'zustand';
 
 import { emptyState, loadCareSnapshot, loadFamilySnapshot, NeedsConsent, RemoteError, type FamilyWho } from './remote';
-import { clearOutbox, drain, enqueue, restoreOutbox, setOutboxHooks, useOutbox } from './outbox';
+import { clearOutbox, drain, enqueue, isSessionGone, restoreOutbox, setOutboxHooks, suspendOutbox, useOutbox, writeCount } from './outbox';
 import { useDb } from './store';
 import { authService } from '@/features/auth/service';
 import { registerPush, unregisterPush } from '@/features/push/register';
@@ -42,6 +44,8 @@ let refreshing = false;
 let again = false;
 let poll: ReturnType<typeof setInterval> | undefined;
 let debounce: ReturnType<typeof setTimeout> | undefined;
+/** Set just before signing out because the server ended the session (not the user): unsent writes are kept. */
+let sessionEnded = false;
 
 const keyOf = (a: Account | null, face: string | null) => (a && face ? `${a.id}:${face}` : undefined);
 
@@ -63,10 +67,17 @@ export async function refresh(): Promise<void> {
   if (useOutbox.getState().queue.length && loadedFor === key) return; // the drained hook reloads afterwards
   refreshing = true;
   if (loadedFor !== key) useSync.setState({ phase: 'loading', error: undefined });
+  const writesBefore = writeCount();
   try {
     const snap = face === 'care' ? await loadCareSnapshot(supabase()) : await loadFamilySnapshot(supabase(), familyWho(account));
     const now = useSession.getState();
     if (keyOf(now.account, now.face) !== key) return; // signed out or switched face meanwhile
+    // A write made while the snapshot was loading (or still unsent) is not in it: showing it would undo that write on
+    // screen and re-base its version check. Load again once the queue is empty (the drained hook) instead.
+    if (loadedFor === key && (writeCount() !== writesBefore || useOutbox.getState().queue.length)) {
+      again = true;
+      return;
+    }
     useDb.getState().hydrate(snap.state);
     useOutbox.setState({ versions: snap.versions });
     loadedFor = key;
@@ -137,9 +148,11 @@ function open(account: Account, face: 'care' | 'family') {
   void refresh();
 }
 
-function close() {
+/** Sign-out. `keepWrites`: the server ended the session — unsent writes stay saved for this account's next sign-in. */
+function close(keepWrites: boolean) {
   stopLive();
-  clearOutbox();
+  if (keepWrites) suspendOutbox();
+  else clearOutbox();
   useDb.getState().hydrate(emptyState());
   loadedFor = undefined;
   useSync.setState({ phase: 'idle', error: undefined });
@@ -189,7 +202,7 @@ if (isRemote) {
   setOutboxHooks({
     drained: () => void refresh(),
     failed: () => void refresh(),
-    sessionLost: () => useSession.getState().signOut(),
+    sessionLost: endedByServer,
   });
 
   // Session changes: sign-in, face switch, sign-out.
@@ -198,9 +211,14 @@ if (isRemote) {
     if (s.account && s.account.id !== prev.account?.id && s.account.family?.consentPurposes) {
       s.adoptServerConsent(s.account.id, s.account.family.consentPurposes);
     }
-    if (s.hydrated && prev.hydrated && s.account && s.account.id !== prev.account?.id) void registerPush(); // signed in
+    if (s.hydrated && prev.hydrated && s.account && s.account.id !== prev.account?.id) {
+      // Signed in: writes this account left unsent when its session ended are sent now (another account's are deleted).
+      void restoreOutbox(s.account.id).then(() => drain());
+      void registerPush();
+    }
     if (!s.account && prev.account) {
-      close();
+      close(sessionEnded);
+      sessionEnded = false;
       // Remove this phone's push token while the session still exists, then end the session.
       void unregisterPush().finally(() => authService.signOut());
       return;
@@ -219,19 +237,32 @@ if (isRemote) {
   });
 
   supabase().auth.onAuthStateChange((event) => {
-    if (event === 'SIGNED_OUT' && useSession.getState().account) useSession.getState().signOut();
+    // While an account is open, SIGNED_OUT comes from the client itself: the server refused the refresh token.
+    if (event === 'SIGNED_OUT' && useSession.getState().account) endedByServer();
   });
 
   if (useSession.getState().hydrated) void boot();
 }
 
-/** Cold start, once the saved session is read: restore unsent writes, and sign out if the Supabase session is gone. */
+/** The server ended the session: sign out, keeping unsent writes saved for this account's next sign-in. */
+function endedByServer() {
+  if (!useSession.getState().account) return;
+  sessionEnded = true;
+  useSession.getState().signOut();
+}
+
+/**
+ * Cold start, once the saved session is read: restore unsent writes, and sign out only if the server has ended the
+ * session. An expired token that cannot be refreshed for lack of network keeps the account signed in (it is
+ * refreshed when the phone is back online).
+ */
 async function boot() {
-  await restoreOutbox();
   const { account, face } = useSession.getState();
-  if (!account) return;
-  const { data } = await supabase().auth.getSession();
-  if (!data.session) return useSession.getState().signOut();
+  if (!account) return; // a queue left by a lost session waits, saved, for that account's sign-in
+  await restoreOutbox(account.id);
+  const { data, error } = await supabase().auth.getSession();
+  if (useSession.getState().account?.id !== account.id) return; // signed out meanwhile
+  if (!data.session && (!error || isSessionGone(error))) return endedByServer();
   if (face) open(account, face);
   void drain();
   void registerPush();

@@ -7,7 +7,7 @@ import { daysBetween, formatGA } from '@domain/gestation';
 import { asBabyId } from '@/data/ids';
 import { tagLabel } from '@/data/catalogue';
 import { activeTags, babyAgeLabel, continuityEvents, fmtDate, fmtDay, fmtTime, motherOf, sexLabel, taskState } from '@/data/selectors';
-import { useDb } from '@/data/store';
+import { isUnsavedDose, useDb } from '@/data/store';
 import { DeliverySummaryCard } from '@/features/care/DeliverySummaryCard';
 import { EnteredInErrorSheet, type EieTarget } from '@/features/care/EnteredInErrorSheet';
 import { OverrideBanner } from '@/features/care/OverrideBanner';
@@ -209,7 +209,9 @@ export default function NewbornView() {
                       .join(' · ')
                   : undefined;
                 // a dose closed because the baby died is not a recorded fact to withdraw
-                const correctable = treating && !open && v.notGivenReason !== 'Baby died';
+                // planned on this phone with a delivery the server has not loaded back yet: nothing to record against
+                const saving = isUnsavedDose(v.id);
+                const correctable = treating && !open && v.notGivenReason !== 'Baby died' && !saving;
                 return (
                   <View key={v.id} style={styles.dose}>
                     <View style={{ flex: 1, gap: 2 }}>
@@ -219,7 +221,7 @@ export default function NewbornView() {
                         label={recorded ?? (notGiven ? `Not given · ${v.notGivenReason}` : `${overdue ? 'Overdue' : 'Due'} ${fmtDate(v.dueOn)}`)}
                       />
                     </View>
-                    {living && treating && open && <Chip label="Record" icon={Syringe} onPress={() => setDose(v.id)} />}
+                    {living && treating && open && (saving ? <Chip label="Saving the delivery…" /> : <Chip label="Record" icon={Syringe} onPress={() => setDose(v.id)} />)}
                     {correctable && <Chip label="Entered in error" onPress={() => setEie({ kind: 'immunization', id: v.id, label: `${v.label} · ${recorded ?? `not given (${v.notGivenReason})`}` })} />}
                   </View>
                 );

@@ -56,6 +56,7 @@ import type {
   BabyId,
   CallbackId,
   CaptureDoc,
+  CaptureField,
   CareAssignment,
   CareSpecialty,
   CaregiverId,
@@ -285,6 +286,18 @@ function refuse(rpc: string, message: string) {
   useOutbox.setState({ failure: { rpc, message } });
 }
 
+/**
+ * Supabase mode: vaccine doses planned on this phone for a delivery the server has not loaded back yet. The server
+ * plans the schedule itself (with its own ids) when the delivery arrives, and the next reload shows those; until
+ * then a dose shown here does not exist on the server, so it cannot be recorded or corrected.
+ */
+const unsavedDoses = new Set<Id>();
+
+/** True while a dose is only this phone's plan (its delivery is still being saved). */
+export const isUnsavedDose = (id: Id) => unsavedDoses.has(id);
+
+export const DOSE_WAIT_MESSAGE = 'The delivery is still being saved — record vaccines once it has synced.';
+
 // ── ANC plan ────────────────────────────────────────────────────────────────────
 
 type Replan = { tasks: Task[]; cancelled: Task[]; fresh: Task[] };
@@ -343,6 +356,90 @@ function observationRows(vitals: Visit['vitals']) {
     if (v === undefined || v === '') return [];
     return [typeof v === 'number' ? { code, value_num: v } : { code, value_text: v }];
   });
+}
+
+// ── Paper capture (PRD F-31): confirmed fields → visit values ─────────────────────
+
+/** The dipstick scale urine albumin and sugar are recorded on (observation_codes.allowed_values, supabase/seed.sql). */
+export const URINE_SCALE = ['Nil', 'Trace', '1+', '2+', '3+'] as const;
+
+/** Capture fields that are recorded only as one of these values: the screen offers them as choices to confirm. */
+export const CAPTURE_CHOICES: Partial<Record<string, readonly string[]>> = { albumin: URINE_SCALE, urine_sugar: URINE_SCALE };
+
+/**
+ * Possible-entry bounds of observation_codes (supabase/seed.sql). Data quality only — an entry outside them cannot be
+ * a reading (a slip of the pen or of the transcription) and the server refuses it. Never a clinical threshold.
+ */
+const POSSIBLE = { weight: [20, 250], bp_sys: [40, 300], bp_dia: [20, 200], fundal_height: [5, 60], fhr: [40, 260] } as const;
+
+const possible = (code: keyof typeof POSSIBLE, n: number | undefined) => (n !== undefined && n >= POSSIBLE[code][0] && n <= POSSIBLE[code][1] ? n : undefined);
+
+/** "61 kg" → 61: a plain number, optionally followed by the expected unit; anything else is not read as a number. */
+function readNumber(value: string, unit: string): number | undefined {
+  const m = new RegExp(`^(\\d{1,3}(?:\\.\\d+)?)\\s*(?:${unit})?$`, 'i').exec(value.trim());
+  return m ? Number(m[1]) : undefined;
+}
+
+export type CaptureMapping = {
+  vitals: Visit['vitals'];
+  /** ANC checklist components the confirmed fields complete. */
+  components: string[];
+  /** Confirmed fields recorded as visit values (observations / checklist), by key. */
+  recorded: string[];
+  /** Confirmed fields kept on the paper-record document only (dates, Hb — a lab result —, or text not read as a value). */
+  documentOnly: string[];
+};
+
+/**
+ * Which confirmed capture fields become values of the ANC visit, copied exactly as confirmed (never interpreted):
+ * weight, BP, FHR, fundal height, urine albumin and sugar. Everything else confirmed stays on the document only.
+ */
+export function captureVisit(fields: CaptureField[]): CaptureMapping {
+  const out: CaptureMapping = { vitals: {}, components: [], recorded: [], documentOnly: [] };
+  for (const f of fields) {
+    if (!f.confirmed) continue;
+    const v = f.value.trim();
+    let ok = false;
+    switch (f.key) {
+      case 'weight': {
+        const n = possible('weight', readNumber(v, 'kgs?\\.?'));
+        if ((ok = n !== undefined)) out.vitals.weightKg = n;
+        break;
+      }
+      case 'bp': {
+        const m = /^(\d{2,3})\s*\/\s*(\d{2,3})\s*(?:mm\s*hg)?$/i.exec(v);
+        const sys = possible('bp_sys', m ? Number(m[1]) : undefined);
+        const dia = possible('bp_dia', m ? Number(m[2]) : undefined);
+        if ((ok = sys !== undefined && dia !== undefined)) Object.assign(out.vitals, { bpSys: sys, bpDia: dia });
+        break;
+      }
+      case 'fhr': {
+        const n = possible('fhr', readNumber(v, '\\/\\s*min|bpm|b\\/min'));
+        if ((ok = n !== undefined)) out.vitals.fhr = n;
+        break;
+      }
+      case 'fundal_height': {
+        const n = possible('fundal_height', readNumber(v, 'cms?\\.?'));
+        if ((ok = n !== undefined)) out.vitals.fundalHeightCm = n;
+        break;
+      }
+      case 'albumin':
+        if ((ok = URINE_SCALE.includes(v as (typeof URINE_SCALE)[number]))) out.vitals.urineAlbumin = v;
+        break;
+      case 'urine_sugar':
+        if ((ok = URINE_SCALE.includes(v as (typeof URINE_SCALE)[number]))) out.vitals.urineSugar = v;
+        break;
+    }
+    (ok ? out.recorded : out.documentOnly).push(f.key);
+  }
+  const has = (k: keyof Visit['vitals']) => out.vitals[k] !== undefined;
+  // Checklist components (pick list 'anc_component'); urine sugar has none.
+  if (has('bpSys')) out.components.push('bp');
+  if (has('weightKg')) out.components.push('weight');
+  if (has('urineAlbumin')) out.components.push('urine_albumin');
+  if (has('fundalHeightCm')) out.components.push('fundal_height');
+  if (has('fhr')) out.components.push('fhr');
+  return out;
 }
 
 /** "11.2 g/dL" → a number and its unit; anything else is kept as text, exactly as entered. */
@@ -445,7 +542,11 @@ export const useDb = create<Db>()((set, get) => {
       enqueue('reset_demo', { confirm: 'RESET DEMO DATA' });
     },
 
-    hydrate: (state) => set(state),
+    hydrate: (state) => {
+      // Doses of a delivery the server now has come back under the server's own ids.
+      for (const id of unsavedDoses) if (!state.immunizations.some((i) => i.id === id)) unsavedDoses.delete(id);
+      set(state);
+    },
 
     registerPregnancy: (input, by, now) => {
       const { id, payload } = registerLocal(input, by, now);
@@ -760,6 +861,7 @@ export const useDb = create<Db>()((set, get) => {
               return { id: uid('im'), babyId: b.id, ...v, givenOn: given ? birthDay : undefined, given: given ? { here: true } : undefined };
             }),
       );
+      if (isRemote) for (const im of immunizations) unsavedDoses.add(im.id);
       const discharges: Discharge[] = [
         { subjectId: pregnancyId, subject: 'mother', items: DISCHARGE_MOTHER.map((d) => ({ ...d })) },
         ...babies.filter((b) => b.outcome === 'live').map((b): Discharge => ({ subjectId: b.id, subject: 'baby', items: DISCHARGE_BABY.map((d) => ({ ...d })) })),
@@ -870,6 +972,7 @@ export const useDb = create<Db>()((set, get) => {
     },
 
     recordVaccine: (immunizationId, dose, by, now) => {
+      if (isUnsavedDose(immunizationId)) return refuse('record_vaccine', DOSE_WAIT_MESSAGE);
       const s = get();
       if (dose.action === 'not_given') {
         const reason = dose.reason.trim();
@@ -965,21 +1068,14 @@ export const useDb = create<Db>()((set, get) => {
 
     saveCapture: (doc, now) => {
       const s = get();
-      const val = (k: string) => doc.fields.find((f) => f.key === k && f.confirmed)?.value;
-      const bp = val('bp')?.match(/(\d{2,3})\s*\/\s*(\d{2,3})/);
+      const mapped = captureVisit(doc.fields);
       const visit: Visit = {
         id: uid('vs'),
         pregnancyId: asPregnancyId(doc.subjectId),
         at: now,
         by: `${doc.by} (from paper record)`,
-        vitals: {
-          weightKg: val('weight') ? Number(val('weight')!.replace(/[^\d.]/g, '')) : undefined,
-          bpSys: bp ? Number(bp[1]) : undefined,
-          bpDia: bp ? Number(bp[2]) : undefined,
-          fhr: val('fhr') ? Number(val('fhr')!.replace(/[^\d]/g, '')) : undefined,
-          urineAlbumin: val('albumin'),
-        },
-        checklist: Object.fromEntries(doc.fields.filter((f) => f.confirmed).map((f) => [f.key === 'albumin' ? 'urine_albumin' : f.key, { state: 'done' as const }])),
+        vitals: mapped.vitals,
+        checklist: Object.fromEntries(mapped.components.map((c) => [c, { state: 'done' as const }])),
         complaints: [],
         note: 'Transcribed from paper record — each field confirmed by clinician',
       };
@@ -994,7 +1090,6 @@ export const useDb = create<Db>()((set, get) => {
         { id: cap.id, pregnancy_id: doc.subjectId, kind: 'anc_card', mime },
         { entityId: cap.id, upload: doc.uri && mime ? { bucket: 'documents', pathFrom: 'storage_path', localUri: doc.uri, contentType: mime } : undefined },
       );
-      const checklistKeys = new Set(['bp', 'weight', 'urine_albumin', 'fhr']);
       enqueue(
         'confirm_capture',
         {
@@ -1003,7 +1098,7 @@ export const useDb = create<Db>()((set, get) => {
           at: now.toISOString(),
           fields: doc.fields.map((f) => ({ key: f.key, label: f.label, value: f.value, confidence: f.confidence, confirmed: f.confirmed })),
           observations: observationRows(visit.vitals),
-          checklist: Object.keys(visit.checklist).filter((k) => checklistKeys.has(k)).map((component) => ({ component, state: 'done' })),
+          checklist: mapped.components.map((component) => ({ component, state: 'done' })),
         },
         { entityId: visit.id },
       );
@@ -1102,15 +1197,20 @@ export const useDb = create<Db>()((set, get) => {
     },
 
     markEnteredInError: (kind, id, reason, by, now) => {
+      if (kind === 'immunization' && isUnsavedDose(id)) return refuse('mark_entered_in_error', DOSE_WAIT_MESSAGE);
       const s = get();
       const next: Partial<DbState> = { audit: audit(s, by, `entered_in_error (${kind})`, id, now) };
+      // Rows whose server version this correction also bumps: their cached versions are dropped once it is saved.
+      let alsoInvalidate: string[] | undefined;
       switch (kind) {
         case 'encounter':
           next.visits = s.visits.filter((v) => v.id !== id);
           next.newbornObs = s.newbornObs.filter((o) => o.id !== id);
           break;
         case 'investigation_result':
-          // Withdrawing the shown result sends the test back to waiting for one (the server does the same).
+          // Withdrawing the shown result sends the test back to waiting for one (the server does the same, and bumps
+          // the test's version: trigger reset_test_without_results).
+          alsoInvalidate = s.investigations.filter((i) => i.resultId === id).map((i) => i.id);
           next.investigations = s.investigations.map((i) =>
             i.resultId === id ? { ...i, status: i.orderedAt ? 'ordered' : 'due', result: undefined, resultId: undefined, review: undefined } : i,
           );
@@ -1139,7 +1239,7 @@ export const useDb = create<Db>()((set, get) => {
         }
       }
       set(next);
-      enqueue('mark_entered_in_error', eiePayload(kind, id, reason, now), { entityId: id });
+      enqueue('mark_entered_in_error', eiePayload(kind, id, reason, now), { entityId: id, alsoInvalidate });
     },
 
     shareResult: (referralId, investigationId, by, now) => {

@@ -2,6 +2,7 @@ import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { HeartHandshake, Stethoscope } from 'lucide-react-native';
 
+import { confirmSignOut } from '@/features/auth/confirmSignOut';
 import { useSession } from '@/state/session';
 import { AppText, GlassSurface, MoodProvider, PressableScale, Screen, palette, space } from '@/ui';
 
@@ -40,7 +41,7 @@ export default function ChooseFace() {
             </GlassSurface>
           </PressableScale>
         ))}
-        <PressableScale onPress={signOut} accessibilityRole="button" style={{ alignSelf: 'center', padding: space.md }}>
+        <PressableScale onPress={() => confirmSignOut(signOut)} accessibilityRole="button" style={{ alignSelf: 'center', padding: space.md }}>
           <AppText variant="label" tone="accent">
             {t('common.signOut')}
           </AppText>
