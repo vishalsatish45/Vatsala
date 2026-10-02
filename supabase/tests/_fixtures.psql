@@ -1,0 +1,136 @@
+-- Shared synthetic cast for access and RPC tests (included with \ir; never run on its own).
+-- Inserted as the table owner inside the including test's transaction, so it is rolled back with it.
+-- Fake people only.
+--
+--   Demo District Hospital (seed)                       Other Hospital
+--   ├ OB Unit A: Dr. Priya, Dr. Meera                   └ Dr. Other (obstetrician)
+--   ├ OB Unit B: Dr. Neha
+--   ├ Paediatrics Unit: Dr. Arjun
+--   └ Cardiology: Dr. Kiran (specialist)
+--
+--   Mother    Stage                  Obstetric team   Notes
+--   Lakshmi   33 weeks               Unit A (Priya)   paediatric team assigned (not effective until 34 weeks);
+--                                                     open referral to Cardiology; caregiver Ravi
+--   Sunita    26 weeks               Unit B (Neha)    Cardiology referral ended 40 days ago; Priya's override expired
+--   Asha      36 weeks               Unit B (Neha)    paediatric team assigned (effective); Cardiology referral ended 10 days ago
+--   Kavya     30 weeks, admitted     Unit B (Neha)    in the labour room
+--   Meena     delivered, baby        Unit A           baby assigned to the paediatric unit (Arjun primary)
+--   Meera     20 weeks               Unit A (Priya)   she is also Dr. Meera (staff)
+
+\set priya  '00000000-0000-4000-9000-000000000001'
+\set arjun  '00000000-0000-4000-9000-000000000002'
+\set lakshmi_u '00000000-0000-4000-9000-000000000003'
+\set ravi   '00000000-0000-4000-9000-000000000004'
+\set meera  '00000000-0000-4000-9000-000000000005'
+\set meena_u '00000000-0000-4000-9000-000000000006'
+\set kiran  '00000000-0000-4000-9000-000000000007'
+\set neha   '00000000-0000-4000-9000-000000000011'
+\set other  '00000000-0000-4000-9000-000000000009'
+
+\set h1 '00000000-0000-4000-8000-000000000001'
+\set h2 '00000000-0000-4000-8000-000000000002'
+\set t_obs   '00000000-0000-4000-8001-000000000001'
+\set t_paeds '00000000-0000-4000-8001-000000000002'
+\set t_cardio '00000000-0000-4000-8001-000000000003'
+\set t_unit_a '00000000-0000-4000-8001-0000000000a1'
+\set t_paeds_unit '00000000-0000-4000-8001-0000000000a2'
+\set t_unit_b '00000000-0000-4000-8001-0000000000b1'
+\set s_priya '00000000-0000-4000-8002-000000000001'
+\set s_arjun '00000000-0000-4000-8002-000000000002'
+\set s_meera '00000000-0000-4000-8002-000000000005'
+\set s_kiran '00000000-0000-4000-8002-000000000007'
+\set s_neha  '00000000-0000-4000-8002-000000000011'
+
+\set m_lakshmi '00000000-0000-4000-8003-000000000001'
+\set m_sunita  '00000000-0000-4000-8003-000000000002'
+\set m_meena   '00000000-0000-4000-8003-000000000003'
+\set m_asha    '00000000-0000-4000-8003-000000000004'
+\set m_kavya   '00000000-0000-4000-8003-000000000005'
+\set m_meera   '00000000-0000-4000-8003-000000000006'
+\set p_lakshmi '00000000-0000-4000-8004-000000000001'
+\set p_sunita  '00000000-0000-4000-8004-000000000002'
+\set p_meena   '00000000-0000-4000-8004-000000000003'
+\set p_asha    '00000000-0000-4000-8004-000000000004'
+\set p_kavya   '00000000-0000-4000-8004-000000000005'
+\set p_meera   '00000000-0000-4000-8004-000000000006'
+\set b_meena   '00000000-0000-4000-800c-000000000001'
+
+insert into auth.users (id, phone) values
+  (:'priya', '919000000001'), (:'arjun', '919000000002'), (:'lakshmi_u', '919000000003'), (:'ravi', '919000000004'),
+  (:'meera', '919000000005'), (:'meena_u', '919000000006'), (:'kiran', '919000000007'), (:'other', '919000000009'),
+  (:'neha', '919000000011');
+
+-- Second obstetric unit and its doctor; another hospital and its doctor.
+insert into public.teams (id, hospital_id, name, kind, specialty, parent_team_id) values
+  (:'t_unit_b', :'h1', 'OB Unit B', 'unit', 'obstetrics', :'t_obs');
+insert into public.staff (id, hospital_id, phone, name, role) values (:'s_neha', :'h1', '919000000011', 'Dr. Neha', 'obstetrician');
+insert into public.team_members (team_id, staff_id) values (:'t_unit_b', :'s_neha'), (:'t_obs', :'s_neha');
+insert into public.hospitals (id, name, code) values (:'h2', 'Other Hospital', 'OTH');
+insert into public.staff (hospital_id, phone, name, role) values (:'h2', '919000000009', 'Dr. Other', 'obstetrician');
+
+insert into public.mothers (id, phone, name, age_at_registration, lang) values
+  (:'m_lakshmi', '919000000003', 'Lakshmi K', 24, 'kn'),
+  (:'m_sunita',  '919000000010', 'Sunita R', 31, 'hi'),
+  (:'m_meena',   '919000000006', 'Meena T', 27, 'kn'),
+  (:'m_asha',    '919000000012', 'Asha P', 22, 'kn'),
+  (:'m_kavya',   '919000000013', 'Kavya N', 29, 'en'),
+  (:'m_meera',   '919000000005', 'Meera S', 32, 'en');
+
+-- EDD offsets give the gestational ages above (GA = 280 − days to EDD).
+insert into public.pregnancies (id, mch_id, mother_id, hospital_id, registered_on, edd, gravida, para, living, abortions) values
+  (:'p_lakshmi', 'MCH-2026-000101', :'m_lakshmi', :'h1', now() - interval '20 weeks', current_date + 49, 2, 1, 1, 0),
+  (:'p_sunita',  'MCH-2026-000102', :'m_sunita',  :'h1', now() - interval '10 weeks', current_date + 98, 1, 0, 0, 0),
+  (:'p_asha',    'MCH-2026-000104', :'m_asha',    :'h1', now() - interval '25 weeks', current_date + 28, 1, 0, 0, 0),
+  (:'p_kavya',   'MCH-2026-000105', :'m_kavya',   :'h1', now() - interval '18 weeks', current_date + 70, 2, 1, 1, 0),
+  (:'p_meera',   'MCH-2026-000106', :'m_meera',   :'h1', now() - interval '8 weeks',  current_date + 140, 1, 0, 0, 0);
+insert into public.pregnancies (id, mch_id, mother_id, hospital_id, registered_on, edd, gravida, para, living, abortions,
+                                status, end_reason, ended_on) values
+  (:'p_meena', 'MCH-2026-000103', :'m_meena', :'h1', now() - interval '30 weeks', current_date - 2, 1, 1, 1, 0,
+   'delivered', 'delivered', current_date - 2);
+
+-- Every pregnancy has exactly one current dating matching its EDD (checked at commit).
+insert into public.pregnancy_datings (pregnancy_id, mother_id, method, lmp, edd, decided_by, decided_at)
+select g.id, g.mother_id, 'lmp', g.edd - 280, g.edd, :'s_priya', g.registered_on from public.pregnancies g
+where g.id in (:'p_lakshmi', :'p_sunita', :'p_asha', :'p_kavya', :'p_meera', :'p_meena');
+
+insert into public.deliveries (id, pregnancy_id, mother_id, at, mode, recorded_by) values
+  ('00000000-0000-4000-800d-000000000001', :'p_meena', :'m_meena', now() - interval '2 days', 'vaginal', :'s_priya');
+insert into public.babies (id, child_id, mother_id, pregnancy_id, delivery_id, birth_order, dob, sex, birth_weight_g, outcome) values
+  (:'b_meena', 'MCH-2026-000103-B1', :'m_meena', :'p_meena', '00000000-0000-4000-800d-000000000001', 1,
+   now() - interval '2 days', 'F', 2900, 'live');
+
+insert into public.care_assignments (mother_id, pregnancy_id, baby_id, specialty, team_id, primary_staff_id, from_at) values
+  (:'m_lakshmi', :'p_lakshmi', null, 'obstetrics',  :'t_unit_a',     :'s_priya', now() - interval '20 weeks'),
+  (:'m_lakshmi', :'p_lakshmi', null, 'paediatrics', :'t_paeds_unit', null,       now() - interval '20 weeks'),
+  (:'m_sunita',  :'p_sunita',  null, 'obstetrics',  :'t_unit_b',     :'s_neha',  now() - interval '10 weeks'),
+  (:'m_asha',    :'p_asha',    null, 'obstetrics',  :'t_unit_b',     :'s_neha',  now() - interval '25 weeks'),
+  (:'m_asha',    :'p_asha',    null, 'paediatrics', :'t_paeds_unit', null,       now() - interval '25 weeks'),
+  (:'m_kavya',   :'p_kavya',   null, 'obstetrics',  :'t_unit_b',     :'s_neha',  now() - interval '18 weeks'),
+  (:'m_meena',   :'p_meena',   null, 'obstetrics',  :'t_unit_a',     null,       now() - interval '30 weeks'),
+  (:'m_meena',   null, :'b_meena',   'paediatrics', :'t_paeds_unit', :'s_arjun', now() - interval '2 days'),
+  (:'m_meera',   :'p_meera',   null, 'obstetrics',  :'t_unit_a',     :'s_priya', now() - interval '8 weeks');
+
+insert into public.admissions (pregnancy_id, mother_id, ip_no, admitted_at, admitted_by) values
+  (:'p_kavya', :'m_kavya', 'IP-2026-000001', now() - interval '3 hours', :'s_neha');
+
+insert into public.referrals (id, mother_id, pregnancy_id, to_team_id, urgency, reason, question, status, ended_at, created_by, created_at) values
+  ('00000000-0000-4000-800e-000000000001', :'m_lakshmi', :'p_lakshmi', :'t_cardio', 'routine', 'Documented murmur', 'Fit for labour?', 'requested', null, :'s_priya', now() - interval '1 day'),
+  ('00000000-0000-4000-800e-000000000002', :'m_sunita',  :'p_sunita',  :'t_cardio', 'routine', 'Palpitations (reported)', 'Review?', 'closed', now() - interval '40 days', :'s_neha', now() - interval '60 days'),
+  ('00000000-0000-4000-800e-000000000003', :'m_asha',    :'p_asha',    :'t_cardio', 'routine', 'Documented murmur', 'Review?', 'closed', now() - interval '10 days', :'s_neha', now() - interval '30 days');
+insert into public.referral_events (referral_id, mother_id, status, at, by_staff) values
+  ('00000000-0000-4000-800e-000000000001', :'m_lakshmi', 'requested', now() - interval '1 day', :'s_priya'),
+  ('00000000-0000-4000-800e-000000000002', :'m_sunita',  'closed',    now() - interval '40 days', :'s_neha'),
+  ('00000000-0000-4000-800e-000000000003', :'m_asha',    'closed',    now() - interval '10 days', :'s_neha');
+
+insert into public.access_overrides (staff_id, mother_id, reason, granted_at, expires_at) values
+  (:'s_priya', :'m_sunita', 'Covering OPD', now() - interval '2 days', now() - interval '1 day');
+
+insert into public.caregivers (mother_id, phone, name, relation) values (:'m_lakshmi', '919000000004', 'Ravi K', 'husband');
+insert into public.consents (user_id, mother_id, notice_version, lang, purposes, decision) values
+  (:'lakshmi_u', :'m_lakshmi', 'v1', 'kn', '{app,reminders_app,caregiver_sharing}', 'accepted');
+
+insert into public.tasks (mother_id, pregnancy_id, baby_id, kind, title, due_by, generated_by) values
+  (:'m_lakshmi', :'p_lakshmi', null, 'anc_visit', 'ANC visit · 34 weeks', current_date + 7, 'protocol'),
+  (:'m_sunita',  :'p_sunita',  null, 'anc_visit', 'ANC visit · 28 weeks', current_date + 14, 'protocol'),
+  (:'m_meena',   null, :'b_meena',   'nb_visit',  'Newborn check · day 7', current_date + 5, 'protocol');
+insert into public.notifications (user_id, kind) values (:'lakshmi_u', 'visit_reminder');
