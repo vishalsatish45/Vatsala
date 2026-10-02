@@ -60,7 +60,7 @@ export default function NewbornView() {
   const obs = db.newbornObs.filter((o) => o.babyId === b.id).sort((a, z) => z.at.getTime() - a.at.getTime());
   const latest = obs[0];
   const weights = [{ at: b.dob, value: b.birthWeightG }, ...obs.filter((o) => o.weightG).map((o) => ({ at: o.at, value: o.weightG! }))];
-  const events = continuityEvents(db, p.id, now, 'care').map((e) => ({ ...e, title: e.kind === 'tag' ? `Tagged: ${tagLabel(e.sub ?? '')}` : e.label, sub: e.kind === 'tag' ? undefined : e.sub }));
+  const events = continuityEvents(db, p.id, now, 'care').map((e) => ({ ...e, title: e.kind === 'tag' ? `Tagged: ${tagLabel(e.sub ?? '')}` : e.label, sub: e.kind === 'tag' ? undefined : e.sub, anc: e.kind === 'visit' || e.kind === 'planned_visit' }));
 
   return (
     <Screen blobCenterY={140} header={<TopBar back title={b.childId} />}>

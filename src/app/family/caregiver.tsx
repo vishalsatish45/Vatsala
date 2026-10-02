@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useDb } from '@/data/store';
 import type { CaregiverScopes } from '@/data/types';
 import { useFamily } from '@/features/family/useFamily';
+import { VoiceField } from '@/features/voice/VoiceField';
 import { useNow } from '@/lib/clock';
 import { AppText, Button, Card, Field, OptionChips, Screen, TopBar, palette, space } from '@/ui';
 
@@ -33,7 +34,7 @@ export default function AddCaregiver() {
   return (
     <Screen blob="none" header={<TopBar back title={t('family.me.add')} />} footer={<Button label={t('family.me.save')} onPress={save} disabled={!valid} />}>
       <Card style={{ gap: space.md }}>
-        <Field label={t('family.me.name')} value={name} onChangeText={setName} />
+        <VoiceField label={t('family.me.name')} value={name} onChangeText={setName} />
         <OptionChips label={t('family.me.relation')} options={RELATIONS.map((r) => t(`family.me.rel.${r}`))} value={relation} onChange={setRelation} />
         <Field label={t('family.me.phone')} keyboardType="number-pad" maxLength={10} value={phone} onChangeText={(v) => setPhone(v.replace(/\D/g, ''))} />
       </Card>

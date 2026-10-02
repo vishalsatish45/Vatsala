@@ -1,43 +1,31 @@
 import { StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { Bell, PhoneCall, TriangleAlert, type LucideIcon } from 'lucide-react-native';
-import { daysBetween, formatGA, gestationalAge, pregnancyProgress, trimester } from '@domain/gestation';
+import { Bell, Pill } from 'lucide-react-native';
+import { daysBetween, gestationalAge, toDateOnly, trimester } from '@domain/gestation';
 
+import { medSlots } from '@/data/catalogue';
 import { useDb } from '@/data/store';
+import { MedicinesView } from '@/features/family/MedicinesView';
 import { familyItems, useFamily, type FamilyItem } from '@/features/family/useFamily';
-import { fmtShort, fmtWeekday, itemStatus, itemTitle, itemWhen, ordinalSuffix } from '@/features/family/itemText';
+import { fmtShort, itemTitle, itemWhen } from '@/features/family/itemText';
+import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { useNow } from '@/lib/clock';
 import {
   AppText,
   Avatar,
+  Chip,
+  DropdownSection,
   GlassIconButton,
   GlassSurface,
   HeroNumber,
-  ListRow,
   NextStepCard,
-  PressableScale,
-  ProgressBar,
   Screen,
   StatTile,
-  StatusBadge,
   TopBar,
   palette,
   space,
 } from '@/ui';
-
-function QuickTile({ icon: Icon, label, tint, onPress }: { icon: LucideIcon; label: string; tint: string; onPress: () => void }) {
-  return (
-    <PressableScale onPress={onPress} style={{ flex: 1 }} accessibilityRole="button" accessibilityLabel={label}>
-      <GlassSurface strong style={styles.tile}>
-        <View style={[styles.tileIcon, { backgroundColor: tint + '22' }]}>
-          <Icon size={22} color={tint} strokeWidth={1.9} />
-        </View>
-        <AppText variant="bodyMedium">{label}</AppText>
-      </GlassSurface>
-    </PressableScale>
-  );
-}
 
 const openItem = (i: FamilyItem) => router.push({ pathname: '/family/item/[id]', params: { id: i.id } });
 
@@ -53,11 +41,24 @@ export default function FamilyHome() {
   const next = items[0];
   const delivered = p?.status === 'delivered' && babies.length > 0;
   const baby = babies[0];
+  const weekNow = p ? gestationalAge(p.edd, now).weeks : undefined;
+  // What the speaker button on Home says: where she is in the pregnancy, then the next step.
+  const readAloud = [
+    weekNow !== undefined && !delivered ? `${t('family.pregnancyWeek')}: ${weekNow}` : '',
+    next ? `${t('family.nextStep')}: ${itemTitle(t, next)}, ${itemWhen(t, next, lang)}${next.place ? `, ${next.place}` : ''}` : t('family.noUpcoming'),
+  ]
+    .filter(Boolean)
+    .join('. ');
 
   const header = (
     <TopBar
       left={<Avatar name={accountName || '?'} onPress={() => router.push('/family/profile')} />}
-      right={<GlassIconButton icon={Bell} accessibilityLabel="Notifications" onPress={() => router.push('/family/schedule')} />}
+      right={
+        <>
+          <ReadAloudButton text={readAloud} />
+          <GlassIconButton icon={Bell} accessibilityLabel="Notifications" badge={items.filter((i) => i.status === 'missed' || i.status === 'due').length} onPress={() => router.push('/family/notifications')} />
+        </>
+      }
     />
   );
 
@@ -71,8 +72,27 @@ export default function FamilyHome() {
 
   const ga = gestationalAge(p.edd, now);
   const loss = p.status === 'delivered' && babies.length === 0;
+  const doctorName = p.assignedDoctor?.name;
+  const doctorLabel = doctorName ?? t('family.noDoctor');
   const nextMother = items.find((i) => i.subject === 'mother');
   const nextBaby = items.find((i) => i.subject === 'baby');
+  // All baby items due on the same day as the next baby visit — one visit, one card.
+  const babyDay = nextBaby ? items.filter((i) => i.subject === 'baby' && daysBetween(i.date, nextBaby.date) === 0) : [];
+  const babyCard = nextBaby && (
+    <NextStepCard
+      key={babyDay.map((i) => i.id).join('+')}
+      bigFirstLine
+      eyebrow={nextBaby.status === 'missed' ? t('family.missedUs') : t('family.forBaby')}
+      title={babyDay.length > 1 ? `${itemTitle(t, nextBaby)} +${babyDay.length - 1} more` : itemTitle(t, nextBaby)}
+      lines={[
+        itemWhen(t, nextBaby, lang),
+        [...new Set(babyDay.map((x) => x.place ?? '').filter(Boolean))].join(' · '),
+        ...[...new Set(babyDay.flatMap((x) => [...x.bring.map((b) => t(b)), ...x.prep.map((x) => t(x))]))],
+      ].filter(Boolean)}
+      actionLabel={t('family.seeDetails')}
+      onAction={() => router.push({ pathname: '/family/day/[ids]' as any, params: { ids: babyDay.map((i) => i.id).join(',') } })}
+    />
+  );
   const card = (i: FamilyItem, eyebrow: string) => (
     <NextStepCard
       key={i.id}
@@ -83,6 +103,41 @@ export default function FamilyHome() {
       onAction={() => openItem(i)}
     />
   );
+  const meds = p.history.medicines ?? [];
+  const todayIso = toDateOnly(now).toISOString().slice(0, 10);
+  const totalSlots = meds.flatMap((m) => medSlots(m).slots).length;
+  const takenSlots = meds.flatMap((m) =>
+    medSlots(m).slots.filter((s) => {
+      const d = db.medDoses.find((dose) => dose.motherId === mother.id && dose.med === m && dose.date === todayIso && dose.slot === s);
+      return d?.status === 'taken';
+    }),
+  ).length;
+
+  const medsSubtitle =
+    totalSlots === 0
+      ? "Today's schedule & tracking"
+      : takenSlots === totalSlots
+        ? 'All doses taken today ✓'
+        : `${takenSlots}/${totalSlots} taken today`;
+
+  const medsBadge =
+    totalSlots > 0 ? (
+      <Chip label={takenSlots === totalSlots ? 'Done' : `${totalSlots - takenSlots} due`} variant="soft" />
+    ) : undefined;
+
+  const medicinesDropdown = (
+    <DropdownSection
+      title={t('family.meds.title')}
+      subtitle={medsSubtitle}
+      icon={Pill}
+      iconColor={palette.lav600}
+      iconBg={palette.lav100}
+      badge={medsBadge}
+    >
+      <MedicinesView />
+    </DropdownSection>
+  );
+
   const nextCard = next && (
     <NextStepCard
       eyebrow={next.status === 'missed' ? t('family.missedUs') : t('family.nextStep')}
@@ -108,19 +163,17 @@ export default function FamilyHome() {
           caption={isCaregiver ? `${mother.name} · ${t('family.babyAge')}` : t('family.babyAge')}
           value={String(daysBetween(baby.dob, now) < 14 ? daysBetween(baby.dob, now) : Math.floor(daysBetween(baby.dob, now) / 7))}
           suffix={` ${daysBetween(baby.dob, now) < 14 ? t('family.days') : t('family.weeksUnit')}`}
-          chips={[baby.sex === 'F' ? '♀' : '♂', `${(baby.birthWeightG / 1000).toFixed(2)} kg`, fmtShort(baby.dob, lang)]}
+          chips={[baby.sex === 'F' ? 'Girl' : 'Boy', `${(baby.birthWeightG / 1000).toFixed(2)} kg`, fmtShort(baby.dob, lang)]}
         />
       ) : (
         <>
           <HeroNumber
             caption={isCaregiver ? `${mother.name} · ${t('family.pregnancyWeek')}` : t('family.pregnancyWeek')}
             value={String(ga.weeks)}
-            suffix={ordinalSuffix(ga.weeks, lang)}
-            chips={[t('family.trimester', { n: trimester(ga) }), fmtWeekday(now, lang), fmtShort(now, lang)]}
+            suffix={` weeks`}
+            subtitle={t('family.weeksDays', { w: ga.weeks, d: ga.days })}
+            chips={[t('family.trimester', { n: trimester(ga) }), `🩺 ${doctorLabel}`]}
           />
-          <GlassSurface style={{ padding: space.md }}>
-            <ProgressBar progress={pregnancyProgress(ga)} leftCaption={t('family.weeksOf40', { weeks: formatGA(ga) })} rightCaption={`${Math.round(pregnancyProgress(ga) * 100)}%`} />
-          </GlassSurface>
           <View style={styles.tiles}>
             <StatTile label={t('family.weeksToGo')} value={String(Math.max(0, Math.ceil(daysBetween(now, p.edd) / 7)))} unit={t('family.wks')} />
             <StatTile label={t('family.dueDate')} value={String(p.edd.getUTCDate())} unit={p.edd.toLocaleDateString(lang === 'en' ? 'en-IN' : `${lang}-IN`, { month: 'short', timeZone: 'UTC' })} />
@@ -137,31 +190,19 @@ export default function FamilyHome() {
       {delivered ? (
         <>
           {nextMother && card(nextMother, t('family.forYou'))}
-          {nextBaby && card(nextBaby, t('family.forBaby'))}
+          {medicinesDropdown}
+          {babyCard}
         </>
       ) : (
-        nextCard ?? (
-          <GlassSurface strong style={{ padding: space.lg }}>
-            <AppText tone="secondary">{t('family.noUpcoming')}</AppText>
-          </GlassSurface>
-        )
-      )}
-
-      {items.length > 1 && (
         <>
-          <AppText variant="title">{t('family.comingUp')}</AppText>
-          <View style={{ gap: space.sm }}>
-            {items.filter((i) => i.id !== next?.id && i.id !== nextMother?.id && i.id !== nextBaby?.id).slice(0, 3).map((i) => (
-              <ListRow key={i.id} title={itemTitle(t, i)} subtitle={`${itemWhen(t, i, lang)}${i.place ? ` · ${i.place}` : ''}`} meta={<StatusBadge status={i.status} label={itemStatus(t, i)} />} onPress={() => openItem(i)} />
-            ))}
-          </View>
+          {medicinesDropdown}
+          {nextCard ?? (
+            <GlassSurface strong style={{ padding: space.lg }}>
+              <AppText tone="secondary">{t('family.noUpcoming')}</AppText>
+            </GlassSurface>
+          )}
         </>
       )}
-
-      <View style={styles.tiles}>
-        <QuickTile icon={PhoneCall} label={t('family.askCall')} tint={palette.rose500} onPress={() => router.push('/family/callback')} />
-        <QuickTile icon={TriangleAlert} label={t('family.warningSigns')} tint={palette.amber} onPress={() => router.push('/family/signs')} />
-      </View>
 
       {isCaregiver && (
         <AppText variant="caption" tone="secondary" align="center">
@@ -174,7 +215,5 @@ export default function FamilyHome() {
 
 const styles = StyleSheet.create({
   tiles: { flexDirection: 'row', gap: space.sm },
-  tile: { padding: space.md, gap: space.sm, minHeight: 120 },
-  tileIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  note: { paddingHorizontal: space.lg, paddingVertical: space.md },
+  note: { paddingHorizontal: space.md, paddingVertical: space.sm },
 });

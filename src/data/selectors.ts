@@ -20,18 +20,19 @@ export function ago(from: Date, now: Date): string {
 
 export const fmtDate = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 export const fmtDay = (d: Date) => d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+export const fmtTime = (d: Date) => d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 export const motherOf = (db: DbState, motherId: string) => db.mothers.find((m) => m.id === motherId)!;
 export const activeTags = (db: DbState, subjectId: string) => db.tags.filter((t) => t.subjectId === subjectId && !t.removedAt);
 
 export function gaLabel(p: Pregnancy, now: Date) {
-  return `${formatGA(gestationalAge(p.edd, now))} wks`;
+  return `${formatGA(gestationalAge(p.edd, now))} weeks`;
 }
 
 export function babyAgeLabel(b: Baby, now: Date) {
   const d = daysBetween(b.dob, now);
   if (d < 14) return `Day ${d}`;
-  if (d < 91) return `${Math.floor(d / 7)} wks`;
+  if (d < 91) return `${Math.floor(d / 7)} weeks`;
   return `${Math.floor(d / 30.4)} months`;
 }
 
@@ -120,9 +121,33 @@ export type WorkItem = {
   intensity?: Intensity;
   familySign?: boolean;
   stats?: { label: string; value: string }[];
+  /** Patient identifiers for the Name / Age+OBS / IP rows. */
+  motherId: string;
+  pregnancyId?: string;
   target: { type: 'pregnancy' | 'baby' | 'callback' | 'task' | 'investigation' | 'referral'; id: string };
   audience: 'ob' | 'paed' | 'both';
 };
+
+const SUBS = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'] as const;
+const subNum = (n: number) => String(n).split('').map((d) => SUBS[Number(d)]).join('');
+
+/** Obstetric score with subscripted digits, e.g. G₂P₁L₁A₀. */
+export function obsScore(gpla: { g: number; p: number; l: number; a: number }): string {
+  return `G${subNum(gpla.g)}P${subNum(gpla.p)}L${subNum(gpla.l)}A${subNum(gpla.a)}`;
+}
+
+/** Identifier rows for a patient: Age + OBS score, and IP number. */
+export function patientIds(db: DbState, motherId: string, pregnancyId?: string): { ageObs: string; ip: string } {
+  const m = db.mothers.find((x) => x.id === motherId);
+  const p = pregnancyId
+    ? db.pregnancies.find((x) => x.id === pregnancyId)
+    : db.pregnancies.filter((x) => x.motherId === motherId).sort((a, b) => b.registeredOn.getTime() - a.registeredOn.getTime())[0];
+  if (!m) return { ageObs: '', ip: '' };
+  return {
+    ageObs: `Age ${m.age}${p ? ` · ${obsScore(p.gpla)}` : ''}`,
+    ip: m.ipNo ? `IP ${m.ipNo}` : '',
+  };
+}
 
 const langName = { en: 'English', kn: 'Kannada', hi: 'Hindi' } as const;
 
@@ -136,7 +161,7 @@ export function worklist(db: DbState, now: Date): WorkItem[] {
     const p = db.pregnancies.find((x) => x.motherId === m.id);
     out.push({
       id: c.id, group: 'now', name: m.name, what: `Call-back requested · ${c.channel === 'whatsapp' ? 'WhatsApp' : 'app'}`, context: p ? (p.status === 'delivered' ? 'Postnatal' : gaLabel(p, now)) : '',
-      status: 'due', statusLabel: `Waiting ${ago(c.at, now)}`, intensity: p?.intensity, familySign: c.signs.length > 0, target: { type: 'callback', id: c.id }, audience: 'both',
+      status: 'due', statusLabel: `Waiting ${ago(c.at, now)}`, intensity: p?.intensity, familySign: c.signs.length > 0, motherId: m.id, pregnancyId: p?.id, target: { type: 'callback', id: c.id }, audience: 'both',
     });
   }
 
@@ -164,6 +189,8 @@ export function worklist(db: DbState, now: Date): WorkItem[] {
       status: st,
       statusLabel: st === 'due' ? 'Scheduled today' : `${daysBetween(t.dueBy, now)} days since due`,
       intensity,
+      motherId: mother.id,
+      pregnancyId: isBaby ? b!.pregnancyId : p!.id,
       stats: st === 'missed' ? [
         { label: 'Due', value: fmtDate(t.dueBy) },
         { label: 'Last visit', value: lastVisit ? fmtDate(lastVisit.at) : '—' },
@@ -180,22 +207,22 @@ export function worklist(db: DbState, now: Date): WorkItem[] {
     if (!p || p.status !== 'active') continue;
     const m = motherOf(db, p.motherId);
     if (i.status === 'resulted') {
-      out.push({ id: i.id, group: 'today', name: m.name, what: `Result awaiting review · ${i.label}`, context: gaLabel(p, now), status: 'due', statusLabel: `Entered ${ago(i.result!.at, now)} ago`, intensity: p.intensity, target: { type: 'investigation', id: i.id }, audience: 'ob' });
+      out.push({ id: i.id, group: 'today', name: m.name, what: `Result awaiting review · ${i.label}`, context: gaLabel(p, now), status: 'due', statusLabel: `Entered ${ago(i.result!.at, now)} ago`, intensity: p.intensity, motherId: m.id, pregnancyId: p.id, target: { type: 'investigation', id: i.id }, audience: 'ob' });
       continue;
     }
     if (i.status !== 'due' && i.status !== 'ordered') continue;
     const left = daysBetween(now, i.dueBy);
-    if (left < 0) out.push({ id: i.id, group: 'week', name: m.name, what: `Test window closed · ${i.label}`, context: gaLabel(p, now), status: 'overdue', statusLabel: `Closed ${fmtDate(i.dueBy)}`, intensity: p.intensity, target: { type: 'investigation', id: i.id }, audience: 'ob' });
-    else if (left <= 7 && now.getTime() >= i.dueFrom.getTime()) out.push({ id: i.id, group: 'week', name: m.name, what: `Test window closing · ${i.label}`, context: gaLabel(p, now), status: 'due', statusLabel: `Closes in ${left} days`, intensity: p.intensity, target: { type: 'investigation', id: i.id }, audience: 'ob' });
+    if (left < 0) out.push({ id: i.id, group: 'week', name: m.name, what: `Test window closed · ${i.label}`, context: gaLabel(p, now), status: 'overdue', statusLabel: `Closed ${fmtDate(i.dueBy)}`, intensity: p.intensity, motherId: m.id, pregnancyId: p.id, target: { type: 'investigation', id: i.id }, audience: 'ob' });
+    else if (left <= 7 && now.getTime() >= i.dueFrom.getTime()) out.push({ id: i.id, group: 'week', name: m.name, what: `Test window closing · ${i.label}`, context: gaLabel(p, now), status: 'due', statusLabel: `Closes in ${left} days`, intensity: p.intensity, motherId: m.id, pregnancyId: p.id, target: { type: 'investigation', id: i.id }, audience: 'ob' });
   }
 
   for (const r of db.referrals) {
     const p = pById.get(r.pregnancyId);
     if (!p) continue;
     const m = motherOf(db, p.motherId);
-    if (r.status === 'requested') out.push({ id: r.id, group: 'today', name: m.name, what: `Referral to accept · ${r.department}`, context: gaLabel(p, now), status: 'due', statusLabel: `Requested ${ago(r.events[0]!.at, now)} ago`, intensity: p.intensity, target: { type: 'referral', id: r.id }, audience: 'both' });
-    else if (r.status === 'recommendations') out.push({ id: r.id, group: 'today', name: m.name, what: `Referral answered · ${r.department}`, context: gaLabel(p, now), status: 'due', statusLabel: 'Review & close', intensity: p.intensity, target: { type: 'referral', id: r.id }, audience: 'ob' });
-    else if (referralStale(r, now)) out.push({ id: r.id, group: 'week', name: m.name, what: `Referral · ${r.department} · no update`, context: gaLabel(p, now), status: 'overdue', statusLabel: ago(lastEventAt(r), now), intensity: p.intensity, target: { type: 'referral', id: r.id }, audience: 'ob' });
+    if (r.status === 'requested') out.push({ id: r.id, group: 'today', name: m.name, what: `Referral to accept · ${r.department}`, context: gaLabel(p, now), status: 'due', statusLabel: `Requested ${ago(r.events[0]!.at, now)} ago`, intensity: p.intensity, motherId: m.id, pregnancyId: p.id, target: { type: 'referral', id: r.id }, audience: 'both' });
+    else if (r.status === 'recommendations') out.push({ id: r.id, group: 'today', name: m.name, what: `Referral answered · ${r.department}`, context: gaLabel(p, now), status: 'due', statusLabel: 'Review & close', intensity: p.intensity, motherId: m.id, pregnancyId: p.id, target: { type: 'referral', id: r.id }, audience: 'ob' });
+    else if (referralStale(r, now)) out.push({ id: r.id, group: 'week', name: m.name, what: `Referral · ${r.department} · no update`, context: gaLabel(p, now), status: 'overdue', statusLabel: ago(lastEventAt(r), now), intensity: p.intensity, motherId: m.id, pregnancyId: p.id, target: { type: 'referral', id: r.id }, audience: 'ob' });
   }
 
   for (const d of db.discharges.filter((x) => !x.completedAt)) {
@@ -206,14 +233,14 @@ export function worklist(db: DbState, now: Date): WorkItem[] {
     const m = motherOf(db, p.motherId);
     const openItems = d.items.filter((i) => !i.state).length;
     const since = db.deliveries.find((x) => x.pregnancyId === p.id)?.at ?? now;
-    out.push({ id: `dc_${d.subjectId}`, group: 'week', name: isBaby ? `Baby of ${m.name}` : m.name, what: `Discharge checklist · ${openItems} items open`, context: isBaby ? babyAgeLabel(b!, now) : 'Postnatal', status: 'due', statusLabel: `Open ${ago(since, now)}`, target: { type: isBaby ? 'baby' : 'pregnancy', id: d.subjectId }, audience: isBaby ? 'paed' : 'ob' });
+    out.push({ id: `dc_${d.subjectId}`, group: 'week', name: isBaby ? `Baby of ${m.name}` : m.name, what: `Discharge checklist · ${openItems} items open`, context: isBaby ? babyAgeLabel(b!, now) : 'Postnatal', status: 'due', statusLabel: `Open ${ago(since, now)}`, motherId: m.id, pregnancyId: p.id, target: { type: isBaby ? 'baby' : 'pregnancy', id: d.subjectId }, audience: isBaby ? 'paed' : 'ob' });
   }
 
   for (const b of db.babies) {
     const overdue = db.immunizations.filter((i) => i.babyId === b.id && !i.givenOn && daysBetween(i.dueOn, now) > 7);
     if (!overdue.length) continue;
     const first = overdue.sort((a, z) => a.dueOn.getTime() - z.dueOn.getTime())[0]!;
-    out.push({ id: `vx_${b.id}`, group: 'week', name: `Baby of ${motherOf(db, b.motherId).name}`, what: `Vaccines overdue · ${first.label}${overdue.length > 1 ? ` +${overdue.length - 1}` : ''}`, context: babyAgeLabel(b, now), status: 'overdue', statusLabel: `${daysBetween(first.dueOn, now)} days`, intensity: b.intensity, target: { type: 'baby', id: b.id }, audience: 'paed' });
+    out.push({ id: `vx_${b.id}`, group: 'week', name: `Baby of ${motherOf(db, b.motherId).name}`, what: `Vaccines overdue · ${first.label}${overdue.length > 1 ? ` +${overdue.length - 1}` : ''}`, context: babyAgeLabel(b, now), status: 'overdue', statusLabel: `${daysBetween(first.dueOn, now)} days`, intensity: b.intensity, motherId: b.motherId, pregnancyId: b.pregnancyId, target: { type: 'baby', id: b.id }, audience: 'paed' });
   }
 
   return out;
@@ -316,7 +343,7 @@ export function continuityEvents(db: DbState, pregnancyId: string, now: Date, au
   const ev: TimelineEvent[] = [{ id: 'reg', at: p.registeredOn, lane: 'mother', kind: 'registered', state: 'past', label: 'Registered', sub: p.mchId }];
 
   for (const v of db.visits.filter((x) => x.pregnancyId === p.id)) {
-    ev.push({ id: v.id, at: v.at, lane: 'mother', kind: 'visit', state: 'past', label: 'ANC visit', sub: `${gestationalAge(p.edd, v.at).weeks} wks` });
+    ev.push({ id: v.id, at: v.at, lane: 'mother', kind: 'visit', state: 'past', label: 'ANC visit', sub: `${gestationalAge(p.edd, v.at).weeks} weeks` });
   }
   if (audience === 'care') {
     for (const i of db.investigations.filter((x) => x.subjectId === p.id && x.result)) ev.push({ id: i.id, at: i.result!.at, lane: 'mother', kind: 'test', state: 'past', label: i.label, sub: 'Result documented' });

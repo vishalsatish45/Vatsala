@@ -15,6 +15,8 @@ export type Mother = {
   phone: string;
   lang: 'en' | 'kn' | 'hi';
   village: string;
+  /** Hospital IP (in-patient) number, assigned by the care team. */
+  ipNo?: string;
   emergencyContact: { name: string; relation: string; phone: string };
 };
 
@@ -33,6 +35,7 @@ export type Pregnancy = {
   gpla: { g: number; p: number; l: number; a: number };
   status: PregnancyStatus;
   intensity: Intensity;
+  assignedDoctor?: { name: string; phone?: string };
   history: { conditions: string[]; allergies: string[]; medicines: string[]; bloodGroup?: string; heightCm?: number };
   previous: PrevPregnancy[];
 };
@@ -135,6 +138,8 @@ export type Callback = {
   channel: 'app' | 'whatsapp';
   signs: string[];
   note?: string;
+  voiceUri?: string;
+  voiceSeconds?: number;
   at: Date;
   closedAt?: Date;
   outcome?: string;
@@ -146,8 +151,10 @@ export type SelfLog = {
   id: Id;
   motherId: Id;
   subject: 'mother' | 'baby';
-  kind: 'bp' | 'weight' | 'movements' | 'feeding' | 'note';
+  kind: 'bp' | 'weight' | 'movements' | 'contractions' | 'feeding' | 'note';
+  /** As entered, in English (e.g. "120/80", "62 kg", "4 in last hour"). */
   value: string;
+  /** Exact moment the reading was saved, date + time of day — a future backend stores it as timestamptz. */
   at: Date;
   by: string;
 };

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "App Name TBD",
+    "name": "Vatsala",
     "slug": "app-name-tbd",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -12,7 +12,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#F9DDE9",
+        "backgroundColor": "#F3B3CB",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -29,9 +29,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#F6B8CF",
+          "backgroundColor": "#F9D3E1",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 110
         }
       ],
       "expo-secure-store",
@@ -55,7 +55,28 @@
           "color": "#E0709A"
         }
       ],
-      "expo-document-picker"
+      "expo-document-picker",
+      "expo-sharing",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Record a short voice note so the hospital knows why you need a call."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan a patient's QR code or capture a paper record.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Speak instead of typing — the app turns your words into text.",
+          "speechRecognitionPermission": "Speak instead of typing — the app turns your words into text."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

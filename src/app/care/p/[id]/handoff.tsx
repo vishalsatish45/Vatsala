@@ -5,7 +5,8 @@ import { tagLabel } from '@/data/catalogue';
 import { activeTags, fmtDay, gaLabel, invState, motherOf, nextVisit, stillDue } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { useNow } from '@/lib/clock';
-import { AppText, Card, InfoRow, Screen, Section, TopBar, space } from '@/ui';
+import { sharePdf } from '@/lib/device';
+import { AppText, Button, Card, InfoRow, Screen, Section, TopBar, space } from '@/ui';
 
 /** CT-29 Structured handoff summary (PRD F-29): documented facts, what's done, what's due. */
 export default function Handoff() {
@@ -17,6 +18,25 @@ export default function Handoff() {
   const nv = nextVisit(db, p.id, now);
   const done = db.investigations.filter((i) => i.subjectId === p.id && i.status === 'reviewed');
   const due = stillDue(db, p, now);
+  const tagsText = activeTags(db, p.id).map((t) => tagLabel(t.code)).join(', ') || 'None';
+
+  async function share() {
+    const li = (x: string) => `<li>${x.replace(/</g, '&lt;')}</li>`;
+    const html = `<html><body style="font-family:sans-serif;padding:24px;color:#2E1F2A">
+      <h2 style="margin:0">Handoff summary · ${m.name}</h2>
+      <p style="color:#6E5A67">${p.mchId} · ${m.age} y · ${p.status === 'delivered' ? 'Delivered' : gaLabel(p, now)} · EDD ${fmtDay(p.edd)}</p>
+      <h3>Documented</h3><ul>${li(`G/P/L/A ${p.gpla.g}/${p.gpla.p}/${p.gpla.l}/${p.gpla.a}`)}${li(`Tags: ${tagsText}`)}${li(`Conditions: ${p.history.conditions.join(', ') || 'None documented'}`)}${li(`Allergies: ${p.history.allergies.join(', ') || 'None documented'}`)}${li(`Blood group: ${p.history.bloodGroup ?? '—'}`)}</ul>
+      <h3>Done</h3><ul>${done.map((i) => li(i.sensitive ? i.label : `${i.label} — ${i.result?.value ?? ''}`)).join('')}</ul>
+      <h3>Still due</h3><ul>${due.map((d) => li(`${d.label} — ${d.detail}`)).join('') || li('Nothing pending')}</ul>
+      <p>Next visit: ${nv ? `${fmtDay(nv.dueBy)} · ${nv.title}` : '—'}</p>
+      <p style="color:#A5949E;font-size:11px">Documented facts only · generated ${now.toLocaleString('en-IN')} · synthetic demo data</p>
+    </body></html>`;
+    try {
+      await sharePdf(html, `Handoff ${p.mchId}`);
+    } catch {
+      /* alert already shown */
+    }
+  }
 
   return (
     <Screen blob="none" header={<TopBar back title="Handoff summary" />}>
@@ -68,8 +88,9 @@ export default function Handoff() {
         <InfoRow label="Next visit" value={nv ? `${fmtDay(nv.dueBy)} · ${nv.title}` : undefined} />
         <InfoRow label="Contact" value={`${m.phone} · ${m.emergencyContact.relation} ${m.emergencyContact.phone}`} />
       </Card>
+      <Button label="Share as PDF" onPress={share} />
       <AppText variant="caption" tone="faint" style={{ marginTop: space.sm }}>
-        Documented facts only. Sharing as PDF arrives with the backend.
+        Documented facts only.
       </AppText>
     </Screen>
   );

@@ -1,10 +1,12 @@
 import { View } from 'react-native';
 import { router } from 'expo-router';
-import { BarChart3, ScrollText } from 'lucide-react-native';
+import { BarChart3, BedDouble, ScanLine, ScrollText } from 'lucide-react-native';
 
 import { useDb } from '@/data/store';
 import { env } from '@/lib/env';
 import { useClock } from '@/lib/clock';
+import { useNetwork } from '@/lib/network';
+import { useCareLock } from '@/state/careLock';
 import { useSession } from '@/state/session';
 import { AppText, Avatar, Button, Card, Chip, Screen, TopBar, space } from '@/ui';
 
@@ -15,6 +17,9 @@ export default function CareProfile() {
   const chooseFace = useSession((s) => s.chooseFace);
   const { offsetDays, shift, reset } = useClock();
   const resetDb = useDb((s) => s.reset);
+  const lockNow = useCareLock((s) => s.lock);
+  const offline = useNetwork((s) => s.simulateOffline);
+  const setOffline = useNetwork((s) => s.setSimulateOffline);
 
   return (
     <Screen header={<TopBar back title="Profile" />}>
@@ -27,13 +32,16 @@ export default function CareProfile() {
       </View>
 
       <Button label="KPI · on-time visits" icon={BarChart3} onPress={() => router.push('/care/kpi')} />
+      <Button variant="secondary" label="Labour room" icon={BedDouble} onPress={() => router.push('/care/labour')} />
+      <Button variant="secondary" label="Scan patient QR" icon={ScanLine} onPress={() => router.push('/care/scan')} />
       <Button variant="secondary" label="Audit log" icon={ScrollText} onPress={() => router.push('/care/audit')} />
 
       {account?.faces.includes('family') && <Button variant="secondary" label="Switch to Family" onPress={() => chooseFace('family')} />}
 
-      {env.isDev && (
+      {/* Demo tools: shown in dev builds and any build running on synthetic demo data. */}
+      {(env.isDev || env.authMode === 'mock') && (
         <Card style={{ gap: space.sm }}>
-          <AppText variant="headline">Developer tools</AppText>
+          <AppText variant="headline">Demo tools</AppText>
           <AppText variant="caption" tone="secondary">
             Auth mode: {env.authMode} · Time travel: {offsetDays >= 0 ? '+' : ''}
             {offsetDays} days
@@ -43,6 +51,8 @@ export default function CareProfile() {
             <Chip label="+7 days" onPress={() => shift(7)} />
             <Chip label="Reset clock" onPress={reset} />
             <Chip label="Reset demo data" onPress={() => resetDb(new Date())} />
+            <Chip label="Lock now" onPress={lockNow} />
+            <Chip label={offline ? 'Back online' : 'Simulate offline'} variant={offline ? 'selected' : 'soft'} onPress={() => setOffline(!offline)} />
           </View>
         </Card>
       )}

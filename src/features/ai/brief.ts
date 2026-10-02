@@ -24,7 +24,7 @@ export function buildBrief(db: DbState, pregnancyId: string, now: Date): Brief {
   const s: BriefSentence[] = [];
 
   s.push({
-    text: `${p.status === 'delivered' ? 'Delivered' : `${formatGA(gestationalAge(p.edd, now))} wks`}. G${p.gpla.g}P${p.gpla.p}L${p.gpla.l}A${p.gpla.a}. EDD ${fmtDay(p.edd)} (${p.eddSource.toUpperCase()}).`,
+    text: `${p.status === 'delivered' ? 'Delivered' : `${formatGA(gestationalAge(p.edd, now))} weeks`}. G${p.gpla.g}P${p.gpla.p}L${p.gpla.l}A${p.gpla.a}. EDD ${fmtDay(p.edd)} (${p.eddSource.toUpperCase()}).`,
     sources: [{ label: 'Registration', kind: 'registration', id: p.id }],
   });
 

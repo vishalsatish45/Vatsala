@@ -6,10 +6,17 @@
     "signOut": "Sign out",
     "language": "Language",
     "back": "Back",
-    "close": "Close"
+    "close": "Close",
+    "offline": "Offline — showing saved data",
+    "syncing": "Syncing {{n}} item(s)…",
+    "pending": "Pending sync",
+    "synced": "Synced",
+    "errorTitle": "Something went wrong",
+    "errorBody": "The app hit an unexpected problem. Your saved data is safe.",
+    "tryAgain": "Try again"
   },
   "auth": {
-    "tagline": "Care for you and your baby, every step",
+    "tagline": "Nurturing your journey along with you.",
     "familyDoor": "Mother / family",
     "familyDoorSub": "For pregnant women, mothers and caregivers",
     "careDoor": "Hospital care team",
@@ -45,24 +52,30 @@
     "seeDetails": "See details",
     "comingUp": "Coming up",
     "bring": "Bring your MCP card and reports",
-    "fasting": "Come without breakfast (sugar test)",
+    "fasting": "Sugar test: follow the food instructions on your lab slip",
     "sugarTest": "Sugar test (OGTT)",
     "cardiologyVisit": "Cardiology OPD",
     "before": "Before {{date}}",
     "due": "Due",
     "upcoming": "Upcoming",
     "askCall": "Ask the hospital to call me",
+    "emergencyCall": "Emergency Call",
+    "emergencySub": "Need help now? Call, or ask us to call you.",
+    "weeksDays": "{{w}} weeks {{d}} days",
+    "doctor": "Doctor",
+    "noDoctor": "Doctor not assigned yet",
     "warningSigns": "Warning signs",
     "logReading": "Record a reading",
-    "myCard": "My card",
+    "myCard": "My Card",
     "scheduleTitle": "Your schedule",
     "journeyTitle": "Your pregnancy",
     "learnTitle": "Learn",
     "profileTitle": "Me",
+    "settingsTitle": "Settings",
     "viewingAs": "Viewing as {{name}} (caregiver)",
     "weeksToGo": "Weeks to go",
     "dueDate": "Due date",
-    "wks": "wks",
+    "wks": "weeks",
     "babyAge": "Your baby",
     "days": "days",
     "weeksUnit": "weeks",
@@ -80,7 +93,7 @@
       "discuss": "Result ready — discuss at your visit"
     },
     "task": {
-      "anc": "Hospital visit",
+      "anc": "ANC · Hospital visit",
       "referral": "{{dept}} OPD visit",
       "pn": "Check-up after delivery",
       "nb": "Baby check-up",
@@ -103,7 +116,7 @@
     "prep": {
       "bring": "Bring your MCP card and reports",
       "bringBaby": "Bring your baby's vaccine card",
-      "fasting": "Come without breakfast"
+      "fasting": "Follow the food instructions on your lab slip"
     },
     "whatToBring": "What to bring",
     "howToPrepare": "How to prepare",
@@ -122,9 +135,10 @@
       "journey": "Journey",
       "tests": "Tests",
       "readings": "Readings",
+      "record": "Record",
       "meds": "Medicines",
       "registered": "Registered at hospital",
-      "visit": "Hospital visit",
+      "visit": "ANC · Hospital visit",
       "planned": "Planned",
       "atHospital": "Recorded at hospital",
       "youRecorded": "You recorded",
@@ -144,7 +158,9 @@
       "sentBody": "The hospital will call you on {{phone}}.",
       "urgent": "If it is urgent, don't wait — call 108 or the hospital now.",
       "cantCome": "Can't come — wants a new date",
-      "done": "Done"
+      "done": "Done",
+      "stop": "Stop",
+      "recorded": "Voice note"
     },
     "log": {
       "title": "Record a reading",
@@ -153,6 +169,9 @@
       "weight": "Weight",
       "movements": "Baby's movements",
       "feeding": "Baby's feeding",
+      "contractions": "Contractions",
+      "contractionsCount": "Number of contractions",
+      "contractionsHint": "Count them over the last hour",
       "sys": "Upper number",
       "dia": "Lower number",
       "moveNormal": "Moving as usual",
@@ -162,6 +181,7 @@
       "feedNot": "Not feeding",
       "save": "Save",
       "saved": "Saved. Your care team can see this.",
+      "savedAt": "Saved on {{day}} at {{time}}",
       "worried": "Worried? Ask the hospital to call you."
     },
     "signs": {
@@ -188,8 +208,11 @@
       },
       "none": "None"
     },
-    "learn": {
-      "thisWeek": "This week",
+    "test": {
+      "tested": "Tested",
+      "result": "Result"
+    },
+    "learn": {      "thisWeek": "This week",
       "pregnancy": "Pregnancy",
       "afterBirth": "After birth",
       "newborn": "Newborn",
@@ -285,17 +308,36 @@
       "lockedSub": "Unlock to see your health information.",
       "unlock": "Unlock",
       "none": "Set a fingerprint or screen lock on this phone first."
+    },
+    "notif": {
+      "title": "Notifications",
+      "empty": "Nothing new right now",
+      "called": "The hospital returned your call"
+    },
+    "consent": {
+      "title": "Your consent",
+      "version": "Version {{v}} · given {{date}}",
+      "withdraw": "Withdraw consent",
+      "withdrawBody": "The app will stop working for you and reminders will stop. Your hospital record stays with the hospital as required by law. You can give consent again when you next sign in.",
+      "confirm": "Yes, withdraw",
+      "cancel": "Keep consent"
+    },
+    "guide": {
+      "title": "Newborn: day by day",
+      "day": "Day {{n}}",
+      "today": "Your baby is on day {{n}}",
+      "signs": "When to go to the hospital"
     }
   },
   "on": {
     "step": "Step {{n}} of {{total}}",
     "langTitle": "Choose your language",
     "consentTitle": "Before we begin",
-    "consent1": "The hospital keeps your pregnancy and baby records here, so your care team sees the same plan.",
-    "consent2": "Only your hospital care team can see your records. You choose which family members can see your schedule.",
-    "consent3": "We remind you about visits, tests and vaccines on the app, WhatsApp or SMS — you choose.",
-    "consent4": "This app does not give medical advice. For any worry, call the hospital or 108.",
-    "consent5": "You can ask the hospital to correct your details at any time.",
+    "consent1": "Your pregnancy and baby records stay with the hospital care team.",
+    "consent2": "Only the care team sees your records. You choose what family can see.",
+    "consent3": "We send visit and vaccine reminders how you choose — app, WhatsApp or SMS.",
+    "consent4": "This app gives information only, not medical advice. Call 108 if worried.",
+    "consent5": "You can correct your details or withdraw consent at any time.",
     "agree": "I agree",
     "detailsTitle": "Your details",
     "detailsSub": "If anything is wrong, the hospital will correct it at your next visit.",
@@ -315,17 +357,31 @@
     "belly_pain": "Severe belly pain",
     "fever": "High fever",
     "breathless": "Difficulty breathing",
+    "swelling": "Swollen face or hands",
     "heavy_bleeding": "Heavy bleeding",
     "pn_fever": "Fever",
     "wound": "Wound pain or pus",
     "breast": "Breast pain or redness",
+    "pn_headache": "Severe headache or blurred vision",
+    "foul_discharge": "Bad-smelling vaginal discharge",
     "low_mood": "Feeling very low",
     "not_feeding": "Not feeding",
     "baby_fits": "Fits",
     "fast_breathing": "Fast breathing",
+    "chest_indrawing": "Chest pulls in when breathing",
+    "baby_fever": "Fever / feels hot",
     "cold": "Feels cold",
     "sleepy": "Very sleepy, hard to wake",
     "yellow": "Yellow skin or eyes",
     "cord": "Redness or pus at the cord"
+  },
+  "voice": {
+    "readAloud": "Read aloud",
+    "stopReading": "Stop reading",
+    "speak": "Speak instead of typing",
+    "stopListening": "Stop listening",
+    "listening": "Listening… speak now",
+    "noPermission": "Allow the microphone to speak instead of typing.",
+    "noLanguage": "Voice typing isn't available in this language on this phone yet."
   }
 }

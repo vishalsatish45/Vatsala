@@ -41,9 +41,10 @@ export default function TestDetail() {
         <InfoRow label="Window" value={`${fmtDay(inv.dueFrom)} – ${fmtDay(inv.dueBy)}`} />
         <InfoRow label="Type" value={inv.kind === 'scan' ? 'Ultrasound' : 'Lab'} />
         {inv.orderedAt && <InfoRow label="Ordered" value={fmtDay(inv.orderedAt)} />}
+        {inv.result && <InfoRow label="Tested" value={fmtDay(inv.result.at)} />}
         {inv.result && <InfoRow label="Result (as entered)" value={`${inv.result.value}${inv.result.unit ? ` ${inv.result.unit}` : ''}`} />}
         {inv.result?.note && <InfoRow label="Note" value={inv.result.note} />}
-        {inv.review && <InfoRow label="Reviewed" value={`${inv.review.by} · ${inv.review.followUp}`} />}
+        {inv.review && <InfoRow label="Reviewed" value={`${inv.review.by} · ${fmtDay(inv.review.at)} · ${inv.review.followUp}`} />}
         {inv.sensitive && <InfoRow label="Privacy" value="Never shown in the Family app" />}
       </Card>
 

@@ -20,6 +20,7 @@ import {
 
 import { WARNING_SIGNS, type SignStage } from '@/data/catalogue';
 import { useFamily } from '@/features/family/useFamily';
+import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { AppText, Button, EmergencyButtons, GlassSurface, Screen, SegmentedPills, TopBar, palette, space } from '@/ui';
 
 const ICONS: Record<string, LucideIcon> = {
@@ -33,12 +34,15 @@ const ICONS: Record<string, LucideIcon> = {
   breathless: Wind,
   heavy_bleeding: Droplet,
   pn_fever: Thermometer,
+  pn_headache: Eye,
   wound: Flame,
   breast: HeartCrack,
   low_mood: Moon,
   not_feeding: Baby,
   baby_fits: Zap,
   fast_breathing: Wind,
+  chest_indrawing: Wind,
+  baby_fever: Thermometer,
   cold: Snowflake,
   sleepy: Moon,
   yellow: Eye,
@@ -57,7 +61,7 @@ export default function WarningSigns() {
   return (
     <Screen
       blob="none"
-      header={<TopBar back title={t('family.signs.title')} />}
+      header={<TopBar back title={t('family.signs.title')} right={<ReadAloudButton text={[t('family.signs.banner'), ...Object.keys(WARNING_SIGNS[stage]).map((k) => t(`signs.${k}`))].join('. ')} />} />}
       footer={<EmergencyButtons call108={t('family.call108')} callHospital={t('family.callHospital')} />}
     >
       <GlassSurface strong radius={22} style={styles.banner}>

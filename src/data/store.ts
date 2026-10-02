@@ -8,6 +8,8 @@ import { addDays, gestationalAge } from '@domain/gestation';
 import { POSTNATAL_STANDARD, TAG_TEMPLATES, ancVisitDates, investigationWindows, vaccineSchedule, type Intensity } from '@domain/schedules';
 
 import { DISCHARGE_BABY, DISCHARGE_MOTHER, TAGS } from './catalogue';
+import { useNetwork } from '@/lib/network';
+
 import { buildSeed } from './seed';
 import type { CardField } from './catalogue';
 import type {
@@ -94,18 +96,20 @@ type Actions = {
   recordVisit: (pregnancyId: Id, input: VisitInput, by: string, at: Date) => Id;
   setTags: (subjectId: Id, codes: string[], note: string | undefined, by: string, now: Date) => void;
   setIntensity: (subjectId: Id, intensity: Intensity, by: string, now: Date) => void;
+  assignDoctor: (pregnancyId: Id, doctor: { name: string; phone?: string }, by: string, now: Date) => void;
   orderInvestigation: (id: Id, by: string, now: Date) => void;
   enterResult: (id: Id, value: string, unit: string | undefined, note: string | undefined, by: string, now: Date) => void;
   reviewResult: (id: Id, followUp: string, by: string, now: Date) => void;
   markNotDone: (id: Id, reason: string, by: string, now: Date) => void;
   createReferral: (r: Pick<Referral, 'pregnancyId' | 'department' | 'urgency' | 'reason' | 'question'>, by: string, now: Date) => Id;
   advanceReferral: (id: Id, to: ReferralStatus, data: { scheduledAt?: Date; place?: string; recommendations?: string; note?: string }, by: string, now: Date) => void;
-  requestCallback: (motherId: Id, signs: string[], note: string | undefined, requestedBy: string, channel: Callback['channel'], now: Date) => Id;
+  requestCallback: (motherId: Id, signs: string[], note: string | undefined, requestedBy: string, channel: Callback['channel'], now: Date, voice?: { uri: string; seconds: number }) => Id;
+  logAccess: (entity: string, actor: string, now: Date) => void;
   closeCallback: (id: Id, outcome: string, note: string | undefined, by: string, now: Date) => void;
   logContact: (taskId: Id, outcome: string, by: string, now: Date) => void;
   rescheduleTask: (taskId: Id, dueBy: Date, reason: string, by: string, now: Date) => void;
   cancelTask: (taskId: Id, reason: string, by: string, now: Date) => void;
-  addSelfLog: (log: Omit<SelfLog, 'id'>) => void;
+  addSelfLog: (log: Omit<SelfLog, 'id'>) => Id;
   admit: (pregnancyId: Id, by: string, now: Date) => void;
   recordDelivery: (pregnancyId: Id, input: DeliveryInput, by: string) => Id[];
   setDischargeItem: (subjectId: Id, key: string, state: 'done' | 'na' | 'deferred' | undefined, reason: string | undefined) => void;
@@ -140,7 +144,7 @@ function regenerateAnc(s: DbState, p: Pregnancy, from: Date, firstOn?: Date): Ta
     kind: 'anc_visit',
     subjectType: 'pregnancy',
     subjectId: p.id,
-    title: `ANC visit · ${gestationalAge(p.edd, d).weeks} wks`,
+    title: `ANC visit · ${gestationalAge(p.edd, d).weeks} weeks`,
     dueFrom: addDays(d, -2),
     dueBy: d,
     generatedBy: 'protocol',
@@ -175,7 +179,7 @@ export const useDb = create<Db>()((set, get) => ({
     const rhNegative = /-|neg/i.test(input.history.bloodGroup ?? '') || input.tagCodes.includes('rh_neg');
     const inv: Investigation[] = investigationWindows(p.edd, now, { rhNegative }).map((w) => ({ id: uid('iv'), subjectId: p.id, status: 'due', ...w }));
     const tags: Tag[] = input.tagCodes.map((code) => ({ id: uid('tg'), subjectId: p.id, code, setBy: by, setAt: now }));
-    const base: DbState = { ...s, mothers: [...s.mothers, { id: motherId, ...input.mother }], pregnancies: [...s.pregnancies, p], mchSeq: seq };
+    const base: DbState = { ...s, mothers: [...s.mothers, { id: motherId, ...input.mother, ipNo: input.mother.ipNo ?? `IP-${now.getFullYear()}-${String(seq).padStart(6, '0')}` }], pregnancies: [...s.pregnancies, p], mchSeq: seq };
     set({
       mothers: base.mothers,
       pregnancies: base.pregnancies,
@@ -199,6 +203,7 @@ export const useDb = create<Db>()((set, get) => ({
     let tasks = s.tasks.map((t) => (t.id === open[0]?.id ? { ...t, completedAt: at, refId: visit.id } : t));
     tasks = regenerateAnc({ ...s, tasks }, p, at, input.nextVisitOn);
     set({ visits: [...s.visits, visit], tasks, audit: audit(s, by, 'record_visit', p.mchId, at) });
+    useNetwork.getState().markPending(visit.id);
     return visit.id;
   },
 
@@ -227,6 +232,14 @@ export const useDb = create<Db>()((set, get) => ({
       return;
     }
     set({ babies: s.babies.map((b) => (b.id === subjectId ? { ...b, intensity } : b)), audit: audit(s, by, `intensity → ${intensity}`, subjectId, now) });
+  },
+
+  assignDoctor: (pregnancyId, doctor, by, now) => {
+    const s = get();
+    set({
+      pregnancies: s.pregnancies.map((p) => (p.id === pregnancyId ? { ...p, assignedDoctor: doctor } : p)),
+      audit: audit(s, by, `assign_doctor (${doctor.name})`, pregnancyId, now),
+    });
   },
 
   orderInvestigation: (id, by, now) => {
@@ -278,9 +291,10 @@ export const useDb = create<Db>()((set, get) => ({
     set({ referrals: s.referrals.map((r) => (r.id === id ? next : r)), tasks, audit: audit(s, by, `referral ${to}`, id, now) });
   },
 
-  requestCallback: (motherId, signs, note, requestedBy, channel, now) => {
+  requestCallback: (motherId, signs, note, requestedBy, channel, now, voice) => {
     const s = get();
-    const cb: Callback = { id: uid('cb'), motherId, requestedBy, channel, signs, note, at: now };
+    const cb: Callback = { id: uid('cb'), motherId, requestedBy, channel, signs, note, voiceUri: voice?.uri, voiceSeconds: voice?.seconds, at: now };
+    useNetwork.getState().markPending(cb.id);
     set({ callbacks: [...s.callbacks, cb], audit: audit(s, requestedBy, 'request_callback', motherId, now) });
     return cb.id;
   },
@@ -288,6 +302,13 @@ export const useDb = create<Db>()((set, get) => ({
   closeCallback: (id, outcome, note, by, now) => {
     const s = get();
     set({ callbacks: s.callbacks.map((c) => (c.id === id ? { ...c, closedAt: now, outcome, outcomeNote: note, closedBy: by } : c)), audit: audit(s, by, `callback closed: ${outcome}`, id, now) });
+  },
+
+  logAccess: (entity, actor, now) => {
+    const s = get();
+    // Collapse repeated opens of the same record by the same person within 10 minutes.
+    const recent = s.audit.find((a) => a.action === 'view_record' && a.entity === entity && a.actor === actor && now.getTime() - a.at.getTime() < 600_000);
+    if (!recent) set({ audit: audit(s, actor, 'view_record', entity, now) });
   },
 
   logContact: (taskId, outcome, by, now) => {
@@ -311,7 +332,12 @@ export const useDb = create<Db>()((set, get) => ({
     set({ tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, cancelledAt: now, overrideReason: reason } : t)), audit: audit(s, by, `cancel task (${reason})`, taskId, now) });
   },
 
-  addSelfLog: (log) => set((s) => ({ selfLogs: [...s.selfLogs, { ...log, id: uid('sl') }] })),
+  addSelfLog: (log) => {
+    const id = uid('sl');
+    set((s) => ({ selfLogs: [...s.selfLogs, { ...log, id }] }));
+    useNetwork.getState().markPending(id);
+    return id;
+  },
 
   admit: (pregnancyId, by, now) => {
     const s = get();
@@ -418,7 +444,9 @@ export const useDb = create<Db>()((set, get) => ({
 
   addNewbornObs: (obs) => {
     const s = get();
-    set({ newbornObs: [...s.newbornObs, { ...obs, id: uid('nb') }], audit: audit(s, obs.by, 'newborn_observation', obs.babyId, obs.at) });
+    const id = uid('nb');
+    set({ newbornObs: [...s.newbornObs, { ...obs, id }], audit: audit(s, obs.by, 'newborn_observation', obs.babyId, obs.at) });
+    useNetwork.getState().markPending(id);
   },
 
   logDose: (d) =>

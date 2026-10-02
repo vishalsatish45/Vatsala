@@ -81,7 +81,7 @@ export function buildSeed(nowIn: Date): DbState {
   };
 
   function ancTask(p: Pregnancy, on: Date): Task {
-    return { id: id('tk'), kind: 'anc_visit', subjectType: 'pregnancy', subjectId: p.id, title: `ANC visit · ${gestationalAge(p.edd, on).weeks} wks`, dueFrom: addDays(on, -2), dueBy: on, generatedBy: 'protocol', contactAttempts: [] };
+    return { id: id('tk'), kind: 'anc_visit', subjectType: 'pregnancy', subjectId: p.id, title: `ANC visit · ${gestationalAge(p.edd, on).weeks} weeks`, dueFrom: addDays(on, -2), dueBy: on, generatedBy: 'protocol', contactAttempts: [] };
   }
 
   function add(spec: Spec, opts: { eddOverride?: Date; status?: Pregnancy['status'] } = {}): Pregnancy {
@@ -101,6 +101,7 @@ export function buildSeed(nowIn: Date): DbState {
       gpla: { g: spec.gpla[0], p: spec.gpla[1], l: spec.gpla[2], a: spec.gpla[3] },
       status: opts.status ?? 'active',
       intensity: spec.intensity,
+      assignedDoctor: { name: OB, phone: '080-2222-0001' },
       history: { conditions: spec.conditions ?? [], allergies: spec.allergies ?? [], medicines: ['IFA', 'Calcium'], bloodGroup: spec.bloodGroup ?? 'B+', heightCm: 154 },
       previous: spec.previous ?? [],
     };
@@ -111,6 +112,7 @@ export function buildSeed(nowIn: Date): DbState {
       phone: spec.phone,
       lang: spec.lang,
       village: spec.village,
+      ipNo: `IP-${registeredOn.getUTCFullYear()}-${String(s.mchSeq).padStart(6, '0')}`,
       emergencyContact: { name: 'Family member', relation: 'Husband', phone: '9800000000' },
     });
     s.pregnancies.push(p);
@@ -143,7 +145,7 @@ export function buildSeed(nowIn: Date): DbState {
       // Historical ANC task this visit closed — feeds the on-time KPI. Every 5th visit was late.
       const late = i % 5 === 4;
       const dueBy = addDays(toDateOnly(at), late ? -(GRACE_DAYS[spec.intensity] + 3) : -(i % 2));
-      s.tasks.push({ id: id('tk'), kind: 'anc_visit', subjectType: 'pregnancy', subjectId: p.id, title: `ANC visit · ${w} wks`, dueFrom: addDays(dueBy, -2), dueBy, completedAt: at, refId: v.id, generatedBy: 'protocol', contactAttempts: late ? [{ at: addDays(dueBy, GRACE_DAYS[spec.intensity] + 1), outcome: 'Will come', by: 'Care coordinator' }] : [] });
+      s.tasks.push({ id: id('tk'), kind: 'anc_visit', subjectType: 'pregnancy', subjectId: p.id, title: `ANC visit · ${w} weeks`, dueFrom: addDays(dueBy, -2), dueBy, completedAt: at, refId: v.id, generatedBy: 'protocol', contactAttempts: late ? [{ at: addDays(dueBy, GRACE_DAYS[spec.intensity] + 1), outcome: 'Will come', by: 'Care coordinator' }] : [] });
     });
 
     const inv: Investigation[] = investigationWindows(edd, registeredOn, { rhNegative: (spec.bloodGroup ?? '').includes('-') }).map((w) => {
@@ -195,14 +197,14 @@ export function buildSeed(nowIn: Date): DbState {
         { status: 'recommendations', at: addDays(now, -9), by: 'Cardiology' },
       ],
     },
-    { id: id('rf'), pregnancyId: lakshmi.id, department: 'Anaesthesia', urgency: 'routine', reason: 'Previous caesarean — pre-delivery review', question: 'Anaesthesia review before 36 wks', status: 'requested', createdBy: OB, events: [{ status: 'requested', at: hoursAgo(now, 5), by: OB }] },
+    { id: id('rf'), pregnancyId: lakshmi.id, department: 'Anaesthesia', urgency: 'routine', reason: 'Previous caesarean — pre-delivery review', question: 'Anaesthesia review before 36 weeks', status: 'requested', createdBy: OB, events: [{ status: 'requested', at: hoursAgo(now, 5), by: OB }] },
   );
   s.caregivers.push({ id: id('cg'), motherId: lakshmi.motherId, name: 'Ravi K', relation: 'Husband', phone: '9000000004', scopes: { schedule: true, baby: true, logs: false }, addedAt: addDays(lakshmi.registeredOn, 1) });
   s.callbacks.push({ id: id('cb'), motherId: lakshmi.motherId, requestedBy: 'Lakshmi K (mother)', channel: 'app', signs: ['Baby moving less'], note: 'Voice note (0:18)', at: hoursAgo(now, 0.2) });
   s.notes.push(
-    { id: id('nt'), subjectId: lakshmi.id, author: OB, body: 'Palpitations reported at 28 wks. Cardiology opinion requested.', at: addDays(now, -20), kind: 'note' },
+    { id: id('nt'), subjectId: lakshmi.id, author: OB, body: 'Palpitations reported at 28 weeks. Cardiology opinion requested.', at: addDays(now, -20), kind: 'note' },
     { id: id('nt'), subjectId: lakshmi.id, author: 'Cardiology', body: 'Reviewed. Echo documented. Recommendations recorded on the referral.', at: addDays(now, -9), kind: 'note' },
-    { id: id('nt'), subjectId: lakshmi.id, author: OB, body: 'Anaesthesia review requested before 36 wks (previous LSCS).', at: hoursAgo(now, 5), kind: 'note' },
+    { id: id('nt'), subjectId: lakshmi.id, author: OB, body: 'Anaesthesia review requested before 36 weeks (previous LSCS).', at: hoursAgo(now, 5), kind: 'note' },
   );
   for (let d = 1; d <= 7; d++) {
     const date = addDays(today, -d).toISOString().slice(0, 10);
@@ -220,7 +222,7 @@ export function buildSeed(nowIn: Date): DbState {
   sunitaMissed.contactAttempts.push({ at: addDays(now, -1), outcome: 'Unreachable', by: 'Care coordinator' });
 
   // ── 3. Kavya — adolescent, visit today ──
-  add({ name: 'Kavya M', age: 17, phone: '9811100003', village: 'Anekal', lang: 'kn', ga: [24, 5], gpla: [1, 0, 0, 0], intensity: 'enhanced', tags: ['adolescent'], regWeek: 14, visitWeeks: [14, 18, 21], nextVisitIn: 0 });
+  add({ name: 'Kavya M', age: 25, phone: '9811100003', village: 'Anekal', lang: 'kn', ga: [24, 5], gpla: [1, 0, 0, 0], intensity: 'enhanced', regWeek: 14, visitWeeks: [14, 18, 21], nextVisitIn: 0 });
 
   // ── 4. Anjali — OGTT resulted, awaiting review ──
   const anjali = add({ name: 'Anjali P', age: 26, phone: '9811100004', village: 'Hoskote', lang: 'hi', ga: [28, 3], gpla: [1, 0, 0, 0], intensity: 'routine', regWeek: 9, visitWeeks: [9, 13, 17, 21, 25], nextVisitIn: 4 });

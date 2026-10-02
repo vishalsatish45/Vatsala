@@ -3,6 +3,8 @@
  * MCH guidance themes. Status: DRAFT — pending clinical review by the doctor partner.
  * Titles/bodies are English for now; translations follow review.
  */
+import { LEARN_TX } from './learnI18n';
+
 export type LearnCard = {
   slug: string;
   stage: 'pregnancy' | 'afterBirth' | 'newborn';
@@ -115,3 +117,9 @@ export const LEARN: LearnCard[] = [
     body: ['Vaccines are given at birth, 6, 10 and 14 weeks, 9 months and later.', 'The app reminds you before each date.', 'Bring the baby’s vaccine card to every visit.'],
   },
 ];
+
+/** Article text in the reader's language (kn/hi drafts pending review); falls back to English. */
+export function learnText(card: LearnCard, lang: string): { title: string; summary: string; body: string[] } {
+  const tx = lang === 'kn' || lang === 'hi' ? LEARN_TX[card.slug]?.[lang] : undefined;
+  return tx ?? { title: card.title, summary: card.summary, body: card.body };
+}

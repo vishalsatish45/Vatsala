@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { LucideIcon } from 'lucide-react-native';
-import { Plus } from 'lucide-react-native';
+import { PhoneCall, Plus } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { TabTrigger, type TabTriggerSlotProps } from 'expo-router/ui';
 import type { Href } from 'expo-router';
@@ -19,6 +19,7 @@ type Props = {
   right: [NavItem, NavItem];
   onCenterPress: () => void;
   centerLabel: string;
+  centerIcon?: 'plus' | 'call';
 };
 
 const CIRCLE = 48;
@@ -58,7 +59,7 @@ function NavCircle({ icon: Icon, label, isFocused, onPress, onLongPress, ref }: 
  * Floating navbar (inspiration A): 4 glass circles + a larger rose centre action button with a glow.
  * No bar background — content scrolls underneath. Must be rendered inside expo-router/ui <Tabs>.
  */
-export function FloatingNavBar({ left, right, onCenterPress, centerLabel }: Props) {
+export function FloatingNavBar({ left, right, onCenterPress, centerLabel, centerIcon = 'plus' }: Props) {
   const insets = useSafeAreaInsets();
   const mood = useMood();
   const bottom = Math.max(insets.bottom, 8) + 8;
@@ -82,7 +83,7 @@ export function FloatingNavBar({ left, right, onCenterPress, centerLabel }: Prop
         <PressableScale onPress={onCenterPress} accessibilityRole="button" accessibilityLabel={centerLabel} pressedScale={0.92} style={[styles.centerShadow, elevation.glow]}>
           <LinearGradient colors={[palette.rose300, palette.rose500]} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }} style={styles.center}>
             <View style={styles.centerRing}>
-              <Plus size={26} color={palette.white} strokeWidth={2.2} />
+              {centerIcon === 'call' ? <PhoneCall size={26} color={palette.white} strokeWidth={2.2} /> : <Plus size={26} color={palette.white} strokeWidth={2.2} />}
             </View>
           </LinearGradient>
         </PressableScale>

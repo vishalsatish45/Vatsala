@@ -2,18 +2,40 @@ import '@/lib/env'; // validate configuration first — fails fast with a clear 
 import '@/lib/i18n';
 
 import { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { View } from 'react-native';
+import { Stack, type ErrorBoundaryProps } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClientProvider } from '@tanstack/react-query';
 
+import { watchNetwork } from '@/lib/device';
+import { useNetwork } from '@/lib/network';
 import { queryClient } from '@/lib/query';
 import { useSession } from '@/state/session';
 import { fontAssets } from '@/ui/fonts';
+import { AppText, Atmosphere, Button, OfflineBanner, space } from '@/ui';
 import { palette } from '@/ui/tokens';
 
 void SplashScreen.preventAutoHideAsync();
+
+/** Friendly crash screen (DESIGN.md §8 error state) instead of a red box in production. */
+export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
+  const { t } = useTranslation();
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', padding: space.xl, gap: space.md }}>
+      <Atmosphere blobCenterY={260} />
+      <AppText variant="display" align="center">
+        {t('common.errorTitle')}
+      </AppText>
+      <AppText tone="secondary" align="center">
+        {t('common.errorBody')}
+      </AppText>
+      <Button label={t('common.tryAgain')} onPress={retry} />
+    </View>
+  );
+}
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts(fontAssets);
@@ -22,6 +44,14 @@ export default function RootLayout() {
   const face = useSession((s) => s.face);
 
   const ready = (fontsLoaded || !!fontError) && hydrated;
+  const { t } = useTranslation();
+  const setOnline = useNetwork((s) => s.setOnline);
+
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    void watchNetwork(setOnline).then((fn) => (stop = fn));
+    return () => stop?.();
+  }, [setOnline]);
 
   useEffect(() => {
     if (ready) void SplashScreen.hideAsync();
@@ -52,6 +82,7 @@ export default function RootLayout() {
             <Stack.Screen name="family" />
           </Stack.Protected>
         </Stack>
+        <OfflineBanner offlineLabel={t('common.offline')} syncingLabel={t('common.syncing')} />
       </QueryClientProvider>
     </GestureHandlerRootView>
   );

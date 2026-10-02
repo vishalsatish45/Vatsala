@@ -10,10 +10,11 @@ import { useDb } from '@/data/store';
 import type { ChecklistState } from '@/data/types';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
-import { AppText, Button, Card, ChecklistRow, Chip, Field, OptionChips, ProgressBar, Screen, Sheet, TopBar, palette, space } from '@/ui';
+import { AppText, Button, Card, ChecklistRow, Chip, DatePicker, Field, OptionChips, ProgressBar, Screen, Sheet, TopBar, palette, space } from '@/ui';
 
 const num = (s: string) => (s.trim() === '' ? undefined : Number(s.replace(',', '.')));
 const range = (v: number | undefined, lo: number, hi: number) => (v === undefined || (v >= lo && v <= hi) ? undefined : 'Check value');
+const OTHER = 'Other';
 
 /** CT-30 Record ANC visit with the completeness checklist (PRD F-13). Values are stored as entered — never interpreted. */
 export default function RecordVisit() {
@@ -39,8 +40,9 @@ export default function RecordVisit() {
   const [ifa, setIfa] = useState(false);
   const [counselling, setCounselling] = useState<string[]>([]);
   const [complaints, setComplaints] = useState<string[]>([]);
+  const [otherComplaint, setOtherComplaint] = useState('');
   const defaultWeeks = ancIntervalWeeks(p.intensity, ga.weeks);
-  const [nextWeeks, setNextWeeks] = useState(String(defaultWeeks));
+  const [nextOn, setNextOn] = useState(() => addDays(now, defaultWeeks * 7));
   const [gaps, setGaps] = useState<Record<string, { state: ChecklistState; reason?: string }>>({});
   const [review, setReview] = useState(false);
 
@@ -58,7 +60,9 @@ export default function RecordVisit() {
   };
   const merged = Object.fromEntries(expectedComponents(ga.weeks).map((c) => [c.key, recorded[c.key] ?? gaps[c.key]?.state]));
   const comp = completeness(ga.weeks, merged);
-  const nextOn = addDays(now, Number(nextWeeks) * 7);
+  const nextInDays = Math.round((startOfDay(nextOn).getTime() - startOfDay(now).getTime()) / 86_400_000);
+  // "Other" is stored as the text the clinician wrote, so the record reads as one list.
+  const savedComplaints = complaints.flatMap((c) => (c !== OTHER ? [c] : otherComplaint.trim() ? [`Other: ${otherComplaint.trim()}`] : []));
 
   const errors = {
     weight: range(num(weight), 25, 200),
@@ -88,7 +92,7 @@ export default function RecordVisit() {
           oedema,
         },
         checklist,
-        complaints,
+        complaints: savedComplaints,
         nextVisitOn: nextOn,
       },
       by,
@@ -114,7 +118,7 @@ export default function RecordVisit() {
       <View style={{ gap: 4 }}>
         <AppText variant="display">{m.name}</AppText>
         <AppText tone="secondary">
-          {p.mchId} · {ga.weeks}+{ga.days} wks · {fmtDay(now)}
+          {p.mchId} · {ga.weeks}+{ga.days} weeks · {fmtDay(now)}
         </AppText>
       </View>
 
@@ -159,14 +163,21 @@ export default function RecordVisit() {
           <Switch value={ifa} onValueChange={setIfa} trackColor={{ true: palette.rose300, false: palette.divider }} thumbColor={ifa ? palette.rose500 : palette.white} />
         </View>
         <OptionChips multi label="Counselling given" options={['Nutrition', 'Warning signs', 'Birth preparedness', 'Breastfeeding', 'Family planning']} value={counselling} onChange={setCounselling} />
-        <OptionChips multi label="Complaints (as reported)" options={COMPLAINTS} value={complaints} onChange={setComplaints} variant="soft" />
+        <OptionChips multi label="Complaints (as reported)" options={[...COMPLAINTS, OTHER]} value={complaints} onChange={setComplaints} variant="soft" />
+        {complaints.includes(OTHER) && <Field label="Other complaint" placeholder="Write the complaint as reported" multiline value={otherComplaint} onChangeText={setOtherComplaint} />}
       </Card>
 
       <Card style={{ gap: space.sm }}>
         <AppText variant="title">Next visit</AppText>
-        <OptionChips label={`Suggested by ${p.intensity} schedule: ${defaultWeeks} wk`} options={['1', '2', '3', '4']} value={nextWeeks} onChange={(v) => v && setNextWeeks(v)} />
+        <OptionChips
+          label={`Suggested by ${p.intensity} schedule: ${defaultWeeks} wk`}
+          options={WEEK_SHORTCUTS}
+          value={WEEK_SHORTCUTS.find((w) => Number(w.split(' ')[0]) * 7 === nextInDays)}
+          onChange={(v) => v && setNextOn(addDays(now, Number(v.split(' ')[0]) * 7))}
+        />
+        <DatePicker value={nextOn} onChange={setNextOn} minDate={addDays(now, 1)} />
         <AppText variant="bodyMedium">
-          In {nextWeeks} week{nextWeeks === '1' ? '' : 's'} · {fmtDay(nextOn)}
+          In {nextInDays} day{nextInDays === 1 ? '' : 's'} · {fmtDay(nextOn)}
         </AppText>
       </Card>
 
@@ -200,6 +211,9 @@ export default function RecordVisit() {
     </Screen>
   );
 }
+
+const WEEK_SHORTCUTS = ['1 wk', '2 wk', '3 wk', '4 wk'];
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: space.sm },

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { Linking, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Phone } from 'lucide-react-native';
@@ -9,6 +9,8 @@ import { useDb } from '@/data/store';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
 import { AppText, Button, Card, Chip, Field, InfoRow, OptionChips, Screen, StatusBadge, TopBar, space } from '@/ui';
+
+const VoicePlayer = lazy(() => import('@/features/device/VoicePlayer'));
 
 /**
  * CT-41/42 Call-back detail & outcome (PRD F-25). Shows what the family reported, as
@@ -53,6 +55,11 @@ export default function CallbackDetail() {
           </View>
         )}
         <InfoRow label="Message" value={c.note} />
+        {c.voiceUri && (
+          <Suspense fallback={null}>
+            <VoicePlayer uri={c.voiceUri} seconds={c.voiceSeconds} />
+          </Suspense>
+        )}
         {logs.map((l) => (
           <InfoRow key={l.id} label={`Home ${l.kind.toUpperCase()} (${ago(l.at, now)} ago)`} value={l.value} />
         ))}

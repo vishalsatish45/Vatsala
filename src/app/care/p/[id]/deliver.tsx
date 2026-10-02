@@ -61,7 +61,7 @@ export default function RecordDelivery() {
       <View style={{ gap: 4 }}>
         <AppText variant="display">{m.name}</AppText>
         <AppText tone="secondary">
-          {p.mchId} · GA at delivery {formatGA(ga)} wks
+          {p.mchId} · GA at delivery {formatGA(ga)} weeks
         </AppText>
       </View>
 

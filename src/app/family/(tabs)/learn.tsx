@@ -4,17 +4,20 @@ import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { gestationalAge } from '@domain/gestation';
 
-import { LEARN, type LearnCard } from '@/features/family/learn';
+import { LEARN, learnText, type LearnCard } from '@/features/family/learn';
 import { LEARN_ICONS } from '@/features/family/learnIcons';
 import { useFamily } from '@/features/family/useFamily';
 import { useNow } from '@/lib/clock';
-import { AppText, ListRow, Screen, StoryCard, TopBar, UnderlineTabs, space } from '@/ui';
+import { Baby } from 'lucide-react-native';
+
+import { AppText, ListRow, Screen, StoryCard, TopBar, UnderlineTabs, palette, space } from '@/ui';
 
 type Tab = 'thisWeek' | LearnCard['stage'];
 
 /** FH-50 Learn — clinically reviewed content only (PRD F-47); this set is pending review. */
 export default function Learn() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
   const now = useNow();
   const { pregnancy } = useFamily();
   const delivered = pregnancy?.status === 'delivered';
@@ -40,16 +43,19 @@ export default function Learn() {
       />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm, paddingVertical: 8, paddingRight: space.md }} snapToInterval={272} decelerationRate="fast">
         {list.slice(0, 4).map((c) => (
-          <StoryCard key={c.slug} icon={LEARN_ICONS[c.icon]} tone={c.tone} title={c.title} body={c.summary} onPress={() => open(c.slug)} />
+          <StoryCard key={c.slug} icon={LEARN_ICONS[c.icon]} tone={c.tone} title={learnText(c, lang).title} body={learnText(c, lang).summary} onPress={() => open(c.slug)} />
         ))}
       </ScrollView>
       <View style={{ gap: space.sm }}>
         {list.slice(4).map((c) => (
-          <ListRow key={c.slug} title={c.title} subtitle={c.summary} onPress={() => open(c.slug)} />
+          <ListRow key={c.slug} title={learnText(c, lang).title} subtitle={learnText(c, lang).summary} onPress={() => open(c.slug)} />
         ))}
       </View>
+      {(tab === 'newborn' || (tab === 'thisWeek' && delivered)) && (
+        <ListRow leading={<Baby size={22} color={palette.lav600} />} title={t('family.guide.title')} onPress={() => router.push('/family/newborn-guide')} />
+      )}
       <AppText variant="caption" tone="faint" align="center">
-        {t('family.learn.reviewed')} · {t('family.learn.englishOnly')}
+        {t('family.learn.reviewed')}
       </AppText>
     </Screen>
   );

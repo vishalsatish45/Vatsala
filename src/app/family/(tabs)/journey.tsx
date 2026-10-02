@@ -7,13 +7,14 @@ import { gestationalAge } from '@domain/gestation';
 
 import { useDb } from '@/data/store';
 import { MyBaby } from '@/features/family/MyBaby';
-import { fmtDay, fmtShort } from '@/features/family/itemText';
+import { RecordForm } from '@/features/family/RecordForm';
+import { fmtDay, fmtShort, fmtTime } from '@/features/family/itemText';
 import { familyTimeline } from '@/features/family/timeline';
 import { useFamily } from '@/features/family/useFamily';
 import { useNow } from '@/lib/clock';
 import { AppText, Button, Card, ContinuityTimeline, ListRow, Screen, StatTile, StatusBadge, TopBar, UnderlineTabs, WeekScrubber, palette, space } from '@/ui';
 
-type Tab = 'journey' | 'tests' | 'readings' | 'meds';
+type Tab = 'journey' | 'tests' | 'readings' | 'record' | 'meds';
 
 const TEST_KEYS = ['ogtt', 'hb1', 'hb2', 'hb3', 'anomaly', 'dating', 'bg', 'urine', 'rbs', 'tsh', 'ict'];
 
@@ -48,7 +49,8 @@ export default function Journey() {
   return (
     <Screen withNav blob="none" header={<TopBar title={t('family.tabs.journey')} />}>
       <AppText variant="display">{t('family.journeyTitle')}</AppText>
-      {p.status !== 'delivered' && <WeekScrubber week={ga.weeks} />}
+      <AppText tone="secondary">{t('family.weeksDays', { w: ga.weeks, d: ga.days })} · 🩺 {p.assignedDoctor?.name ?? t('family.noDoctor')}</AppText>
+      {p.status !== 'delivered' && <WeekScrubber week={ga.weeks} label={t('family.weeksDays', { w: ga.weeks, d: ga.days })} />}
 
       <UnderlineTabs
         value={tab}
@@ -56,8 +58,9 @@ export default function Journey() {
         tabs={[
           { value: 'journey', label: t('family.journey.journey') },
           { value: 'tests', label: t('family.journey.tests') },
-          { value: 'readings', label: t('family.journey.readings') },
           { value: 'meds', label: t('family.journey.meds') },
+          { value: 'readings', label: t('family.journey.readings') },
+          { value: 'record', label: t('family.journey.record') },
         ]}
       />
 
@@ -84,8 +87,9 @@ export default function Journey() {
                 <ListRow
                   key={i.id}
                   title={TEST_KEYS.includes(i.code) ? t(`family.tests.${i.code}`) : i.label}
-                  subtitle={status === 'done' ? fmtShort(i.result?.at ?? i.dueBy, lang) : t('family.before', { date: fmtShort(i.dueBy, lang) })}
+                  subtitle={status === 'done' && i.result ? `${fmtShort(i.result.at, lang)} · ${i.result.value}${i.result.unit ? ` ${i.result.unit}` : ''}` : status === 'done' ? fmtShort(i.dueBy, lang) : t('family.before', { date: fmtShort(i.dueBy, lang) })}
                   meta={<StatusBadge status={status} label={label} />}
+                  onPress={() => router.push({ pathname: '/family/test/[id]' as any, params: { id: i.id } })}
                 />
               );
             })}
@@ -102,10 +106,17 @@ export default function Journey() {
               <StatTile icon={HeartPulse} label={t('family.log.bp')} value={last?.vitals.bpSys ? `${last.vitals.bpSys}/${last.vitals.bpDia}` : '—'} caption={last ? fmtShort(last.at, lang) : undefined} badge={t('family.journey.atHospital')} />
             </View>
             {logs.map((l) => (
-              <ListRow key={l.id} title={`${l.kind === 'bp' ? t('family.log.bp') : l.kind === 'weight' ? t('family.log.weight') : l.kind === 'movements' ? t('family.log.movements') : t('family.log.feeding')}: ${l.value}`} subtitle={`${t('family.journey.youRecorded')} · ${fmtDay(l.at, lang)}`} />
+              <ListRow key={l.id} title={l.kind === 'note' ? l.value : `${t(`family.log.${l.kind}`)}: ${l.value}`} subtitle={`${t('family.journey.youRecorded')} · ${fmtDay(l.at, lang)} · ${fmtTime(l.at, lang)}`} />
             ))}
             {!ctx.isCaregiver && <Button variant="secondary" label={t('family.journey.addReading')} onPress={() => router.push('/family/log')} />}
           </>
+        ) : (
+          <AppText tone="secondary">{t('family.me.limited', { name: ctx.mother.name })}</AppText>
+        ))}
+
+      {tab === 'record' &&
+        (ctx.scopes.logs && !ctx.isCaregiver ? (
+          <RecordForm onSaved={() => setTab('readings')} />
         ) : (
           <AppText tone="secondary">{t('family.me.limited', { name: ctx.mother.name })}</AppText>
         ))}

@@ -3,13 +3,13 @@ import { StyleSheet, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { Bell, ScanLine, Search } from 'lucide-react-native';
 
-import { worklist, type WorkGroup } from '@/data/selectors';
+import { worklist, patientIds, type WorkGroup } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { openTarget } from '@/features/care/nav';
-import { comingSoon } from '@/lib/comingSoon';
+import { careInbox } from '@/features/care/inbox';
 import { useNow } from '@/lib/clock';
 import { useSession } from '@/state/session';
-import { AppText, Avatar, Chip, GlassIconButton, GlassSurface, HeroNumber, ListRow, Screen, SegmentedPills, StatusBadge, TopBar, families, intensityLabel, palette, space } from '@/ui';
+import { AppText, Avatar, Chip, EmptyState, GlassIconButton, GlassSurface, HeroNumber, ListRow, Screen, SegmentedPills, StatusBadge, TopBar, families, intensityLabel, palette, space } from '@/ui';
 
 function greeting(d: Date) {
   const h = d.getHours();
@@ -21,11 +21,22 @@ export default function Worklist() {
   const account = useSession((s) => s.account);
   const db = useDb();
   const now = useNow();
-  const [group, setGroup] = useState<WorkGroup>('now');
+  const [group, setGroup] = useState<WorkGroup>('today');
   const [q, setQ] = useState('');
 
   const isPaed = account?.care?.role === 'paediatrician';
-  const all = useMemo(() => worklist(db, now).filter((w) => w.audience === 'both' || w.audience === (isPaed ? 'paed' : 'ob')), [db, now, isPaed]);
+  const isSpecialist = account?.care?.role === 'specialist';
+  const dept = account?.care?.department;
+  const all = useMemo(
+    () =>
+      worklist(db, now).filter((w) =>
+        isSpecialist
+          ? w.target.type === 'referral' && db.referrals.find((r) => r.id === w.target.id)?.department === dept
+          : w.audience === 'both' || w.audience === (isPaed ? 'paed' : 'ob'),
+      ),
+    [db, now, isPaed, isSpecialist, dept],
+  );
+  const inboxCount = careInbox(db, now, { department: dept, specialist: isSpecialist }).length;
   const count = (g: WorkGroup) => all.filter((w) => w.group === g).length;
   const items = all.filter((w) => w.group === group && (!q || w.name.toLowerCase().includes(q.toLowerCase())));
   const shortName = account?.name.split(' ').slice(0, 2).join(' ') ?? '';
@@ -40,14 +51,14 @@ export default function Worklist() {
           title={`${greeting(now)}, ${shortName}`}
           right={
             <>
-              <GlassIconButton icon={ScanLine} accessibilityLabel="Scan patient QR" onPress={() => comingSoon('Scan QR')} />
-              <GlassIconButton icon={Bell} accessibilityLabel="Notifications" badge={count('now')} onPress={() => setGroup('now')} />
+              <GlassIconButton icon={ScanLine} accessibilityLabel="Scan patient QR" onPress={() => router.push('/care/scan')} />
+              <GlassIconButton icon={Bell} accessibilityLabel="Notifications" badge={inboxCount} onPress={() => router.push('/care/notifications')} />
             </>
           }
         />
       }
     >
-      <HeroNumber caption="Needs you today" value={String(count('now') + count('today'))} subtitle={`${count('week')} more this week`} />
+      <HeroNumber caption={isSpecialist ? `${dept} referrals` : 'Appointments for Today'} value={String(isSpecialist ? count('now') + count('today') : count('today'))} subtitle={isSpecialist ? `${count('week')} more this week` : `${count('now')} need attention now · ${count('week')} more this week`} />
 
       <GlassSurface strong radius={999} elevation="card" style={styles.search}>
         <Search size={18} color={palette.inkFaint} />
@@ -65,28 +76,31 @@ export default function Worklist() {
       />
 
       <View style={{ gap: space.sm }}>
-        {items.map((w) => (
-          <ListRow
-            key={w.id}
-            leading={<Avatar name={w.name.replace(/^Baby of /, '')} size={40} tint={w.name.startsWith('Baby') ? 'lavender' : 'rose'} />}
-            title={w.name}
-            subtitle={`${w.what} · ${w.context}`}
-            meta={
-              <>
-                <StatusBadge status={w.status} label={w.statusLabel} />
-                {w.intensity && w.intensity !== 'routine' && <Chip label={intensityLabel(w.intensity)} variant="soft" />}
-                {w.familySign && <Chip label="Family reported warning sign" variant="tag" />}
-              </>
-            }
-            stats={w.stats}
-            onPress={() => openTarget(w.target)}
-          />
-        ))}
-        {items.length === 0 && (
-          <AppText tone="secondary" align="center" style={{ paddingVertical: space.xl }}>
-            Nothing here — all caught up.
-          </AppText>
-        )}
+        <AppText variant="title">{group === 'now' ? 'Needs attention now' : group === 'today' ? 'Appointments for Today' : 'Coming up this week'}</AppText>
+        {items.map((w) => {
+          const ids = patientIds(db, w.motherId, w.pregnancyId);
+          return (
+            <ListRow
+              key={w.id}
+              leading={<Avatar name={w.name.replace(/^Baby of /, '')} size={40} tint={w.name.startsWith('Baby') ? 'lavender' : 'rose'} />}
+              title={w.name}
+              subtitle={ids.ip ? `${ids.ageObs}\n${ids.ip}` : ids.ageObs}
+              meta={
+                <>
+                  <AppText variant="caption" tone="secondary">
+                    {w.what} · {w.context}
+                  </AppText>
+                  <StatusBadge status={w.status} label={w.statusLabel} />
+                  {w.intensity && w.intensity !== 'routine' && <Chip label={intensityLabel(w.intensity)} variant="soft" />}
+                  {w.familySign && <Chip label="Family reported warning sign" variant="tag" />}
+                </>
+              }
+              stats={w.stats}
+              onPress={() => openTarget(w.target)}
+            />
+          );
+        })}
+        {items.length === 0 && <EmptyState title="All caught up" body="Nothing needs you in this group right now." />}
       </View>
       <AppText variant="caption" tone="faint" align="center">
         Synthetic demo data · care gaps only, no clinical scoring

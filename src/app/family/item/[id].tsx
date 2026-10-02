@@ -7,6 +7,7 @@ import { CalendarClock, Info, MapPin, Package } from 'lucide-react-native';
 import { useDb } from '@/data/store';
 import { familyItems, useFamily } from '@/features/family/useFamily';
 import { itemStatus, itemTitle, itemWhen } from '@/features/family/itemText';
+import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { useNow } from '@/lib/clock';
 import { AppText, Button, Card, EmergencyButtons, GlassSurface, Screen, StatusBadge, TopBar, palette, space } from '@/ui';
 
@@ -37,7 +38,29 @@ export default function FamilyItemDetail() {
   if (!item || !ctx.mother) return <Screen header={<TopBar back />}><AppText>—</AppText></Screen>;
 
   return (
-    <Screen blob="top" blobCenterY={120} header={<TopBar back />}>
+    <Screen
+      blob="top"
+      blobCenterY={120}
+      header={
+        <TopBar
+          back
+          right={
+            <ReadAloudButton
+              text={[
+                itemTitle(t, item),
+                itemStatus(t, item),
+                `${t('family.when')}: ${itemWhen(t, item, i18n.language)}`,
+                item.place ? `${t('family.where')}: ${item.place}` : '',
+                ...item.bring.map((b) => t(b)),
+                ...item.prep.map((p) => t(p)),
+              ]
+                .filter(Boolean)
+                .join('. ')}
+            />
+          }
+        />
+      }
+    >
       <View style={{ gap: 6 }}>
         <AppText variant="display">{itemTitle(t, item)}</AppText>
         <StatusBadge status={item.status} label={itemStatus(t, item)} />

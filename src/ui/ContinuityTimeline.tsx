@@ -5,8 +5,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 
+import { AncBadge } from './AncBadge';
 import { AppText } from './AppText';
-import { palette, space } from './tokens';
+import { palette, radius, space } from './tokens';
 
 export type TLEvent = {
   id: string;
@@ -15,6 +16,8 @@ export type TLEvent = {
   state: 'past' | 'planned' | 'missed';
   title: string;
   sub?: string;
+  /** ANC visit (done or planned): drawn with a badge and a tinted row so it stands out. */
+  anc?: boolean;
 };
 
 type Props = {
@@ -45,7 +48,8 @@ function Row({ e, color, fmt, rail = true, last }: { e: TLEvent; color: string; 
         {rail && !last && <View style={[styles.rail, { backgroundColor: color + '40' }]} />}
         <Node state={e.state} color={color} />
       </View>
-      <View style={[styles.text, { opacity: e.state === 'planned' ? 0.72 : 1 }]}>
+      <View style={[styles.text, e.anc && styles.ancText, { opacity: e.state === 'planned' ? 0.8 : 1 }]}>
+        {e.anc && <AncBadge />}
         <AppText variant="label" numberOfLines={2}>
           {e.title}
         </AppText>
@@ -161,6 +165,7 @@ const styles = StyleSheet.create({
   rail: { position: 'absolute', top: 16, bottom: -4, width: 2, borderRadius: 1 },
   node: { width: 14, height: 14, borderRadius: 7, marginTop: 3, borderWidth: 1.5, backgroundColor: 'rgba(255,255,255,0.9)' },
   text: { flex: 1, paddingBottom: space.md, paddingRight: 4, gap: 1 },
+  ancText: { gap: 3, backgroundColor: palette.lav100, borderRadius: radius.sm, paddingHorizontal: 10, paddingTop: 6, paddingBottom: 8, marginBottom: space.xs },
   deliveryWrap: { alignItems: 'center', gap: 2, paddingTop: space.xs },
   stem: { position: 'absolute', top: -8, height: 20, width: 2 },
   deliveryNode: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: palette.white, marginBottom: 4 },

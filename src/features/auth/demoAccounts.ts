@@ -24,6 +24,13 @@ export const DEMO_ACCOUNTS: Account[] = [
     care: { role: 'paediatrician', department: 'Paediatrics', hospital: HOSPITAL },
   },
   {
+    id: 'demo-staff-kiran',
+    phone: '9000000007',
+    name: 'Dr. Kiran Shah',
+    faces: ['care'],
+    care: { role: 'specialist', department: 'Cardiology', hospital: HOSPITAL },
+  },
+  {
     id: 'demo-mother-lakshmi',
     phone: '9000000003',
     name: 'Lakshmi K',

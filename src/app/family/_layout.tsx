@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react';
-import { AppState, StyleSheet, View } from 'react-native';
+import { AppState } from 'react-native';
 import { Stack } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { LockKeyhole } from 'lucide-react-native';
 
 import { unlock } from '@/lib/device';
 import { useSession } from '@/state/session';
-import { Atmosphere, AppText, Button, palette, space } from '@/ui';
+import { LockScreen } from '@/ui';
 import { MoodProvider } from '@/ui/mood';
 
 /** Shown over the Family face when app lock is on (PRD F-03 / FM-06 — shared-phone privacy). */
-function LockScreen({ onUnlock }: { onUnlock: () => void }) {
+function FamilyLock({ onUnlock }: { onUnlock: () => void }) {
   const { t } = useTranslation();
   const tryUnlock = async () => {
     try {
@@ -22,21 +21,7 @@ function LockScreen({ onUnlock }: { onUnlock: () => void }) {
   useEffect(() => {
     void tryUnlock();
   }, []);
-  return (
-    <View style={StyleSheet.absoluteFill}>
-      <Atmosphere blobCenterY={300} />
-      <View style={styles.lock}>
-        <LockKeyhole size={56} color={palette.rose600} strokeWidth={1.5} />
-        <AppText variant="display" align="center">
-          {t('family.lock.locked')}
-        </AppText>
-        <AppText tone="secondary" align="center">
-          {t('family.lock.lockedSub')}
-        </AppText>
-        <Button label={t('family.lock.unlock')} onPress={tryUnlock} />
-      </View>
-    </View>
-  );
+  return <LockScreen title={t('family.lock.locked')} body={t('family.lock.lockedSub')} unlockLabel={t('family.lock.unlock')} onUnlock={tryUnlock} />;
 }
 
 /** Family face — full rose/lavender glass atmosphere (DESIGN.md §6). First login goes through onboarding (F-03). */
@@ -65,11 +50,7 @@ export default function FamilyLayout() {
           <Stack.Screen name="(tabs)" />
         </Stack.Protected>
       </Stack>
-      {lockOn && locked && <LockScreen onUnlock={() => setLocked(false)} />}
+      {lockOn && locked && <FamilyLock onUnlock={() => setLocked(false)} />}
     </MoodProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  lock: { flex: 1, justifyContent: 'center', padding: space.xl, gap: space.md },
-});

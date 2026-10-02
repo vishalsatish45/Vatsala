@@ -6,7 +6,7 @@ import { Search } from 'lucide-react-native';
 import { tagLabel } from '@/data/catalogue';
 import { daysBetween } from '@domain/gestation';
 
-import { activeTags, babyAgeLabel, gaLabel, motherOf, nextVisit, fmtDay } from '@/data/selectors';
+import { activeTags, babyAgeLabel, gaLabel, motherOf, nextVisit, fmtDay, patientIds } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { useNow } from '@/lib/clock';
 import { AppText, Avatar, Chip, GlassSurface, ListRow, Screen, SegmentedPills, TopBar, families, intensityLabel, palette, space } from '@/ui';
@@ -61,14 +61,18 @@ export default function Patients() {
             if (!match(m.name, m.phone, p.mchId)) return null;
             const tags = activeTags(db, p.id);
             const nv = nextVisit(db, p.id, now);
+            const ids = patientIds(db, m.id, p.id);
             return (
               <ListRow
                 key={p.id}
                 leading={<Avatar name={m.name} size={40} />}
                 title={m.name}
-                subtitle={`${p.mchId} · ${p.status === 'delivered' ? 'Delivered' : gaLabel(p, now)}${nv ? ` · next ${fmtDay(nv.dueBy)}` : ''}`}
+                subtitle={ids.ip ? `${ids.ageObs}\n${ids.ip}` : ids.ageObs}
                 meta={
                   <>
+                    <AppText variant="caption" tone="secondary">
+                      {`${p.mchId} · ${p.status === 'delivered' ? 'Delivered' : gaLabel(p, now)}${nv ? ` · next ${fmtDay(nv.dueBy)}` : ''}`}
+                    </AppText>
                     {tags.slice(0, 2).map((t) => (
                       <Chip key={t.id} label={tagLabel(t.code)} variant="tag" />
                     ))}

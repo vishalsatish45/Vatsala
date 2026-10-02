@@ -36,6 +36,7 @@ export function familyTimeline(db: DbState, ctx: FamilyContext, now: Date, t: TF
       lane: e.lane,
       state: e.state,
       title: title(t, e),
+      anc: e.kind === 'visit' || e.kind === 'planned_visit',
       sub: e.kind === 'visit' ? e.sub : e.kind === 'vaccine' ? e.sub : e.state === 'planned' ? t('family.journey.planned') : e.state === 'missed' ? t('family.status.missed') : undefined,
     }));
 }

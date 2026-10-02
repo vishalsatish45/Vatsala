@@ -1,13 +1,22 @@
+import type { ReactNode } from 'react';
 import { StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
 
 import { AppText } from './AppText';
 import { families } from './fonts';
 import { palette, radius, space } from './tokens';
 
-type Props = TextInputProps & { label: string; unit?: string; hint?: string; error?: string; flex?: boolean };
+type Props = TextInputProps & {
+  label: string;
+  unit?: string;
+  hint?: string;
+  error?: string;
+  flex?: boolean;
+  /** Trailing control inside the box, after the unit (e.g. a voice-typing mic). */
+  accessory?: ReactNode;
+};
 
 /** Labelled glass input. Numeric fields show a unit suffix (DESIGN.md §4 Field/NumericField). */
-export function Field({ label, unit, hint, error, flex, style, ...input }: Props) {
+export function Field({ label, unit, hint, error, flex, accessory, style, ...input }: Props) {
   return (
     <View style={[styles.wrap, flex && { flex: 1 }]}>
       <AppText variant="label" tone="secondary">
@@ -20,6 +29,7 @@ export function Field({ label, unit, hint, error, flex, style, ...input }: Props
             {unit}
           </AppText>
         )}
+        {accessory}
       </View>
       {!!(error || hint) && (
         <AppText variant="caption" tone={error ? 'overdue' : 'faint'}>

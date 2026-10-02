@@ -49,3 +49,6 @@ example
 
 # python
 __pycache__/
+
+# shareable demo builds
+dist-apk/

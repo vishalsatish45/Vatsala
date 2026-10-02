@@ -1,12 +1,71 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, View } from 'react-native';
 import { Stack } from 'expo-router';
 
+import { canUseDeviceLock, unlock } from '@/lib/device';
+import { useCareLock } from '@/state/careLock';
+import { useSession } from '@/state/session';
+import { LockScreen } from '@/ui';
 import { MoodProvider } from '@/ui/mood';
 
-/** Care Team face — quieter, denser atmosphere (DESIGN.md §7). */
+const IDLE_MS = 10 * 60 * 1000;
+
+/**
+ * Care Team face — quieter, denser atmosphere (DESIGN.md §7). Locks after 10 min idle
+ * (PRD §15.1); unlock with fingerprint / device PIN, or re-login on devices without one.
+ */
 export default function CareLayout() {
+  const { locked, lock, release } = useCareLock();
+  const signOut = useSession((s) => s.signOut);
+  const name = useSession((s) => s.account?.name ?? '');
+  const last = useRef(Date.now());
+  const [hasDeviceLock, setHasDeviceLock] = useState<boolean>();
+
+  const touch = useCallback(() => {
+    last.current = Date.now();
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!useCareLock.getState().locked && Date.now() - last.current > IDLE_MS) lock();
+    }, 15_000);
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active' && Date.now() - last.current > IDLE_MS) lock();
+    });
+    return () => {
+      clearInterval(id);
+      sub.remove();
+    };
+  }, [lock]);
+
+  async function tryUnlock() {
+    try {
+      const ok = hasDeviceLock ?? (await canUseDeviceLock());
+      setHasDeviceLock(ok);
+      if (!ok || (await unlock(`Unlock for ${name}`))) {
+        touch();
+        release();
+      }
+    } catch {
+      touch();
+      release();
+    }
+  }
+
   return (
     <MoodProvider mood="care">
-      <Stack screenOptions={{ headerShown: false }} />
+      <View style={{ flex: 1 }} onStartShouldSetResponderCapture={() => (touch(), false)}>
+        <Stack screenOptions={{ headerShown: false }} />
+        {locked && (
+          <LockScreen
+            title="Locked"
+            body={`Care Team session paused after 10 minutes without activity. Unlock to continue as ${name}.`}
+            unlockLabel="Unlock"
+            onUnlock={tryUnlock}
+            secondary={{ label: 'Sign out', onPress: () => { release(); signOut(); } }}
+          />
+        )}
+      </View>
     </MoodProvider>
   );
 }

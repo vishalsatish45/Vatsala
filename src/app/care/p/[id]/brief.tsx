@@ -1,100 +1,131 @@
-import { useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Sparkles } from 'lucide-react-native';
 
-import { motherOf } from '@/data/selectors';
+import { tagLabel } from '@/data/catalogue';
+import { activeTags, fmtDay, motherOf, patientIds } from '@/data/selectors';
 import { useDb } from '@/data/store';
-import { buildBrief, type Source } from '@/features/ai/brief';
-import { useActor } from '@/features/care/nav';
-import { useNow } from '@/lib/clock';
-import { AppText, Button, Card, Chip, GlassSurface, Screen, TopBar, palette, space } from '@/ui';
-
-function openSource(src: Source, pregnancyId: string) {
-  switch (src.kind) {
-    case 'test':
-      return router.push({ pathname: '/care/test/[id]', params: { id: src.id } });
-    case 'referral':
-      return router.push({ pathname: '/care/referral/[id]', params: { id: src.id } });
-    case 'callback':
-      return router.push({ pathname: '/care/callback/[id]', params: { id: src.id } });
-    case 'task':
-      return router.push({ pathname: '/care/task/[id]', params: { id: src.id } });
-    default:
-      return router.push({ pathname: '/care/p/[id]', params: { id: pregnancyId } });
-  }
-}
+import { AppText, Button, Card, Chip, InfoRow, ListRow, Screen, Section, TopBar } from '@/ui';
 
 /**
- * CT-28 Consultation brief (PRD F-27). Every sentence cites its source records; nothing is
- * saved until a clinician taps Verify. Never offered on critical-alert screens.
+ * Case File: the patient's complete documented record in one place —
+ * history, previous consultations, diagnoses, medications, reports,
+ * pregnancy history and observations. No AI, no interpretation.
  */
-export default function ConsultationBrief() {
+export default function CaseFile() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useDb();
-  const now = useNow();
-  const by = useActor();
-  const p = db.pregnancies.find((x) => x.id === id)!;
+  const p = db.pregnancies.find((x) => x.id === id);
+  if (!p) return <Screen header={<TopBar back title="Case File" />}><AppText>Not found.</AppText></Screen>;
   const m = motherOf(db, p.motherId);
-  const brief = useMemo(() => buildBrief(db, p.id, now), [db, p.id, now]);
-  const [excluded, setExcluded] = useState<number[]>([]);
-
-  function verify() {
-    const text = brief.sentences.filter((_, i) => !excluded.includes(i)).map((s) => s.text).join(' ');
-    db.addNote(p.id, `Consultation brief (verified): ${text}`, by, 'ai_verified', now);
-    router.back();
-  }
+  const ids = patientIds(db, m.id, p.id);
+  const tags = activeTags(db, p.id);
+  const visits = db.visits.filter((v) => v.pregnancyId === p.id).sort((a, b) => b.at.getTime() - a.at.getTime());
+  const invs = db.investigations.filter((i) => i.subjectId === p.id);
+  const refs = db.referrals.filter((r) => r.pregnancyId === p.id);
+  const notes = db.notes.filter((n) => n.subjectId === p.id).sort((a, b) => b.at.getTime() - a.at.getTime());
 
   return (
     <Screen
       blob="none"
-      header={<TopBar back title="Consultation brief" />}
-      footer={
-        <View style={{ flexDirection: 'row', gap: space.sm }}>
-          <View style={{ flex: 1 }}>
-            <Button variant="secondary" label="Discard" onPress={() => router.back()} />
-          </View>
-          <View style={{ flex: 2 }}>
-            <Button label="Verify & save to notes" onPress={verify} />
-          </View>
-        </View>
-      }
+      header={<TopBar back title="Case File" />}
+      footer={<Button variant="secondary" label="Done" onPress={() => router.back()} />}
     >
-      <GlassSurface strong radius={20} style={styles.banner}>
-        <Sparkles size={22} color={palette.lav600} />
-        <View style={{ flex: 1 }}>
-          <AppText variant="headline" style={{ color: palette.lav600 }}>
-            AI draft · unverified
-          </AppText>
-          <AppText variant="caption" tone="secondary">
-            Summarises documented facts only — no interpretation or advice. Check each line; tap a source to open it. {brief.engine === 'on-device demo' ? 'Demo: generated on-device; the LLM gateway connects with the backend.' : ''}
-          </AppText>
+      <View style={{ gap: 2 }}>
+        <AppText variant="display">{m.name}</AppText>
+        <AppText tone="secondary">{ids.ageObs}</AppText>
+        {!!ids.ip && <AppText tone="secondary">{ids.ip} · {p.mchId}</AppText>}
+      </View>
+
+      <Section title="Patient history">
+        <Card>
+          <InfoRow label="Conditions" value={p.history.conditions.join(', ') || 'None recorded'} />
+          <InfoRow label="Allergies" value={p.history.allergies.join(', ') || 'None recorded'} />
+          <InfoRow label="Blood group" value={p.history.bloodGroup} />
+          <InfoRow label="Height" value={p.history.heightCm ? `${p.history.heightCm} cm` : undefined} />
+          <InfoRow label="LMP" value={p.lmp ? fmtDay(p.lmp) : '—'} />
+          <InfoRow label="EDD" value={fmtDay(p.edd)} />
+        </Card>
+      </Section>
+
+      <Section title="Pregnancy history">
+        <Card>
+          {p.previous.length === 0 && <AppText tone="secondary">None recorded.</AppText>}
+          {p.previous.map((x, i) => (
+            <InfoRow key={i} label={String(x.year)} value={[x.outcome, x.mode, x.note].filter(Boolean).join(' · ')} />
+          ))}
+          <InfoRow label="This pregnancy" value={`G${p.gpla.g}P${p.gpla.p}L${p.gpla.l}A${p.gpla.a}`} />
+        </Card>
+      </Section>
+
+      <Section title={`Previous consultations (${visits.length})`}>
+        {visits.length === 0 && <AppText tone="secondary">No visits recorded yet.</AppText>}
+        {visits.map((v) => (
+          <ListRow
+            key={v.id}
+            title={`${fmtDay(v.at)} · ${v.by}`}
+            subtitle={[
+              v.vitals.bpSys ? `BP ${v.vitals.bpSys}/${v.vitals.bpDia ?? '—'}` : '',
+              v.vitals.weightKg ? `${v.vitals.weightKg} kg` : '',
+              v.complaints.join(', '),
+            ].filter(Boolean).join(' · ') || '—'}
+          />
+        ))}
+      </Section>
+
+      <Section title={`Reports (${invs.length})`}>
+        {invs.map((i) => (
+          <ListRow
+            key={i.id}
+            title={i.label}
+            subtitle={i.result ? `Tested ${fmtDay(i.result.at)} · ${i.result.value}${i.result.unit ? ` ${i.result.unit}` : ''}${i.review ? ` · reviewed (${i.review.followUp})` : ''}` : `Due by ${fmtDay(i.dueBy)} · ${i.status}`}
+            onPress={() => router.push({ pathname: '/care/test/[id]', params: { id: i.id } })}
+          />
+        ))}
+      </Section>
+
+      <Section title="Diagnoses">
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          {tags.length === 0 && <AppText tone="secondary">No tags recorded.</AppText>}
+          {tags.map((t) => (
+            <Chip key={t.id} label={tagLabel(t.code)} variant="tag" />
+          ))}
         </View>
-      </GlassSurface>
+      </Section>
 
-      <AppText variant="display">{m.name}</AppText>
+      <Section title="Medications">
+        <Card>
+          {p.history.medicines.length === 0 && <AppText tone="secondary">None prescribed.</AppText>}
+          {p.history.medicines.map((med) => (
+            <AppText key={med} variant="bodyMedium">· {med}</AppText>
+          ))}
+        </Card>
+      </Section>
 
-      <Card style={{ gap: space.md }}>
-        {brief.sentences.map((s, i) => {
-          const off = excluded.includes(i);
-          return (
-            <View key={i} style={{ gap: 6, opacity: off ? 0.35 : 1 }}>
-              <AppText variant="body">{s.text}</AppText>
-              <View style={styles.sources}>
-                {s.sources.slice(0, 4).map((src) => (
-                  <Chip key={src.id + src.label} label={`↗ ${src.label}`} variant="tag" onPress={() => openSource(src, p.id)} />
-                ))}
-                <Chip label={off ? 'Include' : 'Exclude'} onPress={() => setExcluded((x) => (off ? x.filter((y) => y !== i) : [...x, i]))} />
-              </View>
+      {refs.length > 0 && (
+        <Section title="Referrals">
+          {refs.map((r) => (
+            <ListRow
+              key={r.id}
+              title={`${r.department} · ${r.status}`}
+              subtitle={r.recommendations ?? r.reason}
+              onPress={() => router.push({ pathname: '/care/referral/[id]', params: { id: r.id } })}
+            />
+          ))}
+        </Section>
+      )}
+
+      <Section title={`Observations & notes (${notes.length})`}>
+        {notes.length === 0 && <AppText tone="secondary">No notes yet.</AppText>}
+        {notes.map((n) => (
+          <Card key={n.id} style={{ gap: 4 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+              <AppText variant="label">{n.author}</AppText>
+              <AppText variant="caption" tone="faint">{fmtDay(n.at)}</AppText>
             </View>
-          );
-        })}
-      </Card>
+            <AppText>{n.body}</AppText>
+          </Card>
+        ))}
+      </Section>
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  banner: { flexDirection: 'row', gap: space.sm, padding: space.md, alignItems: 'flex-start', borderWidth: 1.5, borderColor: palette.lav400 },
-  sources: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-});

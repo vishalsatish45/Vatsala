@@ -32,11 +32,11 @@ export function StatTile({ icon: Icon, label, value, unit, caption, badge }: Pro
         </AppText>
       </View>
       <View style={styles.valueRow}>
-        <AppText variant="tile" numberOfLines={1} adjustsFontSizeToFit>
+        <AppText variant="stat" numberOfLines={1} adjustsFontSizeToFit>
           {value}
         </AppText>
         {!!unit && (
-          <AppText variant="headline" tone="secondary" style={styles.unit}>
+          <AppText variant="caption" tone="secondary" style={styles.unit}>
             {unit}
           </AppText>
         )}
@@ -62,10 +62,10 @@ export function StatTile({ icon: Icon, label, value, unit, caption, badge }: Pro
 }
 
 const styles = StyleSheet.create({
-  tile: { flex: 1, paddingVertical: space.lg, paddingHorizontal: space.md, alignItems: 'center', gap: 4 },
+  tile: { flex: 1, paddingVertical: space.sm, paddingHorizontal: space.sm, alignItems: 'center', gap: 2 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   valueRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center' },
-  unit: { marginBottom: 8, marginLeft: 2 },
+  unit: { marginBottom: 4, marginLeft: 2 },
   foot: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'center' },
   badge: { backgroundColor: 'rgba(255,255,255,0.85)', borderWidth: 1, borderColor: palette.softBorder, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 1 },
 });

@@ -22,6 +22,8 @@ type SessionState = {
   completeOnboarding: (accountId: string, channels: string[]) => void;
   setChannels: (accountId: string, channels: string[]) => void;
   setLock: (accountId: string, on: boolean) => void;
+  /** PRD F-03: withdrawing consent stops app access; the hospital record is retained. */
+  withdrawConsent: (accountId: string) => void;
   signIn: (account: Account) => void;
   chooseFace: (face: Face) => void;
   signOut: () => void;
@@ -42,6 +44,11 @@ export const useSession = create<SessionState>()(
         set((s) => (s.familyPrefs[accountId] ? { familyPrefs: { ...s.familyPrefs, [accountId]: { ...s.familyPrefs[accountId]!, channels } } } : s)),
       setLock: (accountId, on) =>
         set((s) => (s.familyPrefs[accountId] ? { familyPrefs: { ...s.familyPrefs, [accountId]: { ...s.familyPrefs[accountId]!, lock: on } } } : s)),
+      withdrawConsent: (accountId) =>
+        set((s) => {
+          const { [accountId]: _removed, ...rest } = s.familyPrefs;
+          return { familyPrefs: rest, account: null, face: null };
+        }),
       signIn: (account) => set({ account, face: account.faces.length === 1 ? account.faces[0]! : null }),
       chooseFace: (face) => set((s) => (s.account?.faces.includes(face) ? { face } : s)),
       signOut: () => set({ account: null, face: null }),

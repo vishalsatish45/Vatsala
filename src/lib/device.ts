@@ -86,3 +86,27 @@ export async function unlock(prompt: string): Promise<boolean> {
   const res = await LA.authenticateAsync({ promptMessage: prompt, disableDeviceFallback: false });
   return res.success;
 }
+
+// ── PDF share ───────────────────────────────────────────────────────────────────
+
+export async function sharePdf(html: string, name: string) {
+  const Print = await load(() => import('expo-print'));
+  const Sharing = await load(() => import('expo-sharing'));
+  const { uri } = await Print.printToFileAsync({ html });
+  await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: name, UTI: 'com.adobe.pdf' });
+}
+
+// ── Network status ──────────────────────────────────────────────────────────────
+
+/** Subscribes to connectivity; returns an unsubscribe. No-op on builds without the module. */
+export async function watchNetwork(onChange: (online: boolean) => void): Promise<() => void> {
+  try {
+    const Network = await import('expo-network');
+    const st = await Network.getNetworkStateAsync();
+    onChange(st.isConnected !== false && st.isInternetReachable !== false);
+    const sub = Network.addNetworkStateListener((e) => onChange(e.isConnected !== false && e.isInternetReachable !== false));
+    return () => sub.remove();
+  } catch {
+    return () => {};
+  }
+}

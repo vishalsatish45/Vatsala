@@ -1,16 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Baby, Camera, ClipboardPlus, GitPullRequestArrow, HeartPulse, Pill, Ruler, Scale, Send, Sparkles, Tags } from 'lucide-react-native';
+import { Baby, Camera, ClipboardPlus, FolderOpen, GitPullRequestArrow, HeartPulse, Pill, Ruler, Scale, Send, Tags } from 'lucide-react-native';
 import { gestationalAge } from '@domain/gestation';
 
 import { tagLabel } from '@/data/catalogue';
-import { activeTags, ago, continuityEvents, fmtDate, fmtDay, invState, motherOf, nextVisit, stillDue, type DueItem } from '@/data/selectors';
+import { activeTags, ago, continuityEvents, fmtDate, fmtDay, fmtTime, invState, motherOf, nextVisit, patientIds, stillDue, type DueItem } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { REFERRAL_STEPS } from '@/data/types';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
 import {
+  AncBadge,
   AppText,
   Button,
   Card,
@@ -27,6 +28,7 @@ import {
   Section,
   StatTile,
   StatusBadge,
+  SyncBadge,
   TopBar,
   UnderlineTabs,
   palette,
@@ -54,9 +56,14 @@ export default function PatientView() {
   const now = useNow();
   const [tab, setTab] = useState<Tab>('overview');
   const [draft, setDraft] = useState('');
+  const [doctorDraft, setDoctorDraft] = useState('');
   const by = useActor();
 
   const p = db.pregnancies.find((x) => x.id === id);
+  const logAccess = useDb((s) => s.logAccess);
+  useEffect(() => {
+    if (id) logAccess(id, by, new Date());
+  }, [id, by, logAccess]);
   if (!p) return <Screen header={<TopBar back title="Patient" />}><AppText>Not found.</AppText></Screen>;
   const m = motherOf(db, p.motherId);
   const ga = gestationalAge(p.edd, now);
@@ -100,7 +107,10 @@ export default function PatientView() {
       {/* Header */}
       <View style={styles.header}>
         <AppText variant="caption" tone="secondary" align="center">
-          {p.mchId} · {m.age} y · G{p.gpla.g}P{p.gpla.p}L{p.gpla.l}A{p.gpla.a}
+          {patientIds(db, m.id, p.id).ageObs}
+        </AppText>
+        <AppText variant="caption" tone="secondary" align="center">
+          {[m.ipNo ? `IP ${m.ipNo}` : '', p.mchId].filter(Boolean).join(' · ')}
         </AppText>
         {delivered ? (
           <AppText variant="hero" align="center">
@@ -111,12 +121,13 @@ export default function PatientView() {
             <AppText variant="hero">{ga.weeks}</AppText>
             <AppText variant="stat" style={{ marginBottom: 12 }}>+{ga.days}</AppText>
             <AppText variant="headline" tone="secondary" style={{ marginBottom: 16, marginLeft: 6 }}>
-              wks
+              weeks
             </AppText>
           </View>
         )}
         <View style={styles.chips}>
-          <Chip label={`EDD ${fmtDate(p.edd)}`} variant="glass" />
+          {!!p.lmp && <Chip label={`LMP: ${fmtDate(p.lmp)}`} variant="glass" />}
+          <Chip label={`EDD: ${fmtDate(p.edd)}`} variant="glass" />
           {!!p.history.bloodGroup && <Chip label={p.history.bloodGroup} variant="glass" />}
           {p.history.allergies.map((a) => (
             <Chip key={a} label={`Allergy: ${a}`} variant="glass" />
@@ -136,10 +147,10 @@ export default function PatientView() {
         onChange={setTab}
         tabs={[
           { value: 'overview', label: 'Overview' },
-          { value: 'timeline', label: 'Timeline' },
+          { value: 'visits', label: 'Visits', count: visits.length },
           { value: 'tests', label: 'Tests' },
           { value: 'referrals', label: 'Referrals', count: refs.length },
-          { value: 'visits', label: 'Visits', count: visits.length },
+          { value: 'timeline', label: 'Timeline' },
           { value: 'notes', label: 'Notes', count: notes.length },
         ]}
       />
@@ -154,16 +165,16 @@ export default function PatientView() {
             </Section>
           )}
 
-          <PressableScale onPress={() => router.push({ pathname: '/care/p/[id]/brief', params: { id: p.id } })} accessibilityRole="button" accessibilityLabel="Consultation brief">
+          <PressableScale onPress={() => router.push({ pathname: '/care/p/[id]/brief', params: { id: p.id } })} accessibilityRole="button" accessibilityLabel="Case file">
             <GlassSurface strong radius={20} style={styles.aiRow}>
-              <Sparkles size={20} color={palette.lav600} />
+              <FolderOpen size={20} color={palette.rose600} />
               <View style={{ flex: 1 }}>
-                <AppText variant="headline">Consultation brief</AppText>
+                <AppText variant="headline">Case File</AppText>
                 <AppText variant="caption" tone="secondary">
-                  AI draft of the documented record · you verify
+                  Complete history, consultations, reports & notes
                 </AppText>
               </View>
-              <AppText variant="label" style={{ color: palette.lav600 }}>
+              <AppText variant="label" style={{ color: palette.rose600 }}>
                 Open ›
               </AppText>
             </GlassSurface>
@@ -192,7 +203,7 @@ export default function PatientView() {
               <StatTile icon={HeartPulse} label="FHR" value={last?.vitals.fhr ? String(last.vitals.fhr) : '—'} unit="bpm" caption={last ? fmtDate(last.at) : undefined} />
             </View>
             {logs.slice(0, 2).map((l) => (
-              <ListRow key={l.id} title={`${l.kind.toUpperCase()} ${l.value}`} subtitle={`Home reading · family-reported · ${ago(l.at, now)} ago`} />
+              <ListRow key={l.id} title={`${l.kind.toUpperCase()} ${l.value}`} subtitle={`Home reading · family-reported · ${fmtDay(l.at)} ${fmtTime(l.at)}`} />
             ))}
           </Section>
 
@@ -234,12 +245,23 @@ export default function PatientView() {
             <Card>
               <InfoRow label="Next visit" value={nv ? `${fmtDay(nv.dueBy)} · ${nv.title}` : undefined} />
               <InfoRow label="EDD" value={`${fmtDay(p.edd)} (${p.eddSource.toUpperCase()})`} />
+              <InfoRow label="Doctor" value={p.assignedDoctor?.name} />
+              <Field label="Assigned doctor" value={doctorDraft} onChangeText={setDoctorDraft} placeholder="e.g. Dr. Priya Rao" />
+              <Button
+                variant="secondary"
+                label="Assign doctor"
+                disabled={!doctorDraft.trim()}
+                onPress={() => {
+                  db.assignDoctor(p.id, { name: doctorDraft.trim() }, by, now);
+                }}
+              />
               <InfoRow label="Village" value={m.village} />
               <InfoRow label="Phone" value={m.phone} />
               <InfoRow label="Previous" value={p.previous.map((x) => `${x.year} ${x.mode ?? x.outcome}`).join(', ') || 'None'} />
             </Card>
             <View style={styles.actions}>
               <Chip label="Refer" icon={GitPullRequestArrow} onPress={() => router.push({ pathname: '/care/p/[id]/refer', params: { id: p.id } })} />
+              <Chip label="Who viewed this record" onPress={() => router.push({ pathname: '/care/p/[id]/access', params: { id: p.id } })} />
               <Chip label="Capture paper record" icon={Camera} onPress={() => router.push({ pathname: '/care/capture', params: { id: p.id } })} />
               {!delivered && <Chip label="Admit / record delivery" icon={Baby} onPress={() => router.push({ pathname: '/care/p/[id]/deliver', params: { id: p.id } })} />}
               {delivered && <Chip label="Discharge checklist" onPress={() => router.push({ pathname: '/care/discharge/[id]', params: { id: p.id } })} />}
@@ -250,7 +272,7 @@ export default function PatientView() {
 
       {tab === 'timeline' && (
         <ContinuityTimeline
-          events={continuityEvents(db, p.id, now, 'care').map((e) => ({ ...e, title: e.kind === 'tag' ? `Tagged: ${tagLabel(e.sub ?? '')}` : e.label, sub: e.kind === 'tag' ? undefined : e.sub }))}
+          events={continuityEvents(db, p.id, now, 'care').map((e) => ({ ...e, title: e.kind === 'tag' ? `Tagged: ${tagLabel(e.sub ?? '')}` : e.label, sub: e.kind === 'tag' ? undefined : e.sub, anc: e.kind === 'visit' || e.kind === 'planned_visit' }))}
           now={now}
           fmt={fmtDay}
           motherLabel="Mother"
@@ -269,7 +291,7 @@ export default function PatientView() {
               <ListRow
                 key={i.id}
                 title={i.label}
-                subtitle={i.result ? `Result: ${i.result.value}${i.review ? ` · reviewed (${i.review.followUp})` : ''}` : i.kind === 'scan' ? 'Scan' : 'Lab'}
+                subtitle={i.result ? `Tested ${fmtDay(i.result.at)} · ${i.result.value}${i.review ? ` · reviewed (${i.review.followUp})` : ''}` : i.kind === 'scan' ? 'Scan' : 'Lab'}
                 meta={<StatusBadge status={s.status} label={s.label} />}
                 onPress={() => router.push({ pathname: '/care/test/[id]', params: { id: i.id } })}
               />
@@ -336,9 +358,15 @@ export default function PatientView() {
             return (
               <ListRow
                 key={v.id}
-                title={`${fmtDay(v.at)} · ${gestationalAge(p.edd, v.at).weeks} wks`}
+                title={`${fmtDay(v.at)} · ${gestationalAge(p.edd, v.at).weeks} weeks`}
                 subtitle={`BP ${v.vitals.bpSys ?? '—'}/${v.vitals.bpDia ?? '—'} · ${v.vitals.weightKg ?? '—'} kg${v.complaints.length ? ` · ${v.complaints.join(', ')}` : ''}`}
-                meta={<StatusBadge status="done" label={`Checklist ${states.filter((x) => x.state === 'done').length}/${states.filter((x) => x.state !== 'na').length}`} />}
+                meta={
+                  <>
+                    <AncBadge />
+                    <StatusBadge status="done" label={`Checklist ${states.filter((x) => x.state === 'done').length}/${states.filter((x) => x.state !== 'na').length}`} />
+                    <SyncBadge id={v.id} />
+                  </>
+                }
               />
             );
           })}

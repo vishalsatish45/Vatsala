@@ -49,9 +49,9 @@ export const NOT_DONE_REASONS = ['Kit unavailable', 'Patient declined', 'Time co
  * the English label is what the care team sees.
  */
 export const WARNING_SIGNS = {
-  pregnancy: { bleeding: 'Bleeding', headache_vision: 'Severe headache / blurred vision', fits: 'Fits', leaking: 'Leaking water', movements: 'Baby moving less', belly_pain: 'Severe belly pain', fever: 'High fever', breathless: 'Difficulty breathing' },
-  postnatal: { heavy_bleeding: 'Heavy bleeding', pn_fever: 'Fever', wound: 'Wound pain or pus', breast: 'Breast pain / redness', low_mood: 'Feeling very low' },
-  baby: { not_feeding: 'Not feeding', baby_fits: 'Fits', fast_breathing: 'Fast breathing', cold: 'Feels cold', sleepy: 'Very sleepy / hard to wake', yellow: 'Yellow skin or eyes', cord: 'Cord redness or pus' },
+  pregnancy: { bleeding: 'Bleeding', headache_vision: 'Severe headache / blurred vision', fits: 'Fits', leaking: 'Leaking water', movements: 'Baby moving less', belly_pain: 'Severe belly pain', fever: 'High fever', breathless: 'Difficulty breathing', swelling: 'Swollen face or hands' },
+  postnatal: { heavy_bleeding: 'Heavy bleeding', pn_fever: 'Fever', wound: 'Wound pain or pus', breast: 'Breast pain / redness', pn_headache: 'Severe headache or blurred vision', foul_discharge: 'Bad-smelling vaginal discharge', low_mood: 'Feeling very low' },
+  baby: { not_feeding: 'Not feeding', baby_fits: 'Fits', fast_breathing: 'Fast breathing', chest_indrawing: 'Chest pulls in when breathing', cold: 'Feels cold', baby_fever: 'Fever / feels hot', sleepy: 'Very sleepy / hard to wake', yellow: 'Yellow skin or eyes', cord: 'Cord redness or pus' },
 } as const;
 
 export type SignStage = keyof typeof WARNING_SIGNS;

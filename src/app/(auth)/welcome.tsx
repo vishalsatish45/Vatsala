@@ -40,10 +40,10 @@ export default function Welcome() {
       </View>
 
       <View style={styles.hero}>
-        <AppText variant="label" tone="accent" align="center">
-          App Name TBD
+        <AppText variant="display" tone="accent" align="center">
+          Vatsala
         </AppText>
-        <AppText variant="display" align="center">
+        <AppText variant="title" align="center">
           {t('auth.tagline')}
         </AppText>
       </View>

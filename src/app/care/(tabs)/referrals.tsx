@@ -6,19 +6,22 @@ import { ago, motherOf, referralStale } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { REFERRAL_STEPS } from '@/data/types';
 import { useNow } from '@/lib/clock';
-import { AppText, Avatar, ListRow, Screen, SegmentedPills, StatusBadge, TopBar, palette, space } from '@/ui';
+import { useSession } from '@/state/session';
+import { AppText, Avatar, EmptyState, ListRow, Screen, SegmentedPills, StatusBadge, TopBar, palette, space } from '@/ui';
 
 /** CT-50 Referrals — open (needs action) vs closed. */
 export default function Referrals() {
   const db = useDb();
   const now = useNow();
   const [view, setView] = useState<'open' | 'closed'>('open');
+  const care = useSession((s) => s.account?.care);
+  const mine = (d: string) => care?.role !== 'specialist' || d === care.department;
   const isOpen = (s: string) => !['closed', 'declined'].includes(s);
-  const rows = db.referrals.filter((r) => (view === 'open' ? isOpen(r.status) : !isOpen(r.status))).sort((a, b) => b.events.at(-1)!.at.getTime() - a.events.at(-1)!.at.getTime());
+  const rows = db.referrals.filter((r) => mine(r.department) && (view === 'open' ? isOpen(r.status) : !isOpen(r.status))).sort((a, b) => b.events.at(-1)!.at.getTime() - a.events.at(-1)!.at.getTime());
 
   return (
     <Screen withNav blob="none" header={<TopBar title="Referrals" />}>
-      <AppText variant="display">Referrals</AppText>
+      <AppText variant="display">{care?.role === 'specialist' ? `${care.department} inbox` : 'Referrals'}</AppText>
       <SegmentedPills
         value={view}
         onChange={setView}
@@ -28,6 +31,7 @@ export default function Referrals() {
         ]}
       />
       <View style={{ gap: space.sm }}>
+        {rows.length === 0 && <EmptyState title="No referrals here" />}
         {rows.map((r) => {
           const p = db.pregnancies.find((x) => x.id === r.pregnancyId)!;
           const m = motherOf(db, p.motherId);

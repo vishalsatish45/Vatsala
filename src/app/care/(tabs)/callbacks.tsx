@@ -5,7 +5,7 @@ import { router } from 'expo-router';
 import { ago, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { useNow } from '@/lib/clock';
-import { AppText, Avatar, Chip, ListRow, Screen, SegmentedPills, StatusBadge, TopBar, space } from '@/ui';
+import { AppText, Avatar, Chip, EmptyState, ListRow, Screen, SegmentedPills, StatusBadge, TopBar, space } from '@/ui';
 
 /** CT-40 Call-back queue — newest first; requests where the family ticked a listed sign are pinned (PRD F-25). */
 export default function Callbacks() {
@@ -46,11 +46,7 @@ export default function Callbacks() {
             />
           );
         })}
-        {rows.length === 0 && (
-          <AppText tone="secondary" align="center" style={{ paddingVertical: space.xl }}>
-            No call-backs {view === 'open' ? 'waiting' : 'closed yet'}.
-          </AppText>
-        )}
+        {rows.length === 0 && <EmptyState title={view === 'open' ? 'No one waiting' : 'Nothing closed yet'} body="Family call-back requests appear here." />}
       </View>
     </Screen>
   );

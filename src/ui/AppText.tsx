@@ -8,14 +8,14 @@ type Weight = 'serif' | 'regular' | 'medium' | 'semibold' | 'bold';
 
 // DESIGN.md §3.2
 const variants = {
-  display: { size: 34, line: 40, weight: 'serif' },
-  title: { size: 24, line: 30, weight: 'serif' },
-  hero: { size: 64, line: 70, weight: 'bold', letterSpacing: -1.5, numeric: true },
-  stat: { size: 32, line: 38, weight: 'bold', letterSpacing: -0.5, numeric: true },
-  tile: { size: 48, line: 54, weight: 'bold', letterSpacing: -1.5, numeric: true },
-  headline: { size: 17, line: 22, weight: 'semibold' },
-  body: { size: 15, line: 22, weight: 'regular' },
-  bodyMedium: { size: 15, line: 22, weight: 'medium' },
+  display: { size: 28, line: 34, weight: 'serif' },
+  title: { size: 20, line: 26, weight: 'serif' },
+  hero: { size: 52, line: 58, weight: 'bold', letterSpacing: -1.2, numeric: true },
+  stat: { size: 26, line: 32, weight: 'bold', letterSpacing: -0.5, numeric: true },
+  tile: { size: 38, line: 44, weight: 'bold', letterSpacing: -1, numeric: true },
+  headline: { size: 16, line: 21, weight: 'semibold' },
+  body: { size: 14, line: 20, weight: 'regular' },
+  bodyMedium: { size: 14, line: 20, weight: 'medium' },
   label: { size: 13, line: 18, weight: 'medium' },
   caption: { size: 12, line: 16, weight: 'regular' },
 } satisfies Record<string, { size: number; line: number; weight: Weight; letterSpacing?: number; numeric?: boolean }>;
