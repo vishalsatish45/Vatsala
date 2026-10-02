@@ -3,23 +3,27 @@ import { router, useLocalSearchParams } from 'expo-router';
 
 import { asPregnancyId } from '@/data/ids';
 import { tagLabel } from '@/data/catalogue';
-import { activeTags, fmtDay, motherOf, patientIds } from '@/data/selectors';
+import { activeTags, fmtDay, motherOf, patientIds, referralStatusLabel } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { AiDraftPanel } from '@/features/ai/AiDraftPanel';
+import { useCareMe } from '@/features/care/CareTeam';
+import { canWriteSubject } from '@/features/care/permissions';
 import { isRemote } from '@/lib/supabase';
 import { AppText, Button, Card, Chip, InfoRow, ListRow, Screen, Section, TopBar } from '@/ui';
 
 /**
- * Case File: the patient's complete documented record in one place —
- * history, previous consultations, diagnoses, medications, reports,
- * pregnancy history and observations. No interpretation.
+ * Case File: the patient's documented record in one place — history, previous consultations, clinician-set tags,
+ * medicines, reports, pregnancy history and notes. No interpretation, no diagnosis: tags are the labels clinicians
+ * chose, shown as set.
  *
- * Supabase mode adds the server AI consultation brief (PRD F-27): a cited, de-identified draft that is saved
- * only when the clinician verifies it. Mock mode shows the case file alone, unchanged.
+ * Supabase mode adds the server AI consultation brief (PRD F-27) for the clinician who may write this record (the
+ * server's ai_quota refuses anyone else before a model call): a cited, de-identified draft, saved only when the
+ * clinician verifies it. Mock mode shows the case file alone, unchanged.
  */
 export default function CaseFile() {
   const id = asPregnancyId(useLocalSearchParams<{ id: string }>().id);
   const db = useDb();
+  const me = useCareMe();
   const p = db.pregnancies.find((x) => x.id === id);
   if (!p) return <Screen header={<TopBar back title="Case File" />}><AppText>Not found.</AppText></Screen>;
   const m = motherOf(db, p.motherId);
@@ -42,7 +46,7 @@ export default function CaseFile() {
         {!!ids.ip && <AppText tone="secondary">{ids.ip} · {p.mchId}</AppText>}
       </View>
 
-      {isRemote && <AiDraftPanel key={p.id} db={db} subject={{ pregnancyId: p.id }} kind="brief" />}
+      {isRemote && canWriteSubject(me, 'pregnancy') && <AiDraftPanel key={p.id} db={db} subject={{ pregnancyId: p.id }} kind="brief" />}
 
       <Section title="Patient history">
         <Card>
@@ -91,7 +95,7 @@ export default function CaseFile() {
         ))}
       </Section>
 
-      <Section title="Diagnoses">
+      <Section title="Tags">
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
           {tags.length === 0 && <AppText tone="secondary">No tags recorded.</AppText>}
           {tags.map((t) => (
@@ -100,9 +104,9 @@ export default function CaseFile() {
         </View>
       </Section>
 
-      <Section title="Medications">
+      <Section title="Medicines (as documented at registration)">
         <Card>
-          {p.history.medicines.length === 0 && <AppText tone="secondary">None prescribed.</AppText>}
+          {p.history.medicines.length === 0 && <AppText tone="secondary">None recorded.</AppText>}
           {p.history.medicines.map((med) => (
             <AppText key={med} variant="bodyMedium">· {med}</AppText>
           ))}
@@ -114,7 +118,7 @@ export default function CaseFile() {
           {refs.map((r) => (
             <ListRow
               key={r.id}
-              title={`${r.department} · ${r.status}`}
+              title={`${r.department} · ${referralStatusLabel(r.status)}`}
               subtitle={r.recommendations ?? r.reason}
               onPress={() => router.push({ pathname: '/care/referral/[id]', params: { id: r.id } })}
             />

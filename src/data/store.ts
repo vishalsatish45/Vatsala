@@ -18,6 +18,7 @@ import {
   complicationCodes,
   contactOutcomeCodes,
   contactSuccessful,
+  counsellingCodes,
   deliveryModeCodes,
   followUpCodes,
   labourMedicineCodes,
@@ -158,6 +159,12 @@ export type { MotherDetails, RegisterInput };
 
 export type VisitInput = Omit<Visit, 'id' | 'pregnancyId' | 'at' | 'by'> & { nextVisitOn: Date };
 
+/** Tag codes to add and to remove (server set_tags deltas). */
+export type TagChange = { add: string[]; remove: string[] };
+
+/** A pregnancy whose ANC visits are still planned: ongoing, in the community or admitted. */
+export const isOngoing = (p: Pick<Pregnancy, 'status'>) => p.status === 'active' || p.status === 'admitted';
+
 export type BabyInput = {
   sex: 'F' | 'M' | 'U';
   /** Required for a liveborn baby; may be unknown for a stillborn baby. */
@@ -218,7 +225,12 @@ type Actions = {
   hydrate: (state: DbState) => void;
   registerPregnancy: (input: RegisterInput, by: string, now: Date) => PregnancyId;
   recordVisit: (pregnancyId: PregnancyId, input: VisitInput, by: string, at: Date) => VisitId;
-  setTags: (subjectId: SubjectId, codes: string[], note: string | undefined, by: string, now: Date) => void;
+  /**
+   * Add and remove tags (deltas, so another clinician's change made meanwhile is never undone). `note` goes with the
+   * added tags and is the reason for the removed ones (required when removing).
+   */
+  setTags: (subjectId: SubjectId, change: TagChange, note: string | undefined, by: string, now: Date) => void;
+  /** A pregnancy's future ANC visits are re-planned only while it is ongoing (active or admitted). */
   setIntensity: (subjectId: SubjectId, intensity: Intensity, by: string, now: Date) => void;
   /** Correct a mother's details (update_mother: the changed fields only, version-checked). */
   updateMother: (motherId: MotherId, details: MotherDetails, by: string, now: Date) => void;
@@ -228,7 +240,7 @@ type Actions = {
   enterResult: (id: InvestigationId, value: string, unit: string | undefined, note: string | undefined, by: string, now: Date) => void;
   reviewResult: (id: InvestigationId, followUp: string, by: string, now: Date) => void;
   markNotDone: (id: InvestigationId, reason: string, by: string, now: Date) => void;
-  createReferral: (r: Pick<Referral, 'pregnancyId' | 'department' | 'urgency' | 'reason' | 'question'>, by: string, now: Date) => ReferralId;
+  createReferral: (r: Pick<Referral, 'pregnancyId' | 'department' | 'urgency' | 'reason' | 'question'> & { toTeamId?: TeamId }, by: string, now: Date) => ReferralId;
   advanceReferral: (id: ReferralId, to: ReferralStatus, data: { scheduledAt?: Date; place?: string; recommendations?: string; note?: string }, by: string, now: Date) => void;
   /** `signs` are warning-sign codes (catalogue WARNING_SIGNS keys); the record shows their English labels. */
   requestCallback: (motherId: MotherId, signs: string[], note: string | undefined, requestedBy: string, channel: Callback['channel'], now: Date, voice?: { uri: string; seconds: number }) => CallbackId;
@@ -329,6 +341,7 @@ const VITAL_CODES: [keyof Visit['vitals'], string][] = [
   ['urineAlbumin', 'urine_albumin'],
   ['urineSugar', 'urine_sugar'],
   ['oedema', 'oedema'],
+  ['fetalMovements', 'fetal_movements'],
 ];
 
 /** Content type of a photographed paper record, from its file name (the picker saves JPEG unless told otherwise). */
@@ -456,7 +469,8 @@ export const useDb = create<Db>()((set, get) => {
     recordVisit: (pregnancyId, input, by, at) => {
       const s = get();
       const p = s.pregnancies.find((x) => x.id === pregnancyId)!;
-      const visit: Visit = { id: uid('vs'), pregnancyId, at, by, vitals: input.vitals, checklist: input.checklist, complaints: input.complaints, note: input.note };
+      const counselling = input.counselling ?? [];
+      const visit: Visit = { id: uid('vs'), pregnancyId, at, by, vitals: input.vitals, checklist: input.checklist, complaints: input.complaints, counselling, note: input.note };
       // Close the open ANC task nearest to this visit (within 14 days after its due date).
       const open = s.tasks
         .filter((t) => t.subjectId === pregnancyId && t.kind === 'anc_visit' && !t.completedAt && !t.cancelledAt && t.dueBy.getTime() <= addDays(at, 14).getTime())
@@ -480,6 +494,7 @@ export const useDb = create<Db>()((set, get) => {
           checklist: Object.entries(input.checklist).map(([component, c]) => ({ component, state: c.state, reason: c.reason })),
           complaints: codes,
           complaints_note: complaintsNote,
+          counselling: counselling.flatMap((l) => counsellingCodes.code(l) ?? []),
           note: input.note,
           completeness: counted.length ? Math.round((counted.filter((c) => c.state === 'done').length / counted.length) * 1000) / 1000 : undefined,
           close_task_id: closed?.id,
@@ -491,25 +506,45 @@ export const useDb = create<Db>()((set, get) => {
       return visit.id;
     },
 
-    setTags: (subjectId, codes, note, by, now) => {
+    setTags: (subjectId, change, note, by, now) => {
       const s = get();
+      const add = [...new Set(change.add)].filter((c) => !change.remove.includes(c));
+      const remove = [...new Set(change.remove)];
+      if (!add.length && !remove.length) return;
+      // Only these codes change: a tag someone else set or removed meanwhile stays as they left it (server set_tags).
       const active = s.tags.filter((t) => t.subjectId === subjectId && !t.removedAt);
-      const removed = active.filter((t) => !codes.includes(t.code)).map((t) => t.id);
-      const added = codes
+      const removed = active.filter((t) => remove.includes(t.code)).map((t) => t.id);
+      const added = add
         .filter((c) => !active.some((t) => t.code === c))
         .map((code): Tag => ({ id: uid('tg'), subjectId, code, note, setBy: by, setAt: now }));
       set({
         tags: [...s.tags.map((t) => (removed.includes(t.id) ? { ...t, removedAt: now, removedReason: note } : t)), ...added],
-        audit: audit(s, by, `tags ${added.map((a) => '+' + a.code).join(' ')} ${removed.length ? `−${removed.length}` : ''}`.trim(), subjectId, now),
+        audit: audit(s, by, `tags ${[...add.map((c) => `+${c}`), ...remove.map((c) => `−${c}`)].join(' ')}`, subjectId, now),
       });
-      if (!added.length && !removed.length) return;
       const subject = s.babies.some((b) => b.id === subjectId) ? { baby_id: subjectId } : { pregnancy_id: subjectId };
-      enqueue('set_tags', { ...subject, codes, note: added.length ? note : undefined, removal_reason: removed.length ? note : undefined, at: now.toISOString() }, { entityId: subjectId });
+      enqueue(
+        'set_tags',
+        {
+          ...subject,
+          add: add.length ? add : undefined,
+          remove: remove.length ? remove : undefined,
+          note: add.length ? note : undefined,
+          removal_reason: remove.length ? note : undefined,
+          at: now.toISOString(),
+        },
+        { entityId: subjectId },
+      );
     },
 
     setIntensity: (subjectId, intensity, by, now) => {
       const s = get();
       const p = s.pregnancies.find((x) => x.id === subjectId);
+      if (p && !isOngoing(p)) {
+        // Delivered or closed: the intensity is recorded, but no ANC visit is planned any more (server set_intensity).
+        set({ pregnancies: s.pregnancies.map((x) => (x.id === p.id ? { ...x, intensity } : x)), audit: audit(s, by, `intensity → ${intensity}`, p.mchId, now) });
+        enqueue('set_intensity', { pregnancy_id: p.id, intensity, at: now.toISOString() }, { entityId: p.id, withVersion: true });
+        return;
+      }
       if (p) {
         const updated = { ...p, intensity };
         const lastVisit = s.visits.filter((v) => v.pregnancyId === p.id).sort((a, b) => b.at.getTime() - a.at.getTime())[0];
@@ -582,9 +617,9 @@ export const useDb = create<Db>()((set, get) => {
 
     createReferral: (r, by, now) => {
       const s = get();
-      const ref: Referral = { ...r, id: uid('rf'), status: 'requested', events: [{ status: 'requested', at: now, by }], createdBy: by };
+      const team = r.toTeamId ? s.teams.find((t) => t.id === r.toTeamId) : s.teams.find((t) => t.kind === 'department' && t.name === r.department);
+      const ref: Referral = { ...r, toTeamId: team?.id, id: uid('rf'), status: 'requested', events: [{ status: 'requested', at: now, by }], createdBy: by };
       set({ referrals: [...s.referrals, ref], audit: audit(s, by, `referral → ${r.department}`, r.pregnancyId, now) });
-      const team = s.teams.find((t) => t.kind === 'department' && t.name === r.department);
       enqueue(
         'create_referral',
         { id: ref.id, pregnancy_id: r.pregnancyId, to_team_id: team?.id, urgency: r.urgency, reason: r.reason, question: r.question, at: now.toISOString() },
@@ -613,7 +648,11 @@ export const useDb = create<Db>()((set, get) => {
           { id: appointmentId, kind: 'referral_appt', subjectType: 'pregnancy', subjectId: ref.pregnancyId, title: `${ref.department} appointment`, refId: id, place: data.place, dueFrom: toDateOnly(data.scheduledAt), dueBy: toDateOnly(data.scheduledAt), generatedBy: 'clinician', contactAttempts: [] },
         ];
       }
-      if (to === 'seen') tasks = tasks.map((t) => (t.refId === id && !t.completedAt ? { ...t, completedAt: now } : t));
+      if (to === 'seen') tasks = tasks.map((t) => (t.refId === id && !t.completedAt && !t.cancelledAt ? { ...t, completedAt: now } : t));
+      // A declined or cancelled referral takes its open appointment with it (the server does the same).
+      if (to === 'declined' || to === 'cancelled') {
+        tasks = tasks.map((t) => (t.refId === id && !t.completedAt && !t.cancelledAt ? { ...t, cancelledAt: now, overrideReason: `Referral ${to}` } : t));
+      }
       set({ referrals: s.referrals.map((r) => (r.id === id ? next : r)), tasks, audit: audit(s, by, `referral ${to}`, id, now) });
       enqueue(
         'advance_referral',
@@ -662,7 +701,7 @@ export const useDb = create<Db>()((set, get) => {
     logAccess: (subjectId, actor, now) => {
       const s = get();
       // Collapse repeated opens of the same record by the same person within 10 minutes (the server does the same).
-      const recent = s.audit.find((a) => a.action === 'view_record' && a.entity === subjectId && a.actor === actor && now.getTime() - a.at.getTime() < 600_000);
+      const recent = s.audit.find((a) => a.action === 'view_record' && (a.entityId ?? a.entity) === subjectId && a.actor === actor && now.getTime() - a.at.getTime() < 600_000);
       if (recent) return;
       set({ audit: audit(s, actor, 'view_record', subjectId, now) });
       if (s.pregnancies.some((p) => p.id === subjectId)) enqueue('log_access', { pregnancy_id: subjectId });

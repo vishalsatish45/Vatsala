@@ -8,8 +8,9 @@
  *  2. deidentify     scrubs what free text (notes, reasons) may still carry: known names → role words, phone
  *                    numbers, MCH / IP / child ids, UUIDs, e-mail addresses, villages and pincodes.
  *  3. assignRefs     short citation ids ([V3] = a visit, [T2] = a test …) that map back to real row ids.
- *  4. filterCited    the model's sentences: every one must cite only known short ids and use no interpretive
- *                    or advice language outside quotes; anything else is dropped.
+ *  4. filterCited    the model's sentences: every one must cite only known short ids, use no interpretive
+ *                    or advice language outside quotes, and carry no identifier — neither a generic one (phone,
+ *                    id, e-mail) nor any of this record's known names, places and numbers; anything else is dropped.
  *
  * Hackathon scope: nothing here assesses, scores, thresholds or labels a clinical value.
  */
@@ -188,10 +189,10 @@ export function composeFacts(r: RawRecord): Fact[] {
 /** Known identifying strings for this record, by what replaces them. */
 export type Identifiers = {
   mother: D[]; // her name
-  family: D[]; // husband, caregivers, baby's name
+  family: D[]; // husband, emergency contact, caregivers, baby's name
   staff: D[];
-  places: D[]; // village, district, pincode
-  numbers: D[]; // MCH id, IP numbers, child ids, phone numbers
+  places: D[]; // village, district, state, pincode
+  numbers: D[]; // MCH id, IP numbers, child ids, phone numbers (hers, alternate, emergency contact's, caregivers'), RCH / ABHA ids
 };
 
 const ROLE_WORD: Record<keyof Identifiers, string> = {
@@ -244,9 +245,14 @@ export function deidentify(text: string, ids: Identifiers): string {
   return out;
 }
 
-/** True when text still looks like it carries a direct identifier (defence in depth on model output). */
-export function looksIdentifying(text: string): boolean {
-  return GENERIC.some(([re]) => new RegExp(re.source, re.flags.replace('g', '')).test(text));
+/**
+ * True when text still looks like it carries a direct identifier (defence in depth on model output): a generic
+ * pattern (phone, id, e-mail, long number), or — given this record's identifiers — any known name, name part, place
+ * or number of hers, her family's or the staff's.
+ */
+export function looksIdentifying(text: string, ids?: Identifiers): boolean {
+  if (GENERIC.some(([re]) => new RegExp(re.source, re.flags.replace('g', '')).test(text))) return true;
+  return !!ids && deidentify(text, ids) !== text;
 }
 
 // ── 3. Short citation ids ────────────────────────────────────────────────────────
@@ -335,7 +341,7 @@ const MAX_TEXT = 600;
  * Keeps only sentences whose every citation is a known id and whose wording stays documentary.
  * Inline markers ("… [V3]") count as citations too and are removed from the text.
  */
-export function filterCited(raw: unknown, map: RefMap): { kept: Sentence[]; dropped: number } {
+export function filterCited(raw: unknown, map: RefMap, ids?: Identifiers): { kept: Sentence[]; dropped: number } {
   const arr = raw && typeof raw === 'object' && Array.isArray((raw as { sentences?: unknown }).sentences) ? (raw as { sentences: unknown[] }).sentences : [];
   const kept: Sentence[] = [];
   let dropped = 0;
@@ -357,7 +363,7 @@ export function filterCited(raw: unknown, map: RefMap): { kept: Sentence[]; drop
     for (const m of r.text.matchAll(INLINE_REF)) for (const x of m[0].replace(/[[\]\s]/g, '').split(',')) add(x);
     const text = r.text.replace(INLINE_REF, '').replace(/\s+/g, ' ').trim();
     const unquoted = text.replace(/"[^"]*"/g, '');
-    if (!text || text.length > MAX_TEXT || unknownRef || refs.size === 0 || BANNED.test(unquoted) || ADVICE.test(unquoted) || looksIdentifying(text) || kept.length >= MAX_SENTENCES) {
+    if (!text || text.length > MAX_TEXT || unknownRef || refs.size === 0 || BANNED.test(unquoted) || ADVICE.test(unquoted) || looksIdentifying(text, ids) || kept.length >= MAX_SENTENCES) {
       dropped++;
       continue;
     }

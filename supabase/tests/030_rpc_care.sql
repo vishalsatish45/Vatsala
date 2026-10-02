@@ -256,15 +256,16 @@ select pg_temp.ok((select intensity from public.pregnancies where id = pg_temp.i
 call pg_temp.fails(format('select public.set_intensity(%L::jsonb)', jsonb_build_object('idempotency_key', '00000000-0000-4000-a000-000000000e03',
   'pregnancy_id', :'p_lakshmi', 'intensity', 'routine', 'cancel_task_ids', jsonb_build_array('00000000-0000-4000-800b-0000000000d1'))),
   'R043 re-planning cannot cancel a visit that is no longer open', '%changed meanwhile%', 'PT409');
+-- set_tags takes deltas (add / remove) since 20261005001000; see also 096_care_fixes.sql.
 select public.set_tags(jsonb_build_object('idempotency_key', '00000000-0000-4000-a000-000000000e04', 'pregnancy_id', :'p_lakshmi',
-  'codes', '["hypertensive","prev_cs"]'::jsonb));
+  'add', '["hypertensive","prev_cs"]'::jsonb));
 call pg_temp.fails(format('select public.set_tags(%L::jsonb)', jsonb_build_object('idempotency_key', '00000000-0000-4000-a000-000000000e05',
-  'pregnancy_id', :'p_lakshmi', 'codes', '["hypertensive"]'::jsonb)), 'R044 removing a tag needs a reason', '%needs a reason%', 'PT422');
+  'pregnancy_id', :'p_lakshmi', 'remove', '["prev_cs"]'::jsonb)), 'R044 removing a tag needs a reason', '%needs a reason%', 'PT422');
 select pg_temp.ok((public.set_tags(jsonb_build_object('idempotency_key', '00000000-0000-4000-a000-000000000e06', 'pregnancy_id', :'p_lakshmi',
-  'codes', '["hypertensive"]'::jsonb, 'removal_reason', 'Entered by mistake')) -> 'removed') = '["prev_cs"]',
+  'remove', '["prev_cs"]'::jsonb, 'removal_reason', 'Entered by mistake')) -> 'removed') = '["prev_cs"]',
   'R045 a tag removed with a reason');
 call pg_temp.fails(format('select public.set_tags(%L::jsonb)', jsonb_build_object('idempotency_key', '00000000-0000-4000-a000-000000000e07',
-  'pregnancy_id', :'p_lakshmi', 'codes', '["hypertensive","lbw"]'::jsonb)), 'R046 a newborn tag cannot go on a pregnancy', '%does not apply%');
+  'pregnancy_id', :'p_lakshmi', 'add', '["lbw"]'::jsonb)), 'R046 a newborn tag cannot go on a pregnancy', '%does not apply%');
 select (select version from public.pregnancies where id = :'p_lakshmi') as pv \gset
 select public.redate_pregnancy(jsonb_build_object('idempotency_key', '00000000-0000-4000-a000-000000000e08', 'pregnancy_id', :'p_lakshmi',
   'version', :pv, 'dating', jsonb_build_object('method', 'scan', 'scan_on', current_date - 60, 'ga_at_scan_days', 180, 'edd', current_date + 40)));

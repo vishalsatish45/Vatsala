@@ -1,4 +1,4 @@
-import { DEMO_UNITS } from '@/data/seed';
+import { DEMO_UNITS, demoDepartmentId } from '@/data/seed';
 import type { TeamRef } from '@/data/types';
 
 import type { Account } from './types';
@@ -15,6 +15,7 @@ const HOSPITAL = 'Demo District Hospital';
 const OB_A: TeamRef = { id: DEMO_UNITS.obA, name: 'OB Unit A', kind: 'unit', specialty: 'obstetrics' };
 const OB_B: TeamRef = { id: DEMO_UNITS.obB, name: 'OB Unit B', kind: 'unit', specialty: 'obstetrics' };
 const PAEDS: TeamRef = { id: DEMO_UNITS.paeds, name: 'Paediatrics Unit', kind: 'unit', specialty: 'paediatrics' };
+const CARDIOLOGY: TeamRef = { id: demoDepartmentId('Cardiology'), name: 'Cardiology', kind: 'department', specialty: 'other' };
 
 export const DEMO_ACCOUNTS: Account[] = [
   {
@@ -36,7 +37,7 @@ export const DEMO_ACCOUNTS: Account[] = [
     phone: '9000000007',
     name: 'Dr. Kiran Shah',
     faces: ['care'],
-    care: { role: 'specialist', department: 'Cardiology', hospital: HOSPITAL, staffId: 'staff_kiran', teams: [] },
+    care: { role: 'specialist', department: 'Cardiology', hospital: HOSPITAL, staffId: 'staff_kiran', teams: [CARDIOLOGY] },
   },
   {
     id: 'demo-mother-lakshmi',

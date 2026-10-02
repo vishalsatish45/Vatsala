@@ -26,7 +26,7 @@ export default function CareNotifications() {
   const db = useDb();
   const now = useNow();
   const care = useSession((s) => s.account?.care);
-  const items = careInbox(db, now, { department: care?.department, specialist: care?.role === 'specialist' });
+  const items = careInbox(db, now, { department: care?.department, specialist: care?.role === 'specialist', teamIds: (care?.teams ?? []).map((t) => t.id) });
   const server = isRemote ? serverInbox(db) : [];
   const unread = server.filter((n) => n.unread);
 

@@ -9,6 +9,7 @@ import { useDb } from '@/data/store';
 import { EndAdmissionSheet } from '@/features/care/AdmissionSheets';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, DatePicker, Field, GlassSurface, OptionChips, Screen, TopBar, palette, space } from '@/ui';
 
 const OUTCOMES = END_REASONS.map(([, label]) => label);
@@ -28,6 +29,7 @@ export default function EndPregnancy() {
   const [note, setNote] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [endingAdmission, setEndingAdmission] = useState(false);
+  const { busy, once } = useSubmitOnce();
 
   const p = db.pregnancies.find((x) => x.id === id);
   if (!p) return <Screen header={<TopBar back title="End of care" />}><AppText>Not found.</AppText></Screen>;
@@ -42,9 +44,11 @@ export default function EndPregnancy() {
 
   function confirm() {
     if (!ready || !reason) return;
-    db.endPregnancy(p!.id, reason, note, delivered ? undefined : on, by, now);
-    // Closing ends the care assignments: the record leaves the active lists, so return to them.
-    router.replace('/care/patients');
+    once(() => {
+      db.endPregnancy(p!.id, reason, note, delivered ? undefined : on, by, now);
+      // Closing ends the care assignments: the record leaves the active lists, so return to them.
+      router.replace('/care/patients');
+    })();
   }
 
   return (
@@ -102,7 +106,7 @@ export default function EndPregnancy() {
               : `Record that this pregnancy ended on ${fmtDay(on)} · ${outcome}.`}{' '}
             Open visits, due tests and medicine reminders for this episode will stop, and the family stops receiving pregnancy content. This cannot be undone from the app.
           </AppText>
-          <Button label="Confirm" onPress={confirm} />
+          <Button label="Confirm" disabled={busy} onPress={confirm} />
           <Button variant="secondary" label="Go back" onPress={() => setConfirming(false)} />
         </GlassSurface>
       ) : (

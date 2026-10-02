@@ -6,7 +6,7 @@ import { addDays, daysBetween, formatGA, gestationalAge } from '@domain/gestatio
 import { GRACE_DAYS, taskStatus, type TaskStatus } from '@domain/schedules';
 
 import type { DbState } from './store';
-import type { Baby, Intensity, Investigation, Pregnancy, Referral, SubjectId, Task } from './types';
+import { REFERRAL_ENDED, type Baby, type Intensity, type Investigation, type Pregnancy, type Referral, type SubjectId, type Task, type TeamId } from './types';
 
 // ── helpers ─────────────────────────────────────────────────────────────────────
 
@@ -23,6 +23,31 @@ export const fmtDay = (d: Date) => d.toLocaleDateString('en-IN', { weekday: 'sho
 export const fmtTime = (d: Date) => d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 export const motherOf = (db: DbState, motherId: string) => db.mothers.find((m) => m.id === motherId)!;
+
+/**
+ * A mother's current pregnancy: the ongoing one (active or admitted; the latest registered if ever two), else her
+ * latest registered episode. A returning mother has several pregnancies; anything shown "for her" uses this one.
+ */
+export function currentPregnancy(db: Pick<DbState, 'pregnancies'>, motherId: string): Pregnancy | undefined {
+  const mine = db.pregnancies.filter((p) => p.motherId === motherId).sort((a, b) => b.registeredOn.getTime() - a.registeredOn.getTime());
+  return mine.find((p) => p.status === 'active' || p.status === 'admitted') ?? mine[0];
+}
+
+const REFERRAL_LABEL: Record<Referral['status'], string> = {
+  requested: 'Requested',
+  accepted: 'Accepted',
+  scheduled: 'Scheduled',
+  seen: 'Seen',
+  recommendations: 'Recommendations',
+  closed: 'Closed',
+  declined: 'Declined',
+  cancelled: 'Cancelled',
+};
+/** A referral status as shown ("Cancelled" stays distinct from an answered, closed referral). */
+export const referralStatusLabel = (s: Referral['status']) => REFERRAL_LABEL[s];
+
+/** Still open: not closed, declined or cancelled. */
+export const referralOpen = (r: Pick<Referral, 'status'>) => !REFERRAL_ENDED.includes(r.status);
 export const activeTags = (db: DbState, subjectId: string) => db.tags.filter((t) => t.subjectId === subjectId && !t.removedAt);
 
 export function gaLabel(p: Pregnancy, now: Date) {
@@ -61,7 +86,7 @@ export function invState(i: Investigation, now: Date): { status: TaskStatus; lab
 const lastEventAt = (r: Referral) => r.events[r.events.length - 1]!.at;
 
 export function referralStale(r: Referral, now: Date) {
-  if (['closed', 'declined', 'recommendations'].includes(r.status)) return false;
+  if (!referralOpen(r) || r.status === 'recommendations') return false;
   const limitH = r.urgency === 'routine' ? 72 : 24;
   return now.getTime() - lastEventAt(r).getTime() > limitH * 3_600_000;
 }
@@ -127,6 +152,11 @@ export type WorkItem = {
   /** `discharge`: the checklist of a mother (pregnancy id) or a baby (baby id). */
   target: { type: 'pregnancy' | 'baby' | 'callback' | 'task' | 'investigation' | 'referral' | 'discharge'; id: string };
   audience: 'ob' | 'paed' | 'both';
+  /**
+   * Referral items: whose move it is (server advance_referral). `receiving`: the department's members (accept,
+   * schedule, see, answer); `referring`: the referring team (close); `either`: a stale referral both sides follow.
+   */
+  referral?: { side: 'receiving' | 'referring' | 'either'; toTeamId?: TeamId; baby: boolean };
 };
 
 const SUBS = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'] as const;
@@ -140,9 +170,7 @@ export function obsScore(gpla: { g: number; p: number; l: number; a: number }): 
 /** Identifier rows for a patient: Age + OBS score, and IP number. */
 export function patientIds(db: DbState, motherId: string, pregnancyId?: string): { ageObs: string; ip: string } {
   const m = db.mothers.find((x) => x.id === motherId);
-  const p = pregnancyId
-    ? db.pregnancies.find((x) => x.id === pregnancyId)
-    : db.pregnancies.filter((x) => x.motherId === motherId).sort((a, b) => b.registeredOn.getTime() - a.registeredOn.getTime())[0];
+  const p = pregnancyId ? db.pregnancies.find((x) => x.id === pregnancyId) : currentPregnancy(db, motherId);
   if (!m) return { ageObs: '', ip: '' };
   return {
     ageObs: `Age ${m.age}${p ? ` · ${obsScore(p.gpla)}` : ''}`,
@@ -159,7 +187,7 @@ export function worklist(db: DbState, now: Date): WorkItem[] {
 
   for (const c of db.callbacks.filter((x) => !x.closedAt)) {
     const m = motherOf(db, c.motherId);
-    const p = db.pregnancies.find((x) => x.motherId === m.id);
+    const p = currentPregnancy(db, m.id);
     out.push({
       id: c.id, group: 'now', name: m.name, what: `Call-back requested · ${c.channel === 'whatsapp' ? 'WhatsApp' : 'app'}`, context: p ? (p.status === 'delivered' ? 'Postnatal' : gaLabel(p, now)) : '',
       status: 'due', statusLabel: `Waiting ${ago(c.at, now)}`, intensity: p?.intensity, familySign: c.signs.length > 0, motherId: m.id, pregnancyId: p?.id, target: { type: 'callback', id: c.id }, audience: 'both',
@@ -221,9 +249,11 @@ export function worklist(db: DbState, now: Date): WorkItem[] {
     const p = pById.get(r.pregnancyId);
     if (!p) continue;
     const m = motherOf(db, p.motherId);
-    if (r.status === 'requested') out.push({ id: r.id, group: 'today', name: m.name, what: `Referral to accept · ${r.department}`, context: gaLabel(p, now), status: 'due', statusLabel: `Requested ${ago(r.events[0]!.at, now)} ago`, intensity: p.intensity, motherId: m.id, pregnancyId: p.id, target: { type: 'referral', id: r.id }, audience: 'both' });
-    else if (r.status === 'recommendations') out.push({ id: r.id, group: 'today', name: m.name, what: `Referral answered · ${r.department}`, context: gaLabel(p, now), status: 'due', statusLabel: 'Review & close', intensity: p.intensity, motherId: m.id, pregnancyId: p.id, target: { type: 'referral', id: r.id }, audience: 'ob' });
-    else if (referralStale(r, now)) out.push({ id: r.id, group: 'week', name: m.name, what: `Referral · ${r.department} · no update`, context: gaLabel(p, now), status: 'overdue', statusLabel: ago(lastEventAt(r), now), intensity: p.intensity, motherId: m.id, pregnancyId: p.id, target: { type: 'referral', id: r.id }, audience: 'ob' });
+    const audience = r.babyId ? 'paed' : 'ob';
+    const ref = (side: 'receiving' | 'referring' | 'either') => ({ side, toTeamId: r.toTeamId, baby: !!r.babyId });
+    if (r.status === 'requested') out.push({ id: r.id, group: 'today', name: m.name, what: `Referral to accept · ${r.department}`, context: gaLabel(p, now), status: 'due', statusLabel: `Requested ${ago(r.events[0]!.at, now)} ago`, intensity: p.intensity, motherId: m.id, pregnancyId: p.id, target: { type: 'referral', id: r.id }, audience, referral: ref('receiving') });
+    else if (r.status === 'recommendations') out.push({ id: r.id, group: 'today', name: m.name, what: `Referral answered · ${r.department}`, context: gaLabel(p, now), status: 'due', statusLabel: 'Review & close', intensity: p.intensity, motherId: m.id, pregnancyId: p.id, target: { type: 'referral', id: r.id }, audience, referral: ref('referring') });
+    else if (referralStale(r, now)) out.push({ id: r.id, group: 'week', name: m.name, what: `Referral · ${r.department} · no update`, context: gaLabel(p, now), status: 'overdue', statusLabel: ago(lastEventAt(r), now), intensity: p.intensity, motherId: m.id, pregnancyId: p.id, target: { type: 'referral', id: r.id }, audience, referral: ref('either') });
   }
 
   for (const d of db.discharges.filter((x) => !x.completedAt)) {
@@ -307,9 +337,13 @@ export function kpi(db: DbState, now: Date, weeks = 8): KpiReport {
   const decidedVax = db.immunizations.filter((i) => i.notGivenReason === undefined && (i.givenOn || daysBetween(i.dueOn, now) > 7));
   const vaxOnTime = decidedVax.filter((i) => i.givenOn && daysBetween(i.dueOn, i.givenOn) <= 7);
 
+  // Days from request to the department's answer. A cancelled or declined referral was never answered: excluded.
   const closedRefs = db.referrals
-    .map((r) => r.events.find((e) => e.status === 'recommendations' || e.status === 'closed'))
-    .map((e, i) => (e ? daysBetween(db.referrals[i]!.events[0]!.at, e.at) : undefined))
+    .filter((r) => r.status !== 'cancelled' && r.status !== 'declined')
+    .map((r) => {
+      const answered = r.events.find((e) => e.status === 'recommendations' || e.status === 'closed');
+      return answered ? daysBetween(r.events[0]!.at, answered.at) : undefined;
+    })
     .filter((x): x is number => x !== undefined)
     .sort((a, b) => a - b);
 

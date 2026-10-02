@@ -133,7 +133,7 @@ describe('delivery → discharge → newborn (mock mode)', () => {
 
   it("discharge: N/A needs its reason, the GDM template is planned, closed windows are said, and it completes at the documented time", () => {
     const { p } = deliver([baby({})]);
-    db().setTags(p.id, ['gdm'], undefined, by, now);
+    db().setTags(p.id, { add: ['gdm'], remove: [] }, undefined, by, now);
     db().setDischargeItem(p.id, 'fp', 'na', undefined);
     expect(db().discharges.find((d) => d.subjectId === p.id)?.items.find((i) => i.key === 'fp')?.state).toBeUndefined();
     db().setDischargeItem(p.id, 'fp', 'na', ' Other: discussed at day 7 ');

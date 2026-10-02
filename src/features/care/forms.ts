@@ -420,9 +420,11 @@ export function makeVisitSchema(gaWeeks: number) {
         urineAlbumin: v.albumin,
         urineSugar: v.sugar,
         oedema: v.oedema,
+        fetalMovements: v.movements,
       },
       checklist,
       complaints: visitComplaints(v),
+      counselling: v.counselling,
       nextVisitOn: v.nextOn,
     };
   });
@@ -430,7 +432,11 @@ export function makeVisitSchema(gaWeeks: number) {
 
 // ── CT-27 Tags & follow-up intensity ─────────────────────────────────────────────
 
-/** `current` = the tag codes active when the screen opened: removing one needs a note. */
+/**
+ * `current` = the tag codes active when the screen opened: removing one needs a note. The output is the change
+ * the clinician made (codes added and removed), never the whole list, so a tag another clinician set meanwhile is
+ * kept (server set_tags takes deltas).
+ */
 export function makeTagsSchema(current: readonly string[]) {
   return z
     .object({ codes: list, intensity, note: text })
@@ -438,7 +444,12 @@ export function makeTagsSchema(current: readonly string[]) {
       const removed = current.some((c) => !v.codes.includes(c));
       if (removed && !v.note.trim()) ctx.addIssue({ code: 'custom', path: ['note'], message: 'Please add a note explaining why a tag was removed.' });
     })
-    .transform((v) => ({ codes: v.codes, intensity: v.intensity, note: trimmedOrUndefined(v.note) }));
+    .transform((v) => ({
+      add: v.codes.filter((c) => !current.includes(c)),
+      remove: current.filter((c) => !v.codes.includes(c)),
+      intensity: v.intensity,
+      note: trimmedOrUndefined(v.note),
+    }));
 }
 
 // ── CT-51 New referral ───────────────────────────────────────────────────────────
@@ -660,9 +671,39 @@ export const closeCallbackSchema = z
   .refine((v) => !!v.outcome, { path: ['outcome'], message: 'Choose an outcome' })
   .transform((v) => ({ outcome: v.outcome ?? '', note: trimmedOrUndefined(v.note) }));
 
-// ── CT-52 Referral: appointment / recommendations sheet ─────────────────────────
+// ── CT-52 Referral: appointment / recommendations / decline or cancel ───────────
+//
+// What the department documents is what the family and the referrer see: nothing is filled in for it. Matches
+// advance_referral (scheduled_at required to schedule, recommendations to answer, a reason to decline or cancel).
 
-export const referralStepSchema = z.object({ inDays: z.enum(['1', '2', '3', '5', '7']), recs: text });
+/**
+ * The appointment the department books: exact date and time (typed as on paper, the phone's local time) and the
+ * place the mother should go. Not in the past.
+ */
+export function makeScheduleReferralSchema(now: Date) {
+  return z
+    .object({ ...whenFields, place: text })
+    .superRefine((v, ctx) => {
+      const at = birthTime(v.date, v.time);
+      if (!at) ctx.addIssue({ code: 'custom', path: ['time'], message: 'Enter the date as DD-MM-YYYY and the time as HH:MM (24-hour).' });
+      else if (at.getTime() < now.getTime() - 10 * 60_000) ctx.addIssue({ code: 'custom', path: ['time'], message: 'The appointment cannot be in the past.' });
+      const place = v.place.trim();
+      if (!place) ctx.addIssue({ code: 'custom', path: ['place'], message: 'Write where she should come (e.g. the OPD and room).' });
+      else if (place.length > 200) ctx.addIssue({ code: 'custom', path: ['place'], message: 'Place: up to 200 characters.' });
+    })
+    .transform((v) => ({ scheduledAt: birthTime(v.date, v.time)!, place: v.place.trim() }));
+}
+export type ScheduleReferralForm = z.input<ReturnType<typeof makeScheduleReferralSchema>>;
+
+/** The department's assessment and recommendations, as the specialist documents them (required). */
+export const referralRecsSchema = z
+  .object({ recs: text.refine((s) => !!s.trim(), 'Write the recommendations as documented') })
+  .transform((v) => ({ recommendations: v.recs.trim() }));
+
+/** Why the department declines, or the referring team cancels, a referral (required, recorded on its timeline). */
+export const referralReasonSchema = z
+  .object({ reason: text.refine((s) => !!s.trim(), 'Write the reason') })
+  .transform((v) => ({ note: v.reason.trim() }));
 
 // ── CT-92 Newborn observation ────────────────────────────────────────────────────
 

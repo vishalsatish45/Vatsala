@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { localDay } from '@domain/gestation';
 
 import { CARD_FIELDS } from './catalogue';
-import { callbackOutcomeCodes, complaintCodes, complicationCodes, contactOutcomeCodes, deliveryModeCodes, dischargeLabel, followUpCodes, labourMedicineCodes, previousLabel, previousModeCodes, previousOutcomeCodes, signLabel } from './codes';
+import { callbackOutcomeCodes, complaintCodes, complicationCodes, counsellingCodes, contactOutcomeCodes, deliveryModeCodes, dischargeLabel, followUpCodes, labourMedicineCodes, previousLabel, previousModeCodes, previousOutcomeCodes, signLabel } from './codes';
 import {
   asBabyId,
   asCallbackId,
@@ -148,7 +148,8 @@ const T = {
   previous_pregnancies: z.strictObject({ id, mother_id: id, year: num, outcome: str, mode: nstr, gestation_weeks: nnum, complications: texts, note: nstr }),
   observations: z.strictObject({ id, encounter_id: id, code: str, value_num: nnum, value_text: nstr, at: str }),
   encounters: z.strictObject({
-    id, pregnancy_id: nid, baby_id: nid, kind: str, at: str, by_staff: id, complaints: texts, complaints_note: nstr, note: nstr, document_id: nid,
+    id, pregnancy_id: nid, baby_id: nid, kind: str, at: str, by_staff: id, complaints: texts, complaints_note: nstr, counselling: texts, note: nstr,
+    document_id: nid,
   }),
   encounter_checklist: z.strictObject({ encounter_id: id, component: str, state: z.enum(['done', 'not_done', 'na']), reason: nstr }),
   tags: z.strictObject({
@@ -203,7 +204,8 @@ const T = {
   }),
   care_notes: z.strictObject({ id, pregnancy_id: nid, baby_id: nid, author: id, body: str, kind: z.enum(['note', 'ai_verified']), at: str }),
   med_doses: z.strictObject({ id, medication_id: id, mother_id: id, date: str, slot, status: z.enum(['taken', 'skipped']), at: str }),
-  audit_log: z.strictObject({ id: num, at: str, actor_label: nstr, role: nstr, action: str, entity_type: str }),
+  // entity_id is the record's id as text (a UUID for patient records); mother_id finds a record's entries.
+  audit_log: z.strictObject({ id: num, at: str, actor_label: nstr, role: nstr, action: str, entity_type: str, entity_id: nstr, mother_id: nid }),
   documents: z.strictObject({
     id, pregnancy_id: nid, baby_id: nid, storage_path: nstr, fields: z.array(captureField).nullable(), captured_at: str, captured_by: id,
   }),
@@ -536,9 +538,11 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
         vitals: {
           weightKg: n('weight'), bpSys: n('bp_sys'), bpDia: n('bp_dia'), pulse: n('pulse'), fundalHeightCm: n('fundal_height'), fhr: n('fhr'),
           presentation: t('presentation'), urineAlbumin: t('urine_albumin'), urineSugar: t('urine_sugar'), oedema: t('oedema'),
+          fetalMovements: t('fetal_movements'),
         },
         checklist: Object.fromEntries((checklistByEnc.get(e.id) ?? []).map((c) => [c.component, { state: c.state, reason: opt(c.reason) }])),
         complaints: [...e.complaints.map(complaintCodes.label), ...(e.complaints_note ? [e.complaints_note] : [])],
+        counselling: e.counselling.map(counsellingCodes.label),
         note: opt(e.note),
       };
     });
@@ -601,22 +605,23 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
 
   const babyPregnancy = new Map(babies.map((b) => [b.id, b.pregnancy_id]));
   const eventsByRef = groupBy(refEvents, (e) => e.referral_id);
-  // The app shows a cancelled referral as closed.
-  const shown = (st: z.infer<typeof referralStatus>) => (st === 'cancelled' ? 'closed' : st);
+  // A cancelled referral stays "cancelled" (it was never answered; the KPI leaves it out).
   s.referrals = referrals.map((r): Referral => ({
     id: asReferralId(r.id),
     pregnancyId: asPregnancyId(r.pregnancy_id ?? babyPregnancy.get(r.baby_id ?? '') ?? ''),
+    babyId: r.baby_id ? asBabyId(r.baby_id) : undefined,
+    toTeamId: asTeamId(r.to_team_id),
     department: teamName.get(r.to_team_id) ?? 'Department',
     urgency: r.urgency,
     reason: r.reason,
     question: r.question,
-    status: shown(r.status),
+    status: r.status,
     scheduledAt: tsOpt(r.scheduled_at),
     place: opt(r.place),
     recommendations: opt(r.recommendations),
     events: [...(eventsByRef.get(r.id) ?? [])]
       .sort((a, b) => a.at.localeCompare(b.at))
-      .map((e) => ({ status: shown(e.status), at: new Date(e.at), by: nameOf(e.by_staff), note: opt(e.note) })),
+      .map((e) => ({ status: e.status, at: new Date(e.at), by: nameOf(e.by_staff), note: opt(e.note) })),
     createdBy: nameOf(r.created_by),
   }));
 
@@ -705,7 +710,11 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
   const medName = new Map(medications.map((m) => [m.id, m.name]));
   s.medDoses = doses.map((d): MedDose => ({ id: asMedDoseId(d.id), motherId: asMotherId(d.mother_id), med: medName.get(d.medication_id) ?? '', medicationId: asPrescriptionId(d.medication_id), date: d.date, slot: d.slot, status: d.status, at: new Date(d.at) }));
 
-  s.audit = audit.map((a): AuditEntry => ({ id: String(a.id), at: new Date(a.at), actor: a.actor_label ?? a.role ?? 'System', action: a.action.replace(/_/g, ' '), entity: a.entity_type }));
+  // The raw action code (e.g. 'view_record'); screens choose the words. entity_id / mother_id find one record's entries.
+  s.audit = audit.map((a): AuditEntry => ({
+    id: String(a.id), at: new Date(a.at), actor: a.actor_label ?? a.role ?? 'System', action: a.action, entity: a.entity_type,
+    entityId: opt(a.entity_id), motherId: a.mother_id ? asMotherId(a.mother_id) : undefined,
+  }));
 
   const encByDoc = new Map(encounters.filter((e) => e.document_id).map((e) => [e.document_id!, asVisitId(e.id)]));
   s.captures = documents.flatMap((d): CaptureDoc[] =>

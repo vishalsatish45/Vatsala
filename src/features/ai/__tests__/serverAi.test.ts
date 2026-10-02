@@ -27,10 +27,13 @@ const N1 = '00000000-0000-4000-8012-000000000001';
 
 const ids: Identifiers = {
   mother: ['Lakshmi K'],
-  family: ['Ravi Kumar', 'Ravi K', 'Baby Lakshmi'],
+  // husband, emergency contact (Gowramma, her mother), caregiver, baby
+  family: ['Ravi Kumar', 'Gowramma', 'Ravi K', 'Baby Lakshmi'],
   staff: ['Dr. Priya', 'Dr. Meera Shah'],
-  places: ['Hosahalli', 'Tumakuru', '572101'],
-  numbers: ['MCH-2026-000101', 'IP-2026-000001', '919000000003'],
+  // village, district, state, pincode
+  places: ['Hosahalli', 'Tumakuru', 'Karnataka', '572101'],
+  // MCH id, IP number, her phone, alternate phone, emergency contact's phone, RCH id, ABHA address
+  numbers: ['MCH-2026-000101', 'IP-2026-000001', '919000000003', '919000000013', '919000000023', '123456789012', 'lakshmi.k@abdm'],
 };
 
 const raw: RawRecord = {
@@ -60,7 +63,13 @@ const raw: RawRecord = {
   tasks: [],
   callbacks: [],
   selfLogs: [],
-  notes: [{ id: N1, at: '2026-09-20T00:00:00Z', by_role: 'obstetrician', body: 'Spoke to Ravi K in Hosahalli (572101), email ravi@example.com' }],
+  notes: [
+    { id: N1, at: '2026-09-20T00:00:00Z', by_role: 'obstetrician', body: 'Spoke to Ravi K in Hosahalli (572101), email ravi@example.com' },
+    {
+      id: '00000000-0000-4000-8012-000000000002', at: '2026-09-21T00:00:00Z', by_role: 'obstetrician',
+      body: 'Emergency contact Gowramma (9000000023) informed; alternate 90000 00013; moving within Karnataka; ABHA lakshmi.k@abdm',
+    },
+  ],
   medications: [],
   vaccines: [],
   discharges: [],
@@ -70,7 +79,10 @@ describe('de-identification', () => {
   const { items } = prepareRecord(raw, ids);
   const all = items.map((i) => i.text).join('\n');
 
-  it.each(['Lakshmi', 'Ravi', 'Priya', 'Meera', 'Shah', 'Hosahalli', 'Tumakuru', '572101', 'MCH-2026', 'IP-2026', '98450', '9000000003', 'example.com'])(
+  it.each([
+    'Lakshmi', 'Ravi', 'Priya', 'Meera', 'Shah', 'Hosahalli', 'Tumakuru', '572101', 'MCH-2026', 'IP-2026', '98450', '9000000003', 'example.com',
+    'Gowramma', '9000000023', '00013', 'Karnataka', 'abdm',
+  ])(
     'never sends %s to the model',
     (needle) => {
       expect(all.toLowerCase()).not.toContain(needle.toLowerCase());
@@ -109,7 +121,7 @@ describe('citation ids', () => {
   const { items, map } = assignRefs(composeFacts(raw));
 
   it('gives each source a short id by kind and maps it back to the row', () => {
-    expect(items.map((i) => i.ref)).toEqual(['P1', 'G1', 'V1', 'V2', 'T1', 'T2', 'R1', 'N1']);
+    expect(items.map((i) => i.ref)).toEqual(['P1', 'G1', 'V1', 'V2', 'T1', 'T2', 'R1', 'N1', 'N2']);
     expect(map.V2).toEqual({ kind: 'visit', id: V2 });
     expect(map.T1).toEqual({ kind: 'test', id: T1 });
   });
@@ -171,6 +183,22 @@ describe('citation filter', () => {
   it('drops sentences that still carry an identifier', () => {
     expect(run([{ text: 'Card MCH-2026-000101 reviewed.', sources: ['P1'] }]).kept).toEqual([]);
     expect(run([{ text: 'Husband reachable on 9845012345.', sources: ['V1'] }]).kept).toEqual([]);
+  });
+
+  it("drops sentences naming this record's own people and places, which no generic pattern catches", () => {
+    const named = [
+      { text: 'Gowramma was informed.', sources: ['N1'] },
+      { text: 'Note documented by the obstetrician about Lakshmi.', sources: ['N1'] },
+      { text: 'Seen by Dr. Meera Shah.', sources: ['R1'] },
+      { text: 'Family lives in Hosahalli, Karnataka.', sources: ['N1'] },
+    ];
+    // without the record's identifiers only generic shapes are caught …
+    expect(filterCited({ sentences: named }, map).kept).toHaveLength(4);
+    // … with them every one is dropped
+    const { kept, dropped } = filterCited({ sentences: [...named, { text: 'Note documented on 2026-09-20.', sources: ['N1'] }] }, map, ids);
+    expect(kept.map((s) => s.text)).toEqual(['Note documented on 2026-09-20.']);
+    expect(dropped).toBe(4);
+    expect(looksIdentifying('the mother and a family member', ids)).toBe(false);
   });
 
   it('tolerates a malformed reply', () => {

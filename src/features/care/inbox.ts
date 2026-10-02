@@ -7,8 +7,11 @@ export type InboxItem = { id: string; at: Date; title: string; body: string; kin
 
 const DAY = 86_400_000;
 
-/** Care Team notifications (PRD F-04) — operational events only. Specialists see their department's referrals. */
-export function careInbox(db: DbState, now: Date, opts: { department?: string; specialist: boolean }): InboxItem[] {
+/**
+ * Care Team notifications (PRD F-04) — operational events only. Specialists see the referrals addressed to their
+ * department(s): by team id (`teamIds`), or by the department's name when a referral has no team id.
+ */
+export function careInbox(db: DbState, now: Date, opts: { department?: string; specialist: boolean; teamIds?: readonly string[] }): InboxItem[] {
   const out: InboxItem[] = [];
   const recent = (d: Date) => now.getTime() - d.getTime() < 3 * DAY;
   const name = (pregnancyId: string) => {
@@ -17,7 +20,7 @@ export function careInbox(db: DbState, now: Date, opts: { department?: string; s
   };
 
   for (const r of db.referrals) {
-    if (opts.specialist && r.department !== opts.department) continue;
+    if (opts.specialist && !(r.toTeamId ? !!opts.teamIds?.includes(r.toTeamId) : r.department === opts.department)) continue;
     for (const e of r.events) {
       if (!recent(e.at)) continue;
       out.push({ id: `${r.id}-${e.status}`, at: e.at, kind: 'referral', title: `${r.department} referral · ${e.status}`, body: `${name(r.pregnancyId)} · by ${e.by}`, href: { pathname: '/care/referral/[id]', params: { id: r.id } } });

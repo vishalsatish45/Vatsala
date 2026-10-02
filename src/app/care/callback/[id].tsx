@@ -6,7 +6,7 @@ import { Phone } from 'lucide-react-native';
 
 import { CALLBACK_OUTCOMES } from '@/data/catalogue';
 import { asCallbackId } from '@/data/ids';
-import { ago, gaLabel, motherOf } from '@/data/selectors';
+import { ago, currentPregnancy, gaLabel, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import type { Callback } from '@/data/types';
 import { closeCallbackSchema } from '@/features/care/forms';
@@ -30,7 +30,8 @@ export default function CallbackDetail() {
   const c = db.callbacks.find((x) => x.id === id);
   if (!c) return <Screen header={<TopBar back title="Call-back" />}><AppText>Not found.</AppText></Screen>;
   const m = motherOf(db, c.motherId);
-  const p = db.pregnancies.find((x) => x.motherId === m.id);
+  // A returning mother: her ongoing pregnancy, else her latest episode.
+  const p = currentPregnancy(db, m.id);
   const logs = db.selfLogs.filter((l) => l.motherId === m.id).sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, 3);
 
   return (

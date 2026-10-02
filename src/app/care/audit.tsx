@@ -2,6 +2,7 @@ import { View } from 'react-native';
 
 import { ago } from '@/data/selectors';
 import { useDb } from '@/data/store';
+import { auditActionLabel } from '@/features/care/audit';
 import { useNow } from '@/lib/clock';
 import { AppText, Card, Screen, TopBar, space } from '@/ui';
 
@@ -15,7 +16,7 @@ export default function Audit() {
       <Card style={{ gap: space.sm }}>
         {db.audit.slice(0, 80).map((a) => (
           <View key={a.id} style={{ gap: 1 }}>
-            <AppText variant="bodyMedium">{a.action}</AppText>
+            <AppText variant="bodyMedium">{auditActionLabel(a.action)}</AppText>
             <AppText variant="caption" tone="secondary">
               {a.actor} · {a.entity} · {ago(a.at, now)} ago
             </AppText>

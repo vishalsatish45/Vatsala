@@ -5,6 +5,7 @@ import { ScanLine, ShieldAlert } from 'lucide-react-native';
 
 import { requestEmergencyAccess } from '@/data/emergency';
 import { mchIdIn, reasonOk } from '@/data/payloads';
+import { currentPregnancy } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { refresh } from '@/data/sync';
 import { AppText, Button, Card, Chip, Field, GlassSurface, OptionChips, Screen, TopBar, palette, space } from '@/ui';
@@ -34,7 +35,7 @@ export default function EmergencyAccess() {
       await refresh();
       const s = useDb.getState();
       const pregnancyId =
-        r.pregnancyId ?? s.pregnancies.filter((p) => p.motherId === r.motherId).sort((a, b) => b.registeredOn.getTime() - a.registeredOn.getTime())[0]?.id;
+        r.pregnancyId ?? currentPregnancy(s, r.motherId)?.id;
       if (pregnancyId) router.replace({ pathname: '/care/p/[id]', params: { id: pregnancyId } });
       else setError('Access granted. The record will appear in your patient list in a moment.');
     } finally {

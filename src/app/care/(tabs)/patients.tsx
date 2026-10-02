@@ -8,7 +8,7 @@ import { mchIdIn } from '@/data/payloads';
 import { tagLabel } from '@/data/catalogue';
 import { daysBetween } from '@domain/gestation';
 
-import { activeTags, babyAgeLabel, gaLabel, motherOf, nextVisit, fmtDay, patientIds, sexLabel } from '@/data/selectors';
+import { activeTags, babyAgeLabel, gaLabel, motherOf, nextVisit, fmtDay, patientIds, referralOpen, sexLabel } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { useNow } from '@/lib/clock';
 import { AppText, Avatar, Chip, GlassSurface, ListRow, Screen, SegmentedPills, TopBar, families, intensityLabel, palette, space } from '@/ui';
@@ -29,7 +29,7 @@ export default function Patients() {
     'Close follow-up': (p) => p.intensity === 'close',
     'Due in 2 weeks': (p) => daysBetween(now, p.edd) <= 14,
     'Results to review': (p) => db.investigations.some((i) => i.subjectId === p.id && i.status === 'resulted'),
-    'Has open referral': (p) => db.referrals.some((r) => r.pregnancyId === p.id && !['closed', 'declined'].includes(r.status)),
+    'Has open referral': (p) => db.referrals.some((r) => r.pregnancyId === p.id && referralOpen(r)),
   };
   const pregnant = db.pregnancies.filter((p) => (p.status === 'active' || p.status === 'admitted') && (!smart || SMART[smart]!(p)));
   const delivered = db.pregnancies.filter((p) => p.status === 'delivered');
