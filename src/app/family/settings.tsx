@@ -9,6 +9,7 @@ import { telUrl } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import type { CaregiverScopes } from '@/data/types';
 import { changeChannels } from '@/data/sync';
+import { confirmSignOut } from '@/features/auth/confirmSignOut';
 import { replaceReminders, reminderSet } from '@/features/family/reminders';
 import { familyItems, useFamily } from '@/features/family/useFamily';
 import { canUseDeviceLock } from '@/lib/device';
@@ -167,8 +168,7 @@ export default function FamilySettings() {
       <ListRow title={t('family.me.consent')} subtitle={prefs ? t('family.me.consentGiven', { date: fmtShort(new Date(prefs.consentAt), i18n.language) }) : '—'} onPress={() => router.push('/family/consent')} />
 
       {account?.faces.includes('care') && <Button variant="secondary" label={t('family.switchToCare')} onPress={() => chooseFace('care')} />}
-      {/* TODO(merge): confirmSignOut(signOut) from src/features/auth/confirmSignOut.ts (data/sync branch) — asks before dropping unsent writes. */}
-      <Button variant="secondary" label={t('common.signOut')} onPress={signOut} />
+      <Button variant="secondary" label={t('common.signOut')} onPress={() => confirmSignOut(signOut)} />
     </Screen>
   );
 }

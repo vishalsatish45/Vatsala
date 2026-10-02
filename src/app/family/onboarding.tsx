@@ -6,6 +6,7 @@ import { Bell, HeartHandshake, MessageCircle, MessageSquareText, ShieldCheck, St
 import { RemoteError } from '@/data/remote';
 import { recordConsent } from '@/data/sync';
 import { useDb } from '@/data/store';
+import { confirmSignOut } from '@/features/auth/confirmSignOut';
 import { NoAccess } from '@/features/family/NoAccess';
 import { useFamily } from '@/features/family/useFamily';
 import { LANGUAGES } from '@/lib/i18n';
@@ -65,8 +66,7 @@ export default function Onboarding() {
   const footer = (
     <View style={{ gap: 8 }}>
       <Button label={step === 1 ? t('on.agree') : step === TOTAL - 1 ? t('on.finish') : t('common.continue')} onPress={next} loading={saving} disabled={step === 3 && channels.length === 0} />
-      {/* TODO(merge): confirmSignOut(signOut) from src/features/auth/confirmSignOut.ts (data/sync branch). */}
-      {step === 1 && <Button variant="secondary" label={t('common.signOut')} onPress={signOut} />}
+      {step === 1 && <Button variant="secondary" label={t('common.signOut')} onPress={() => confirmSignOut(signOut)} />}
     </View>
   );
 
