@@ -6,6 +6,7 @@ import { daysBetween, gestationalAge, toDateOnly, trimester } from '@domain/gest
 
 import { medSlots } from '@/data/catalogue';
 import { useDb } from '@/data/store';
+import { FocusSwitch, useFamilyFocus } from '@/features/family/FocusSwitch';
 import { MedicinesView } from '@/features/family/MedicinesView';
 import { familyItems, useFamily, type FamilyItem } from '@/features/family/useFamily';
 import { fmtShort, itemTitle, itemWhen } from '@/features/family/itemText';
@@ -37,14 +38,24 @@ export default function FamilyHome() {
   const db = useDb();
   const ctx = useFamily();
   const { mother, pregnancy: p, babies, isCaregiver, accountName } = ctx;
+  const { focus } = useFamilyFocus();
   const items = familyItems(db, ctx, now);
-  const next = items[0];
   const delivered = p?.status === 'delivered' && babies.length > 0;
+  // After delivery Home follows the Me / Baby switch; before it, everything is the mother's.
+  const focusItems = delivered ? items.filter((i) => i.subject === focus) : items;
+  const next = focusItems[0];
   const baby = babies[0];
   const weekNow = p ? gestationalAge(p.edd, now).weeks : undefined;
-  // What the speaker button on Home says: where she is in the pregnancy, then the next step.
+  const babyAge = baby ? age(daysBetween(baby.dob, now)) : undefined;
+  // What the speaker button on Home says: where she (or the baby) is, then the next step.
   const readAloud = [
-    weekNow !== undefined && !delivered ? `${t('family.pregnancyWeek')}: ${weekNow}` : '',
+    weekNow !== undefined && !delivered
+      ? `${t('family.pregnancyWeek')}: ${weekNow}`
+      : babyAge
+        ? focus === 'baby'
+          ? `${t('family.babyAge')}: ${babyAge.value} ${t(babyAge.suffixKey)}`
+          : `${t('family.sinceBirth')}: ${babyAge.value} ${t(babyAge.unitKey)}`
+        : '',
     next ? `${t('family.nextStep')}: ${itemTitle(t, next)}, ${itemWhen(t, next, lang)}${next.place ? `, ${next.place}` : ''}` : t('family.noUpcoming'),
   ]
     .filter(Boolean)
@@ -52,6 +63,7 @@ export default function FamilyHome() {
 
   const header = (
     <TopBar
+      below={<FocusSwitch />}
       left={<Avatar name={accountName || '?'} onPress={() => router.push('/family/profile')} />}
       right={
         <>
@@ -158,12 +170,19 @@ export default function FamilyHome() {
             {t('family.loss.support')} · 080-2222-0000
           </AppText>
         </GlassSurface>
-      ) : delivered && baby ? (
+      ) : delivered && baby && babyAge && focus === 'baby' ? (
         <HeroNumber
           caption={isCaregiver ? `${mother.name} · ${t('family.babyAge')}` : t('family.babyAge')}
-          value={String(daysBetween(baby.dob, now) < 14 ? daysBetween(baby.dob, now) : Math.floor(daysBetween(baby.dob, now) / 7))}
-          suffix={` ${daysBetween(baby.dob, now) < 14 ? t('family.days') : t('family.weeksUnit')}`}
+          value={String(babyAge.value)}
+          suffix={` ${t(babyAge.suffixKey)}`}
           chips={[baby.sex === 'F' ? 'Girl' : 'Boy', `${(baby.birthWeightG / 1000).toFixed(2)} kg`, fmtShort(baby.dob, lang)]}
+        />
+      ) : delivered && baby && babyAge ? (
+        <HeroNumber
+          caption={isCaregiver ? `${mother.name} · ${t('family.sinceBirth')}` : t('family.sinceBirth')}
+          value={String(babyAge.value)}
+          suffix={` ${t(babyAge.unitKey)}`}
+          chips={[fmtShort(baby.dob, lang), `🩺 ${doctorLabel}`]}
         />
       ) : (
         <>
@@ -188,11 +207,18 @@ export default function FamilyHome() {
       )}
 
       {delivered ? (
-        <>
-          {nextMother && card(nextMother, t('family.forYou'))}
-          {medicinesDropdown}
-          {babyCard}
-        </>
+        focus === 'baby' ? (
+          babyCard ?? (
+            <GlassSurface strong style={{ padding: space.lg }}>
+              <AppText tone="secondary">{t('family.noUpcoming')}</AppText>
+            </GlassSurface>
+          )
+        ) : (
+          <>
+            {nextMother && card(nextMother, isCaregiver ? t('family.forMother') : t('family.forYou'))}
+            {medicinesDropdown}
+          </>
+        )
       ) : (
         <>
           {medicinesDropdown}
@@ -211,6 +237,12 @@ export default function FamilyHome() {
       )}
     </Screen>
   );
+}
+
+/** Under two weeks in days, then whole weeks — same rule for the baby's age and time since delivery. */
+function age(days: number) {
+  if (days < 14) return { value: days, suffixKey: days === 1 ? 'family.dayOld' : 'family.daysOld', unitKey: days === 1 ? 'family.day' : 'family.days' };
+  return { value: Math.floor(days / 7), suffixKey: 'family.weeksOld', unitKey: 'family.weeksUnit' };
 }
 
 const styles = StyleSheet.create({

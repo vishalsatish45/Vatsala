@@ -6,6 +6,7 @@ import { HeartPulse, Pill, Scale } from 'lucide-react-native';
 import { gestationalAge } from '@domain/gestation';
 
 import { useDb } from '@/data/store';
+import { FocusSwitch, useFamilyFocus } from '@/features/family/FocusSwitch';
 import { MyBaby } from '@/features/family/MyBaby';
 import { RecordForm } from '@/features/family/RecordForm';
 import { fmtDay, fmtShort, fmtTime } from '@/features/family/itemText';
@@ -29,12 +30,13 @@ export default function Journey() {
   const db = useDb();
   const ctx = useFamily();
   const [tab, setTab] = useState<Tab>('journey');
+  const { focus, canSwitch } = useFamilyFocus();
   const p = ctx.pregnancy;
-  if (!p || !ctx.mother) return <Screen withNav header={<TopBar title={t('family.tabs.journey')} />}><AppText>—</AppText></Screen>;
+  if (!p || !ctx.mother) return <Screen withNav header={<TopBar large title={t('family.tabs.journey')} />}><AppText>—</AppText></Screen>;
 
-  if (p.status === 'delivered' && ctx.babies.length > 0) {
+  if (canSwitch && focus === 'baby') {
     return (
-      <Screen withNav blobCenterY={170} header={<TopBar title={t('family.baby.title')} />}>
+      <Screen withNav blobCenterY={170} header={<TopBar large title={t('family.baby.title')} below={<FocusSwitch />} />}>
         <MyBaby />
       </Screen>
     );
@@ -47,9 +49,8 @@ export default function Journey() {
   const tests = db.investigations.filter((i) => i.subjectId === p.id && !i.sensitive);
 
   return (
-    <Screen withNav blob="none" header={<TopBar title={t('family.tabs.journey')} />}>
-      <AppText variant="display">{t('family.journeyTitle')}</AppText>
-      <AppText tone="secondary">{t('family.weeksDays', { w: ga.weeks, d: ga.days })} · 🩺 {p.assignedDoctor?.name ?? t('family.noDoctor')}</AppText>
+    <Screen withNav blob="none" header={<TopBar large title={canSwitch ? t('family.tabs.myHealth') : t('family.tabs.journey')} below={<FocusSwitch />} />}>
+      <AppText tone="secondary">{p.status === 'delivered' ? '' : `${t('family.weeksDays', { w: ga.weeks, d: ga.days })} · `}🩺 {p.assignedDoctor?.name ?? t('family.noDoctor')}</AppText>
       {p.status !== 'delivered' && <WeekScrubber week={ga.weeks} label={t('family.weeksDays', { w: ga.weeks, d: ga.days })} />}
 
       <UnderlineTabs

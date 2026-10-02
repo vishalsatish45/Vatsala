@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { addDays, daysBetween, toDateOnly } from '@domain/gestation';
 
 import { useDb } from '@/data/store';
+import { FocusSwitch, useFamilyFocus } from '@/features/family/FocusSwitch';
 import { familyItems, useFamily } from '@/features/family/useFamily';
 import { itemStatus, itemTitle, itemWhen } from '@/features/family/itemText';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
@@ -30,10 +31,13 @@ export default function Schedule() {
   const ctx = useFamily();
   const [range, setRange] = useState<Range>('week');
   const [anchor, setAnchor] = useState(() => toDateOnly(now));
-  const items = familyItems(db, ctx, now);
+  const { focus, canSwitch } = useFamilyFocus();
+  const all = familyItems(db, ctx, now);
+  const items = canSwitch ? all.filter((i) => i.subject === focus) : all;
 
   const monday = useMemo(() => addDays(toDateOnly(anchor), -((toDateOnly(anchor).getUTCDay() + 6) % 7)), [anchor]);
-  const visits = ctx.pregnancy ? db.visits.filter((v) => v.pregnancyId === ctx.pregnancy!.id) : [];
+  // Completed hospital visits are the mother's; the baby's strip only shows its own items.
+  const visits = ctx.pregnancy && focus === 'mother' ? db.visits.filter((v) => v.pregnancyId === ctx.pregnancy!.id) : [];
   const same = (a: Date, b: Date) => daysBetween(a, b) === 0;
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = addDays(monday, i);
@@ -71,9 +75,8 @@ export default function Schedule() {
     <Screen
       withNav
       blob="none"
-      header={<TopBar title={t('family.tabs.schedule')} right={<ReadAloudButton text={t('family.scheduleTitle')} />} />}
+      header={<TopBar large title={t('family.tabs.schedule')} below={<FocusSwitch />} right={<ReadAloudButton text={t('family.scheduleTitle')} />} />}
     >
-      <AppText variant="display">{t('family.scheduleTitle')}</AppText>
       <SegmentedPills
         value={range}
         onChange={(v) => setRange(v)}

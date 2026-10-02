@@ -47,6 +47,7 @@ export default function Worklist() {
       blobCenterY={190}
       header={
         <TopBar
+          centerTitle={false}
           left={<Avatar name={account?.name ?? '?'} onPress={() => router.push('/care/profile')} />}
           title={`${greeting(now)}, ${shortName}`}
           right={

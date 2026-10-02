@@ -54,7 +54,7 @@ export function MyBaby() {
           <HeroNumber
             caption={`${t('family.babyAge')} · ${baby.sex === 'F' ? t('family.baby.girl') : t('family.baby.boy')}`}
             value={String(age < 14 ? age : Math.floor(age / 7))}
-            suffix={` ${age < 14 ? t('family.days') : t('family.weeksUnit')}`}
+            suffix={` ${age < 14 ? (age === 1 ? t('family.dayOld') : t('family.daysOld')) : t('family.weeksOld')}`}
           />
           <View style={styles.tiles}>
             <StatTile icon={Scale} label={t('family.baby.birthWeight')} value={(baby.birthWeightG / 1000).toFixed(2)} unit="kg" />

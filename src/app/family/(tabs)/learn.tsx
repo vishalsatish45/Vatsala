@@ -6,6 +6,7 @@ import { gestationalAge } from '@domain/gestation';
 
 import { LEARN, learnText, type LearnCard } from '@/features/family/learn';
 import { LEARN_ICONS } from '@/features/family/learnIcons';
+import { FocusSwitch, useFamilyFocus } from '@/features/family/FocusSwitch';
 import { useFamily } from '@/features/family/useFamily';
 import { useNow } from '@/lib/clock';
 import { Baby } from 'lucide-react-native';
@@ -21,16 +22,17 @@ export default function Learn() {
   const now = useNow();
   const { pregnancy } = useFamily();
   const delivered = pregnancy?.status === 'delivered';
+  const { focus, canSwitch } = useFamilyFocus();
   const [tab, setTab] = useState<Tab>('thisWeek');
   const week = pregnancy && !delivered ? gestationalAge(pregnancy.edd, now).weeks : 0;
 
-  const forNow = LEARN.filter((c) => (delivered ? c.stage !== 'pregnancy' : c.stage === 'pregnancy' && (!c.weeks || (week >= c.weeks[0] && week <= c.weeks[1]))));
+  // After delivery "For now" follows the Me / Baby switch: recovery cards for her, newborn cards for the baby.
+  const forNow = LEARN.filter((c) => (delivered ? (canSwitch ? c.stage === (focus === 'baby' ? 'newborn' : 'afterBirth') : c.stage !== 'pregnancy') : c.stage === 'pregnancy' && (!c.weeks || (week >= c.weeks[0] && week <= c.weeks[1]))));
   const list = tab === 'thisWeek' ? forNow : LEARN.filter((c) => c.stage === tab);
   const open = (slug: string) => router.push({ pathname: '/family/learn/[slug]', params: { slug } });
 
   return (
-    <Screen withNav blob="none" header={<TopBar title={t('family.tabs.learn')} />}>
-      <AppText variant="display">{t('family.learnTitle')}</AppText>
+    <Screen withNav blob="none" header={<TopBar large title={t('family.tabs.learn')} below={<FocusSwitch />} />}>
       <UnderlineTabs
         value={tab}
         onChange={setTab}
@@ -51,7 +53,7 @@ export default function Learn() {
           <ListRow key={c.slug} title={learnText(c, lang).title} subtitle={learnText(c, lang).summary} onPress={() => open(c.slug)} />
         ))}
       </View>
-      {(tab === 'newborn' || (tab === 'thisWeek' && delivered)) && (
+      {(tab === 'newborn' || (tab === 'thisWeek' && delivered && (!canSwitch || focus === 'baby'))) && (
         <ListRow leading={<Baby size={22} color={palette.lav600} />} title={t('family.guide.title')} onPress={() => router.push('/family/newborn-guide')} />
       )}
       <AppText variant="caption" tone="faint" align="center">

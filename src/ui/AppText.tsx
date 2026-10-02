@@ -10,6 +10,8 @@ type Weight = 'serif' | 'regular' | 'medium' | 'semibold' | 'bold';
 const variants = {
   display: { size: 28, line: 34, weight: 'serif' },
   title: { size: 20, line: 26, weight: 'serif' },
+  /** Large top-bar title on tab pages. */
+  pageTitle: { size: 26, line: 32, weight: 'bold', letterSpacing: -0.6 },
   hero: { size: 52, line: 58, weight: 'bold', letterSpacing: -1.2, numeric: true },
   stat: { size: 26, line: 32, weight: 'bold', letterSpacing: -0.5, numeric: true },
   tile: { size: 38, line: 44, weight: 'bold', letterSpacing: -1, numeric: true },
