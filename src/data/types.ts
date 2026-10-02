@@ -53,12 +53,25 @@ export type Mother = {
   village: string;
   /** Hospital IP (in-patient) number, assigned by the care team. */
   ipNo?: string;
+  /** Empty strings when none was documented (nothing is invented). */
   emergencyContact: { name: string; relation: string; phone: string };
+  /** Further details as documented (RCH register fields); absent when not recorded. */
+  altPhone?: string;
+  husbandName?: string;
+  dob?: Date;
+  dobEstimated?: boolean;
+  district?: string;
+  state?: string;
+  pincode?: string;
+  rchId?: string;
+  abhaNumber?: string;
+  abhaAddress?: string;
 };
 
 export type PregnancyStatus = 'active' | 'admitted' | 'delivered' | 'closed';
 
-export type PrevPregnancy = { id?: Id; year: number; outcome: string; mode?: string; note?: string };
+/** A previous pregnancy as documented: outcome and mode are the English labels (src/data/codes.ts). */
+export type PrevPregnancy = { id?: Id; year: number; outcome: string; mode?: string; gestationWeeks?: number; complications?: string[]; note?: string };
 
 export type Pregnancy = {
   id: PregnancyId;
@@ -260,6 +273,14 @@ export type StaffMember = { id: StaffId; name: string; role: string };
 
 /** A hospital team: departments receive referrals; units hold patients. */
 export type TeamRef = { id: TeamId; name: string; kind: 'department' | 'unit'; specialty: string };
+
+/** A current team membership (who can be named on a unit's patients). */
+export type TeamMember = { teamId: TeamId; staffId: StaffId };
+
+export type CareSpecialty = 'obstetrics' | 'paediatrics';
+
+/** Who looks after a pregnancy or a baby now: one per subject and specialty; no `staffId` = the team as a whole. */
+export type CareAssignment = { subjectId: SubjectId; specialty: CareSpecialty; teamId: TeamId; staffId?: StaffId };
 
 export type DoseSlot = 'morning' | 'afternoon' | 'night';
 

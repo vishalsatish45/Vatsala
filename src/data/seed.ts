@@ -14,6 +14,14 @@ import type { Baby, Investigation, Pregnancy, Task, Visit } from './types';
 const OB = 'Dr. Priya Rao';
 const PAED = 'Dr. Arjun Menon';
 
+/** Demo units (the same names as supabase/seed.sql, plus a second obstetric unit) and who belongs to them. */
+export const DEMO_UNITS = {
+  obA: asTeamId('team_ob_unit_a'),
+  obB: asTeamId('team_ob_unit_b'),
+  paeds: asTeamId('team_paediatrics_unit'),
+};
+const STAFF = { priya: asStaffId('staff_priya'), meera: asStaffId('staff_meera'), neha: asStaffId('staff_neha'), arjun: asStaffId('staff_arjun') };
+
 const RESULTS: Record<string, string> = {
   hb1: '11.4 g/dL',
   bg: 'B+',
@@ -81,12 +89,26 @@ export function buildSeed(nowIn: Date): DbState {
     medDoses: [],
     captures: [],
     staff: [
-      { id: asStaffId('staff_priya'), name: OB, role: 'obstetrician' },
-      { id: asStaffId('staff_meera'), name: 'Dr. Meera S', role: 'obstetrician' },
-      { id: asStaffId('staff_arjun'), name: PAED, role: 'paediatrician' },
+      { id: STAFF.priya, name: OB, role: 'obstetrician' },
+      { id: STAFF.meera, name: 'Dr. Meera S', role: 'obstetrician' },
+      { id: STAFF.neha, name: 'Dr. Neha K', role: 'obstetrician' },
+      { id: STAFF.arjun, name: PAED, role: 'paediatrician' },
       { id: asStaffId('staff_kiran'), name: 'Dr. Kiran Shah', role: 'specialist' },
     ],
-    teams: DEPARTMENTS.map((name) => ({ id: asTeamId(`team_${name.toLowerCase().replace(/\W+/g, '_')}`), name, kind: 'department' as const, specialty: name === 'Paediatrics' ? 'paediatrics' : 'other' })),
+    teams: [
+      ...DEPARTMENTS.map((name) => ({ id: asTeamId(`team_${name.toLowerCase().replace(/\W+/g, '_')}`), name, kind: 'department' as const, specialty: name === 'Paediatrics' ? 'paediatrics' : 'other' })),
+      { id: DEMO_UNITS.obA, name: 'OB Unit A', kind: 'unit', specialty: 'obstetrics' },
+      { id: DEMO_UNITS.obB, name: 'OB Unit B', kind: 'unit', specialty: 'obstetrics' },
+      { id: DEMO_UNITS.paeds, name: 'Paediatrics Unit', kind: 'unit', specialty: 'paediatrics' },
+    ],
+    teamMembers: [
+      { teamId: DEMO_UNITS.obA, staffId: STAFF.priya },
+      { teamId: DEMO_UNITS.obA, staffId: STAFF.meera },
+      { teamId: DEMO_UNITS.obB, staffId: STAFF.meera },
+      { teamId: DEMO_UNITS.obB, staffId: STAFF.neha },
+      { teamId: DEMO_UNITS.paeds, staffId: STAFF.arjun },
+    ],
+    assignments: [],
     prescriptions: [],
     facts: [],
     overrides: [],
@@ -308,6 +330,12 @@ export function buildSeed(nowIn: Date): DbState {
       dueFrom: addDays(rekhaAt, f.dayFrom), dueBy, completedAt: done ? dueBy : undefined, generatedBy: f.key.startsWith('tpl') ? 'template' : 'protocol', contactAttempts: [],
     });
   }
+
+  // Care teams: every pregnancy with OB Unit A (Dr. Priya) and the paediatric unit; every baby with Dr. Arjun's unit.
+  for (const p of s.pregnancies) {
+    s.assignments.push({ subjectId: p.id, specialty: 'obstetrics', teamId: DEMO_UNITS.obA, staffId: STAFF.priya }, { subjectId: p.id, specialty: 'paediatrics', teamId: DEMO_UNITS.paeds });
+  }
+  for (const b of s.babies) s.assignments.push({ subjectId: b.id, specialty: 'paediatrics', teamId: DEMO_UNITS.paeds, staffId: STAFF.arjun });
 
   // Row ids the server would hold: each shown result, and each documented history fact (entered-in-error needs them).
   for (const i of s.investigations) if (i.result) i.resultId = id('rs');

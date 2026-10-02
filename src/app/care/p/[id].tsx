@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Controller, useWatch } from 'react-hook-form';
-import { Baby, CalendarClock, Camera, ClipboardPlus, DoorOpen, FolderOpen, GitPullRequestArrow, HeartPulse, Pill, Ruler, Scale, Send, Tags } from 'lucide-react-native';
+import { Controller } from 'react-hook-form';
+import { Baby, CalendarClock, Camera, ClipboardPlus, DoorOpen, FolderOpen, GitPullRequestArrow, HeartPulse, Pencil, Pill, Ruler, Scale, Send, Tags } from 'lucide-react-native';
 import { gestationalAge } from '@domain/gestation';
 
 import { tagLabel } from '@/data/catalogue';
@@ -10,9 +10,10 @@ import { endReasonCodes } from '@/data/codes';
 import { asPregnancyId } from '@/data/ids';
 import { activeTags, ago, continuityEvents, fmtDate, fmtDay, fmtTime, invState, motherOf, nextVisit, patientIds, sexLabel, stillDue, type DueItem } from '@/data/selectors';
 import { useDb } from '@/data/store';
-import { REFERRAL_STEPS, type Pregnancy, type StaffMember } from '@/data/types';
+import { REFERRAL_STEPS, type Pregnancy } from '@/data/types';
+import { CareTeamRows, canEditMother, useCareMe } from '@/features/care/CareTeam';
 import { EnteredInErrorSheet, type EieTarget } from '@/features/care/EnteredInErrorSheet';
-import { assignDoctorSchema, noteSchema } from '@/features/care/forms';
+import { noteSchema } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
 import { OverrideBanner } from '@/features/care/OverrideBanner';
 import { PrescriptionsCard } from '@/features/care/PrescriptionsCard';
@@ -22,7 +23,6 @@ import { useZodForm } from '@/lib/forms';
 import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import {
   Sheet,
-  OptionChips,
   AncBadge,
   AppText,
   Button,
@@ -71,6 +71,7 @@ export default function PatientView() {
   const [endingAdmission, setEndingAdmission] = useState(false);
   const by = useActor();
   const role = useSession((s) => s.account?.care?.role);
+  const me = useCareMe();
 
   const p = db.pregnancies.find((x) => x.id === id);
   const logAccess = useDb((s) => s.logAccess);
@@ -80,7 +81,6 @@ export default function PatientView() {
   if (!p) return <Screen header={<TopBar back title="Patient" />}><AppText>Not found.</AppText></Screen>;
   const m = motherOf(db, p.motherId);
   const ga = gestationalAge(p.edd, now);
-  const obstetricians = db.staff.filter((x) => x.role === 'obstetrician');
   const tags = activeTags(db, p.id);
   const due = stillDue(db, p, now);
   const visits = db.visits.filter((v) => v.pregnancyId === p.id).sort((a, b) => b.at.getTime() - a.at.getTime());
@@ -281,13 +281,14 @@ export default function PatientView() {
             <Card>
               <InfoRow label="Next visit" value={nv ? `${fmtDay(nv.dueBy)} · ${nv.title}` : undefined} />
               <InfoRow label="EDD" value={`${fmtDay(p.edd)} (${p.eddSource.toUpperCase()})`} />
-              <InfoRow label="Doctor" value={p.assignedDoctor?.name} />
-              <AssignDoctorForm key={p.id} pregnancy={p} obstetricians={obstetricians} />
+              <CareTeamRows subjectId={p.id} specialties={['obstetrics', 'paediatrics']} />
               <InfoRow label="Village" value={m.village} />
               <InfoRow label="Phone" value={m.phone} />
+              {!!m.rchId && <InfoRow label="RCH id" value={m.rchId} />}
               <InfoRow label="Previous" value={p.previous.map((x) => `${x.year} ${x.mode ?? x.outcome}`).join(', ') || 'None'} />
             </Card>
             <View style={styles.actions}>
+              {canEditMother(db, me, m.id) && <Chip label="Edit details" icon={Pencil} onPress={() => router.push({ pathname: '/care/p/[id]/details', params: { id: p.id } })} />}
               <Chip label="Refer" icon={GitPullRequestArrow} onPress={() => router.push({ pathname: '/care/p/[id]/refer', params: { id: p.id } })} />
               <Chip label="Who viewed this record" onPress={() => router.push({ pathname: '/care/p/[id]/access', params: { id: p.id } })} />
               <Chip label="Capture paper record" icon={Camera} onPress={() => router.push({ pathname: '/care/capture', params: { id: p.id } })} />
@@ -440,38 +441,6 @@ export default function PatientView() {
         <AppText tone="secondary">For an antenatal admission that ends without a delivery (for example after observation). After a delivery, the discharge checklist closes the admission instead. Her ANC plan continues.</AppText>
       </Sheet>
     </Screen>
-  );
-}
-
-/** "Assign to": a doctor and the recorded reason; the form clears after each assignment. */
-function AssignDoctorForm({ pregnancy, obstetricians }: { pregnancy: Pregnancy; obstetricians: StaffMember[] }) {
-  const db = useDb();
-  const now = useNow();
-  const by = useActor();
-  const { control, handleSubmit, reset, formState } = useZodForm(assignDoctorSchema, { defaultValues: { doctor: '', reason: '' } });
-  const { busy, once, next } = useSubmitOnce();
-  const doctorName = useWatch({ control, name: 'doctor' });
-  const assign = handleSubmit(
-    once((v) => {
-      const doctor = obstetricians.find((x) => x.name === v.doctor);
-      if (!doctor) return;
-      db.assignDoctor(pregnancy.id, { name: doctor.name, staffId: doctor.id }, v.reason, by, now);
-      reset();
-      next();
-    }),
-  );
-  return (
-    <>
-      <Controller
-        control={control}
-        name="doctor"
-        render={({ field }) => <OptionChips label="Assign to" options={obstetricians.map((x) => x.name)} value={field.value || undefined} onChange={(v) => field.onChange(v ?? '')} />}
-      />
-      {!!doctorName && (
-        <Controller control={control} name="reason" render={({ field }) => <Field label="Reason (recorded)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} placeholder="e.g. Covering OPD this week" />} />
-      )}
-      <Button variant="secondary" label="Assign doctor" disabled={!formState.isValid || busy} onPress={assign} />
-    </>
   );
 }
 

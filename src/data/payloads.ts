@@ -3,10 +3,12 @@
  * Each one maps the app's shape to the RPC allowlist explicitly — no payload is written
  * wholesale, and an unknown key would be refused by the server. Dates only; no clinical interpretation.
  */
-import { addDays, daysBetween, eddFromLmp, PREGNANCY_DAYS } from '@domain/gestation';
+import { addDays, daysBetween, eddFromLmp, gestationalAge, PREGNANCY_DAYS } from '@domain/gestation';
+import type { Intensity } from '@domain/schedules';
 
-import { isoDay } from './remote';
-import type { AccessOverride, BabyId, CaregiverScopes, DoseSlot, EieKind, Id, PregnancyId } from './types';
+import { previousModeCodes, previousOutcomeCodes } from './codes';
+import { e164, isoDay } from './remote';
+import type { AccessOverride, BabyId, CaregiverScopes, DoseSlot, EieKind, Id, Mother, MotherId, Pregnancy, PregnancyId, TeamId } from './types';
 
 // ── Re-dating ─────────────────────────────────────────────────────────────────────
 
@@ -51,6 +53,125 @@ export function datingPayload(input: RedateInput) {
     case 'clinician':
       return { method: 'clinician' as const, edd, note };
   }
+}
+
+// ── Registration and a mother's details ───────────────────────────────────────────
+
+/** Dating at registration: a re-dating input, plus whether the LMP is certain (as documented). */
+export type RegisterDating =
+  | { method: 'lmp'; lmp: Date; lmpCertain?: boolean; note?: string }
+  | { method: 'scan'; scanOn: Date; gaAtScanDays: number; note?: string }
+  | { method: 'clinician'; edd: Date; note?: string };
+
+/** A mother's details as the forms produce them: empty strings / undefined = not documented. */
+export type MotherDetails = Omit<Mother, 'id' | 'ipNo'>;
+
+/** One registration, exactly as entered (src/features/care/forms.ts makeRegisterSchema). */
+export type RegisterInput = {
+  mother: MotherDetails;
+  /** A returning mother the clinician confirmed (find_mother): her record is reused and corrected from the form. */
+  existingMotherId?: MotherId;
+  registeredOn: Date;
+  dating: RegisterDating;
+  gpla: Pregnancy['gpla'];
+  fetuses?: number;
+  history: Pregnancy['history'];
+  previous: Pregnancy['previous'];
+  tagCodes: string[];
+  tagNote?: string;
+  intensity: Intensity;
+  /** The obstetric unit that will care for her (server: an active unit of this hospital). */
+  teamId?: TeamId;
+};
+
+/** `register_pregnancy.dating`: the re-dating keys plus lmp_certain for an LMP dating. */
+export function registerDatingPayload(d: RegisterDating) {
+  return { ...datingPayload(d), lmp_certain: d.method === 'lmp' ? d.lmpCertain : undefined };
+}
+
+/**
+ * Every field of a mother's details, mapped to the update_mother / register_pregnancy keys. Phones are stored as
+ * 91XXXXXXXXXX. Empty → '' / null, which the server reads as "clear this field".
+ */
+export function motherPayload(m: MotherDetails) {
+  const ec = m.emergencyContact;
+  const t = (v: string | undefined) => v?.trim() ?? '';
+  return {
+    name: m.name.trim(),
+    age: m.age,
+    dob: m.dob ? isoDay(m.dob) : null,
+    dob_estimated: !!m.dob && !!m.dobEstimated,
+    phone: e164(m.phone),
+    alt_phone: m.altPhone ? e164(m.altPhone) : '',
+    lang: m.lang,
+    husband_name: t(m.husbandName),
+    village: t(m.village),
+    district: t(m.district),
+    state: t(m.state),
+    pincode: t(m.pincode),
+    emergency_contact: ec.phone ? { name: ec.name.trim(), relation: ec.relation.trim() || undefined, phone: e164(ec.phone) } : null,
+    rch_id: t(m.rchId),
+    abha_number: t(m.abhaNumber),
+    abha_address: t(m.abhaAddress),
+  };
+}
+type MotherPayload = ReturnType<typeof motherPayload>;
+
+/** Only what was entered: empty fields are left out (a returning mother's other details stay as they are). */
+export function enteredOnly(p: MotherPayload): Partial<MotherPayload> {
+  return Object.fromEntries(Object.entries(p).filter(([k, v]) => v !== '' && v !== null && v !== undefined && !(k === 'dob_estimated' && v === false)));
+}
+
+/** `update_mother`: the fields that changed, and nothing else (the server keeps the rest). */
+export function motherUpdatePayload(before: MotherDetails, after: MotherDetails): Partial<MotherPayload> {
+  const a = motherPayload(before);
+  const b = motherPayload(after);
+  return Object.fromEntries((Object.keys(b) as (keyof MotherPayload)[]).filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k])).map((k) => [k, b[k]]));
+}
+
+type PlannedTest = { id: Id; code: string; dueFrom: Date; dueBy: Date; late: boolean };
+type PlannedVisit = { id: Id; kind: string; title: string; dueFrom?: Date; dueBy: Date };
+
+/** `register_pregnancy` — every key of its allowlist that the clinician filled in, nothing invented. */
+export function registerPayload(input: RegisterInput, plan: { motherId: MotherId; pregnancyId: PregnancyId; investigations: PlannedTest[]; tasks: PlannedVisit[] }) {
+  const edd = eddFor(input.dating);
+  const h = input.history;
+  return {
+    mother: { id: plan.motherId, ...enteredOnly(motherPayload(input.mother)) },
+    pregnancy: {
+      id: plan.pregnancyId,
+      registered_on: input.registeredOn.toISOString(),
+      gravida: input.gpla.g,
+      para: input.gpla.p,
+      living: input.gpla.l,
+      abortions: input.gpla.a,
+      fetuses: input.fetuses,
+    },
+    dating: registerDatingPayload(input.dating),
+    history: {
+      conditions: h.conditions,
+      allergies: h.allergies,
+      medicines: h.medicines,
+      blood_group: h.bloodGroup,
+      height_cm: h.heightCm,
+      previous: input.previous.map((x) => ({
+        year: x.year,
+        // A label without a code is sent as typed: the server refuses it (visible), it is never guessed.
+        outcome: previousOutcomeCodes.code(x.outcome) ?? x.outcome,
+        mode: x.mode ? (previousModeCodes.code(x.mode) ?? x.mode) : undefined,
+        gestation_weeks: x.gestationWeeks,
+        complications: x.complications?.length ? x.complications : undefined,
+        note: x.note,
+      })),
+    },
+    team_id: input.teamId,
+    intensity: input.intensity,
+    tags: input.tagCodes,
+    tag_note: input.tagCodes.length ? input.tagNote : undefined,
+    investigations: plan.investigations.map((i) => ({ id: i.id, code: i.code, due_from: isoDay(i.dueFrom), due_by: isoDay(i.dueBy), late: i.late })),
+    tasks: plan.tasks.map((t) => ({ id: t.id, kind: t.kind, title: t.title, due_from: t.dueFrom && isoDay(t.dueFrom), due_by: isoDay(t.dueBy) })),
+    ga_days: gestationalAge(edd, input.registeredOn).totalDays,
+  };
 }
 
 // ── Prescriptions ─────────────────────────────────────────────────────────────────

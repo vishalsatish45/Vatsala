@@ -12,6 +12,7 @@ import { EnteredInErrorSheet, type EieTarget } from '@/features/care/EnteredInEr
 import { useActor } from '@/features/care/nav';
 import { OverrideBanner } from '@/features/care/OverrideBanner';
 import { PrescriptionsCard } from '@/features/care/PrescriptionsCard';
+import { BabyCareTeam } from '@/features/care/CareTeam';
 import { useNow } from '@/lib/clock';
 import { useSession } from '@/state/session';
 import { useSubmitOnce } from '@/lib/useSubmitOnce';
@@ -182,6 +183,7 @@ export default function NewbornView() {
           </Card>
           {discharge && !discharge.completedAt && living && <Button icon={ClipboardCheck} label="Discharge checklist" onPress={() => router.push({ pathname: '/care/discharge/[id]', params: { id: b.id } })} />}
           {living && <PrescriptionsCard subjectId={b.id} kind="baby" canWrite={treating} />}
+          <BabyCareTeam babyId={b.id} />
           {living && treating && (
             <View style={{ flexDirection: 'row' }}>
               <Chip label="Record a baby’s death" onPress={() => router.push({ pathname: '/care/b/[id]/death', params: { id: b.id } })} />
