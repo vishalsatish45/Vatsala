@@ -125,6 +125,7 @@ export default function FamilyHome() {
       key={i.id}
       eyebrow={i.status === 'missed' ? t('family.missedUs') : eyebrow}
       title={itemTitle(t, i)}
+      bigFirstLine
       lines={[itemWhen(t, i, lang), itemPlace(t, i), ...i.bring.map((b) => t(b)), ...i.prep.map((x) => t(x))].filter(Boolean)}
       actionLabel={t('family.seeDetails')}
       onAction={() => openItem(i)}
@@ -171,6 +172,7 @@ export default function FamilyHome() {
     <NextStepCard
       eyebrow={next.status === 'missed' ? t('family.missedUs') : t('family.nextStep')}
       title={itemTitle(t, next)}
+      bigFirstLine
       lines={[itemWhen(t, next, lang), itemPlace(t, next), ...next.bring.map((b) => t(b)), ...next.prep.map((x) => t(x))].filter(Boolean)}
       actionLabel={t('family.seeDetails')}
       onAction={() => openItem(next)}

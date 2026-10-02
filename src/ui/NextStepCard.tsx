@@ -32,7 +32,7 @@ export function NextStepCard({ eyebrow, title, lines, actionLabel, onAction, big
         </AppText>
         <View style={styles.lines}>
           {lines.slice(0, 3).map((l, i) => (
-            <AppText key={l} variant={bigFirstLine && i === 0 ? 'headline' : 'caption'} tone={bigFirstLine && i === 0 ? 'primary' : 'secondary'} style={bigFirstLine && i === 0 ? styles.bigDate : undefined}>
+            <AppText key={l} variant={bigFirstLine && i === 0 ? 'pageTitle' : 'caption'} tone={bigFirstLine && i === 0 ? 'primary' : 'secondary'} style={bigFirstLine && i === 0 ? styles.bigDate : undefined}>
               {l}
             </AppText>
           ))}
@@ -53,7 +53,7 @@ const styles = StyleSheet.create({
   art: { position: 'absolute', right: 10, top: 8 },
   title: { marginTop: 2, marginRight: 48 },
   lines: { marginTop: space.xxs, gap: 2 },
-  bigDate: { fontSize: 20, lineHeight: 26 },
+  bigDate: { fontSize: 22, lineHeight: 28, letterSpacing: -0.3 },
   action: { marginTop: space.sm },
 });
 
