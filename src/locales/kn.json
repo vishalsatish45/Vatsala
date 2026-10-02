@@ -55,6 +55,8 @@
     "trimester": "ತ್ರೈಮಾಸಿಕ {{n}}",
     "weeksOf40": "40 ವಾರಗಳಲ್ಲಿ {{weeks}}",
     "nextStep": "ಮುಂದಿನ ಹೆಜ್ಜೆ",
+    "nextVisit": "Next visit",
+    "nextTest": "Next test",
     "hospitalVisit": "ಆಸ್ಪತ್ರೆ ಭೇಟಿ",
     "seeDetails": "ವಿವರಗಳನ್ನು ನೋಡಿ",
     "comingUp": "ಮುಂದೆ ಬರುವವು",
@@ -437,7 +439,9 @@
     "whatsapp": "ವಾಟ್ಸ್‌ಆ್ಯಪ್",
     "sms": "SMS",
     "finish": "ಪ್ರಾರಂಭಿಸಿ",
-    "mchId": "MCH ಐಡಿ"
+    "mchId": "MCH ಐಡಿ",
+    "detailsLoading": "Loading your details…",
+    "detailsError": "Couldn't load your details. Check your connection and try again."
   },
   "signs": {
     "bleeding": "ರಕ್ತಸ್ರಾವ",

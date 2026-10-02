@@ -55,6 +55,8 @@
     "trimester": "तिमाही {{n}}",
     "weeksOf40": "40 में से {{weeks}} सप्ताह",
     "nextStep": "अगला कदम",
+    "nextVisit": "Next visit",
+    "nextTest": "Next test",
     "hospitalVisit": "अस्पताल विज़िट",
     "seeDetails": "विवरण देखें",
     "comingUp": "आगे क्या है",
@@ -437,7 +439,9 @@
     "whatsapp": "WhatsApp",
     "sms": "SMS",
     "finish": "शुरू करें",
-    "mchId": "MCH आईडी"
+    "mchId": "MCH आईडी",
+    "detailsLoading": "Loading your details…",
+    "detailsError": "Couldn't load your details. Check your connection and try again."
   },
   "signs": {
     "bleeding": "खून आना",

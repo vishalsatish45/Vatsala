@@ -11,7 +11,7 @@ import { MedicinesView, dosesToday, familyMeds } from '@/features/family/Medicin
 import { cancelReminders } from '@/features/family/reminders';
 import { familyNotificationRows } from '@/features/family/serverNotifications';
 import { localDaysBetween } from '@/features/family/stage';
-import { familyItems, useFamily, type FamilyItem } from '@/features/family/useFamily';
+import { familyItems, homeNextItems, useFamily, type FamilyItem } from '@/features/family/useFamily';
 import { fmtShort, itemPlace, itemTitle, itemWhen } from '@/features/family/itemText';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { useNow } from '@/lib/clock';
@@ -168,16 +168,18 @@ export default function FamilyHome() {
     />
   );
 
-  const nextCard = next && (
+  // Before the birth: the next step, and her next test and next ANC visit as cards of their own (earliest first).
+  const nextCards = homeNextItems(focusItems).map((i) => (
     <NextStepCard
-      eyebrow={next.status === 'missed' ? t('family.missedUs') : t('family.nextStep')}
-      title={itemTitle(t, next)}
+      key={i.id}
+      eyebrow={i.status === 'missed' ? t('family.missedUs') : i === next ? t('family.nextStep') : i.kind === 'test' ? t('family.nextTest') : t('family.nextVisit')}
+      title={itemTitle(t, i)}
       bigFirstLine
-      lines={[itemWhen(t, next, lang), itemPlace(t, next), ...next.bring.map((b) => t(b)), ...next.prep.map((x) => t(x))].filter(Boolean)}
+      lines={[itemWhen(t, i, lang), itemPlace(t, i), ...i.bring.map((b) => t(b)), ...i.prep.map((x) => t(x))].filter(Boolean)}
       actionLabel={t('family.seeDetails')}
-      onAction={() => openItem(next)}
+      onAction={() => openItem(i)}
     />
-  );
+  ));
 
   return (
     <Screen withNav blobCenterY={200} header={header}>
@@ -249,7 +251,9 @@ export default function FamilyHome() {
         <>
           {medicinesDropdown}
           {wellbeingCard}
-          {nextCard ?? (
+          {nextCards.length ? (
+            nextCards
+          ) : (
             <GlassSurface strong style={{ padding: space.lg }}>
               <AppText tone="secondary">{t('family.noUpcoming')}</AppText>
             </GlassSurface>

@@ -149,6 +149,21 @@ export function familyItems(db: DbState, ctx: FamilyContext, now: Date): FamilyI
   return out.sort((a, b) => order[a.status] - order[b.status] || a.date.getTime() - b.date.getTime());
 }
 
+/**
+ * Home before the birth (FH-01): the next step, plus her next test and her next ANC visit when either is not already
+ * that step — so a test never hides the visit after it, and the other way round. Earliest first (a missed item has
+ * the earliest date, so it stays on top); ties keep the `familyItems` order. Takes `familyItems` output, so scopes
+ * and missed statuses are already applied.
+ */
+export function homeNextItems(items: FamilyItem[]): FamilyItem[] {
+  const next = items[0];
+  if (!next) return [];
+  const test = items.find((i) => i.kind === 'test');
+  const visit = items.find((i) => i.kind === 'visit');
+  const picked = items.filter((i) => i === next || i === test || i === visit);
+  return picked.sort((a, b) => a.date.getTime() - b.date.getTime());
+}
+
 /** Where a test is done, when the hospital entered nothing (i18n key). */
 export const testPlaceKey = (kind: 'lab' | 'scan') => (kind === 'scan' ? 'family.place.radiology' : 'family.place.lab');
 

@@ -49,7 +49,7 @@ let sessionEnded = false;
 
 const keyOf = (a: Account | null, face: string | null) => (a && face ? `${a.id}:${face}` : undefined);
 
-function familyWho(a: Account): FamilyWho {
+export function familyWho(a: Account): FamilyWho {
   return { motherId: a.family?.motherId, phone: a.phone, name: a.name, role: a.family?.role ?? 'mother' };
 }
 
