@@ -33,6 +33,7 @@ export default function Ask() {
   const scroll = useRef<ScrollView>(null);
   // One question at a time: a second tap while an answer is on its way does nothing.
   const inFlight = useRef(false);
+  const nextId = useRef(0);
   const [busy, setBusy] = useState(false);
 
   // Education the assistant may quote: the cards she would see in Learn and in "My diet & exercises".
@@ -50,7 +51,7 @@ export default function Ask() {
     if (!q || inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
-    const id = Date.now();
+    const id = ++nextId.current;
     setTurns((all) => [...all, { id, question: q }]);
     setQuestion('');
     speech?.stop();

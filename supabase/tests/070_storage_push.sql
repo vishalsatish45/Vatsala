@@ -191,7 +191,7 @@ select pg_temp.ok(:digests >= 4
   'S038 one digest per clinician with patients in care (obstetric units, paediatrics, a department with an open referral)');
 select pg_temp.ok(not exists (select 1 from public.notifications where kind = 'daily_digest' and user_id in (:'other', :'lakshmi_u')),
   'S039 no digest for a clinician without a workload or for a family');
-select pg_temp.ok(app.job_staff_digest(now() + interval '2 hours') = 0, 'S040 once per day');
+select pg_temp.ok(app.job_staff_digest(now() + interval '1 minute') = 0, 'S040 once per day (re-run the same day)');
 select pg_temp.ok(not exists (select 1 from public.notifications where params <> '{}'), 'S041 no notification carries content');
 
 -- ════════════════════════════════════════════════════════════════════════════════
