@@ -1,14 +1,14 @@
 {
   "expo": {
     "name": "Vatsala",
-    "slug": "app-name-tbd",
+    "slug": "vatsala",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "appnametbd",
+    "scheme": "vatsala",
     "userInterfaceStyle": "light",
     "ios": {
-      "bundleIdentifier": "com.healthathon.appnametbd"
+      "bundleIdentifier": "com.healthathon.vatsala"
     },
     "android": {
       "adaptiveIcon": {
@@ -18,7 +18,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.healthathon.appnametbd"
+      "package": "com.healthathon.vatsala"
     },
     "web": {
       "output": "static",
