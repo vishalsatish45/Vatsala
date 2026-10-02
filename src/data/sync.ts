@@ -9,7 +9,6 @@
  */
 import { AppState } from 'react-native';
 import { randomUUID } from 'expo-crypto';
-import type { RealtimeChannel } from '@supabase/supabase-js';
 import { create } from 'zustand';
 
 import { emptyState, loadCareSnapshot, loadFamilySnapshot, NeedsConsent, RemoteError, type FamilyWho } from './remote';
@@ -41,7 +40,6 @@ const CARE_POLL_MS = 120_000;
 let loadedFor: string | undefined; // `${account id}:${face}` whose data is on screen
 let refreshing = false;
 let again = false;
-let channel: RealtimeChannel | undefined;
 let poll: ReturnType<typeof setInterval> | undefined;
 let debounce: ReturnType<typeof setTimeout> | undefined;
 
@@ -99,26 +97,30 @@ function refreshSoon() {
 }
 
 function stopLive() {
-  if (channel) void supabase().removeChannel(channel);
-  channel = undefined;
+  // Every channel this module opened, including any left by an earlier copy of it (Fast Refresh re-runs this file
+  // while the Supabase client lives on). removeChannel is async; the next channel gets a fresh topic regardless.
+  for (const ch of supabase().getChannels()) if (/^realtime:(care|family):/.test(ch.topic)) void supabase().removeChannel(ch);
   clearInterval(poll);
   poll = undefined;
 }
 
 function startLive(account: Account, face: 'care' | 'family') {
   stopLive();
+  // A unique topic per subscription: supabase.channel() hands back an existing channel of the same name, and one
+  // that is already subscribed refuses new listeners.
+  const topic = `${face}:${account.id}:${randomUUID().slice(0, 8)}`;
   if (face === 'care') {
     // Row-level security applies to Realtime: each clinician hears only about rows she may read.
-    let c = supabase().channel(`care:${account.id}`);
+    let c = supabase().channel(topic);
     for (const table of LIVE_TABLES) c = c.on('postgres_changes', { event: '*', schema: 'public', table }, refreshSoon);
-    channel = c.subscribe();
+    c.subscribe();
     poll = setInterval(() => {
       if (AppState.currentState === 'active') void refresh();
     }, CARE_POLL_MS);
   } else {
     // Families read no tables; their own notifications (appointment booked, baby arrived) are the live signal.
-    channel = supabase()
-      .channel(`family:${account.id}`)
+    supabase()
+      .channel(topic)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${account.id}` }, refreshSoon)
       .subscribe();
     poll = setInterval(() => {
