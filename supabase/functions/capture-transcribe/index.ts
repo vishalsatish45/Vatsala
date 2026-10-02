@@ -12,7 +12,7 @@
 import { encodeBase64 } from 'jsr:@std/encoding@1/base64';
 
 import { CAPTURE_SCHEMA, CAPTURE_SYSTEM, cleanCaptureFields } from '../_shared/ai.ts';
-import { HttpError, UUID, askModel, callerClient, fail, fromDb, json, readJson } from '../_shared/http.ts';
+import { HttpError, UUID, askModel, callerClient, fail, fromDb, json, readJson, useQuota } from '../_shared/http.ts';
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const;
 const MAX_BYTES = 5 * 1024 * 1024; // the Messages API's per-image limit
@@ -24,12 +24,17 @@ Deno.serve(async (req) => {
     if (typeof documentId !== 'string' || !UUID.test(documentId)) throw new HttpError(404, 'PT404', 'Document not found');
 
     const db = await callerClient(req);
-    const { data: docs, error } = await db.from('documents').select('id,storage_path,mime,confirmed_at').eq('id', documentId).limit(1);
+    const { data: docs, error } = await db
+      .from('documents')
+      .select('id,pregnancy_id,baby_id,storage_path,mime,confirmed_at')
+      .eq('id', documentId)
+      .limit(1);
     if (error) throw fromDb(error);
     const doc = docs?.[0];
     if (!doc) throw new HttpError(404, 'PT404', 'Document not found');
     if (doc.confirmed_at) throw new HttpError(409, 'PT409', 'This document was already confirmed');
     if (!doc.storage_path) throw new HttpError(409, 'PT409', 'The photo has not been uploaded yet');
+    await useQuota(db, 'capture-transcribe', { pregnancyId: doc.pregnancy_id ?? undefined, babyId: doc.baby_id ?? undefined });
 
     // storage_path is server-chosen: documents/<mother_id>/<uuid>.<ext> (bucket name first).
     const path = String(doc.storage_path).replace(/^documents\//, '');

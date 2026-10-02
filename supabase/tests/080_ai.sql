@@ -234,6 +234,39 @@ select pg_temp.ok(exists (select 1 from public.audit_log where entity_type = 'do
                           and meta::text not like '%128/82%'),
   'C014 transcription is audited without the values');
 
+-- ════════════════════════════════════════════════════════════════════════════════
+-- ai_quota: checked before any model call (role, visibility, per-clinician and project caps)
+-- ════════════════════════════════════════════════════════════════════════════════
+set local role authenticated;
+select pg_temp.as_user(:'lakshmi_u');
+call pg_temp.fails(format('select public.ai_quota(%L::jsonb)', jsonb_build_object('fn', 'ai-brief', 'pregnancy_id', :'p_lakshmi')),
+  'Q001 a family member gets no AI call', '%Care Team%', 'PT403');
+select pg_temp.as_user(:'arjun');
+call pg_temp.fails(format('select public.ai_quota(%L::jsonb)', jsonb_build_object('fn', 'ai-brief', 'pregnancy_id', :'p_lakshmi')),
+  'Q002 the wrong role is refused before the model is asked', '%role%', 'PT403');
+select pg_temp.as_user(:'neha');
+call pg_temp.fails(format('select public.ai_quota(%L::jsonb)', jsonb_build_object('fn', 'ai-brief', 'pregnancy_id', :'p_lakshmi')),
+  'Q003 a record she cannot see is refused before the model is asked', 'Not found', 'PT404');
+select pg_temp.as_user(:'priya');
+call pg_temp.fails(format('select public.ai_quota(%L::jsonb)', jsonb_build_object('fn', 'chat', 'pregnancy_id', :'p_lakshmi')),
+  'Q004 only the two AI functions are counted', '%fn must be%', 'PT422');
+call pg_temp.fails(format('select public.ai_quota(%L::jsonb)', jsonb_build_object('fn', 'ai-brief', 'pregnancy_id', :'p_lakshmi', 'n', 1)),
+  'Q005 unknown fields are refused', '%unexpected field(s)%', 'PT422');
+select pg_temp.ok((public.ai_quota(jsonb_build_object('fn', 'ai-brief', 'pregnancy_id', :'p_lakshmi')) ->> 'left_this_hour')::int = 5,
+  'Q006 the first call is allowed and counted');
+select public.ai_quota(jsonb_build_object('fn', 'capture-transcribe', 'pregnancy_id', :'p_lakshmi')) from generate_series(1, 5);
+call pg_temp.fails(format('select public.ai_quota(%L::jsonb)', jsonb_build_object('fn', 'ai-brief', 'pregnancy_id', :'p_lakshmi')),
+  'Q007 the 7th call in an hour is refused', '%used your AI drafts%', 'PT429');
+call pg_temp.fails('select count(*) from app.ai_calls', 'Q008 the call log is not readable by app users', '%permission denied%', '42501');
+reset role;
+select pg_temp.ok((select count(*) = 6 from app.ai_calls where staff_id = :'s_priya'), 'Q009 refused calls are not counted');
+insert into app.ai_calls (staff_id, fn, at) select :'s_arjun', 'ai-brief', now() - interval '30 seconds' from generate_series(1, 2);
+set local role authenticated;
+select pg_temp.as_user(:'arjun');
+call pg_temp.fails(format('select public.ai_quota(%L::jsonb)', jsonb_build_object('fn', 'ai-brief', 'baby_id', :'b_meena')),
+  'Q010 the project-wide per-minute cap applies to everyone', '%busy%', 'PT429');
+reset role;
+
 select format('  080_ai: all %s checks passed', n) from t_count \gset
 \echo :format
 rollback;

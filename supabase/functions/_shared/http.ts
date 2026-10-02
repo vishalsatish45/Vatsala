@@ -68,6 +68,17 @@ export async function readJson(req: Request, allowed: string[]): Promise<Record<
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Before any model call: the caller must be able to save the draft (role + visibility), and the per-clinician and
+ * project caps must not be used up (RPC ai_quota → PT403/404/429). Counts this call.
+ */
+export async function useQuota(db: SupabaseClient, fn: 'ai-brief' | 'capture-transcribe', subject: { pregnancyId?: string; babyId?: string }) {
+  const { error } = await db.rpc('ai_quota', {
+    p: { fn, ...(subject.pregnancyId ? { pregnancy_id: subject.pregnancyId } : { baby_id: subject.babyId }) },
+  });
+  if (error) throw fromDb(error);
+}
+
 /** What the functions send: text, or a file (photo / PDF of a paper card) as base64. */
 export type ModelPart = { text: string } | { mime: string; base64: string };
 
