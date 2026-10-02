@@ -9,6 +9,7 @@ import type { DoseSlot } from '@/data/types';
 import { useActor } from '@/features/care/nav';
 import { slotsLabel } from '@/features/care/PrescriptionsCard';
 import { useNow } from '@/lib/clock';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Field, OptionChips, Screen, TopBar, space } from '@/ui';
 
 const SLOT_OPTIONS = SLOTS.map((s) => slotsLabel([s]));
@@ -28,6 +29,7 @@ export default function Prescribe() {
   const [instructions, setInstructions] = useState('');
   const [slots, setSlots] = useState<string[]>([]);
   const [error, setError] = useState<string>();
+  const { busy, once } = useSubmitOnce();
 
   const preg = db.pregnancies.find((p) => p.id === id);
   const baby = db.babies.find((b) => b.id === id);
@@ -43,12 +45,15 @@ export default function Prescribe() {
     };
     const problem = prescriptionProblem(input);
     if (problem) return setError(problem);
-    db.prescribe(baby ? { babyId: baby.id } : { pregnancyId: preg!.id }, input, by, now);
-    router.back();
+    // One prescription per tap: the lock holds until the screen closes.
+    once(() => {
+      db.prescribe(baby ? { babyId: baby.id } : { pregnancyId: preg!.id }, input, by, now);
+      router.back();
+    })();
   }
 
   return (
-    <Screen blob="none" header={<TopBar back title="Prescribe" />} footer={<Button label="Save prescription" onPress={save} />}>
+    <Screen blob="none" header={<TopBar back title="Prescribe" />} footer={<Button label="Save prescription" disabled={busy} onPress={save} />}>
       <View style={{ gap: 4 }}>
         <AppText variant="display">{baby ? baby.childId : m.name}</AppText>
         <AppText tone="secondary">{baby ? `Baby of ${m.name}` : preg!.mchId}</AppText>

@@ -8,6 +8,7 @@ import { useDb } from '@/data/store';
 import type { DoseSlot, Id, Prescription } from '@/data/types';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Chip, Field, OptionChips, Sheet, SyncBadge, palette, space } from '@/ui';
 
 const SLOT_LABEL: Record<DoseSlot, string> = { morning: 'Morning', afternoon: 'Afternoon', night: 'Night' };
@@ -26,6 +27,8 @@ export function PrescriptionsCard({ subjectId, kind, canWrite = true }: { subjec
   const now = useNow();
   const [stopping, setStopping] = useState<Prescription>();
   const [reason, setReason] = useState('');
+  // One stop per medicine: the lock is per prescription (the sheet is reused).
+  const { busy, once } = useSubmitOnce(stopping?.id ?? '');
   const mine = prescriptions.filter((p) => (kind === 'baby' ? p.babyId === subjectId : p.pregnancyId === subjectId));
   const close = () => {
     setStopping(undefined);
@@ -66,11 +69,13 @@ export function PrescriptionsCard({ subjectId, kind, canWrite = true }: { subjec
         footer={
           <Button
             label="Stop medicine"
-            disabled={!reasonOk(reason)}
+            disabled={!reasonOk(reason) || busy}
             onPress={() => {
               if (!stopping || !reasonOk(reason)) return;
-              stopMedication(stopping.id, reason, by, now);
-              close();
+              once(() => {
+                stopMedication(stopping.id, reason, by, now);
+                close();
+              })();
             }}
           />
         }

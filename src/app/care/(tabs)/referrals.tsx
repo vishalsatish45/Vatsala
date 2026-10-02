@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 
-import { ago, motherOf, referralStale } from '@/data/selectors';
+import { ago, motherOf, referralOpen, referralStale, referralStatusLabel } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { REFERRAL_STEPS } from '@/data/types';
+import { useCareMe } from '@/features/care/CareTeam';
 import { useNow } from '@/lib/clock';
 import { useSession } from '@/state/session';
 import { AppText, Avatar, EmptyState, ListRow, Screen, SegmentedPills, StatusBadge, TopBar, palette, space } from '@/ui';
@@ -15,9 +16,10 @@ export default function Referrals() {
   const now = useNow();
   const [view, setView] = useState<'open' | 'closed'>('open');
   const care = useSession((s) => s.account?.care);
-  const mine = (d: string) => care?.role !== 'specialist' || d === care.department;
-  const isOpen = (s: string) => !['closed', 'declined'].includes(s);
-  const rows = db.referrals.filter((r) => mine(r.department) && (view === 'open' ? isOpen(r.status) : !isOpen(r.status))).sort((a, b) => b.events.at(-1)!.at.getTime() - a.events.at(-1)!.at.getTime());
+  const me = useCareMe();
+  // A specialist's inbox: the referrals addressed to her department(s).
+  const mine = db.referrals.filter((r) => me.role !== 'specialist' || (!!r.toTeamId && me.teamIds.includes(r.toTeamId)));
+  const rows = mine.filter((r) => (view === 'open' ? referralOpen(r) : !referralOpen(r))).sort((a, b) => b.events.at(-1)!.at.getTime() - a.events.at(-1)!.at.getTime());
 
   return (
     <Screen withNav blob="none" header={<TopBar title="Referrals" />}>
@@ -26,8 +28,8 @@ export default function Referrals() {
         value={view}
         onChange={setView}
         options={[
-          { value: 'open', label: 'Open', count: db.referrals.filter((r) => isOpen(r.status)).length },
-          { value: 'closed', label: 'Closed', count: db.referrals.filter((r) => !isOpen(r.status)).length },
+          { value: 'open', label: 'Open', count: mine.filter(referralOpen).length },
+          { value: 'closed', label: 'Closed', count: mine.filter((r) => !referralOpen(r)).length },
         ]}
       />
       <View style={{ gap: space.sm }}>
@@ -50,7 +52,7 @@ export default function Referrals() {
                       <View key={s} style={[styles.dot, { backgroundColor: i <= step ? palette.rose500 : palette.softBorder }]} />
                     ))}
                   </View>
-                  <StatusBadge status={stale ? 'overdue' : r.status === 'closed' ? 'done' : 'due'} label={`${r.status} · ${ago(r.events.at(-1)!.at, now)}`} />
+                  <StatusBadge status={stale ? 'overdue' : referralOpen(r) ? 'due' : 'done'} label={`${referralStatusLabel(r.status)} · ${ago(r.events.at(-1)!.at, now)}`} />
                 </>
               }
               onPress={() => router.push({ pathname: '/care/referral/[id]', params: { id: r.id } })}

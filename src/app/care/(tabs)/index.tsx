@@ -6,7 +6,9 @@ import { Bell, ScanLine, Search } from 'lucide-react-native';
 import { worklist, patientIds, type WorkGroup } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { openTarget } from '@/features/care/nav';
+import { useCareMe } from '@/features/care/CareTeam';
 import { careInbox } from '@/features/care/inbox';
+import { onMyWorklist } from '@/features/care/permissions';
 import { useNow } from '@/lib/clock';
 import { useSession } from '@/state/session';
 import { AppText, Avatar, Chip, EmptyState, GlassIconButton, GlassSurface, HeroNumber, ListRow, Screen, SegmentedPills, StatusBadge, TopBar, families, intensityLabel, palette, space } from '@/ui';
@@ -24,19 +26,12 @@ export default function Worklist() {
   const [group, setGroup] = useState<WorkGroup>('today');
   const [q, setQ] = useState('');
 
-  const isPaed = account?.care?.role === 'paediatrician';
-  const isSpecialist = account?.care?.role === 'specialist';
+  const me = useCareMe();
+  const isSpecialist = me.role === 'specialist';
   const dept = account?.care?.department;
-  const all = useMemo(
-    () =>
-      worklist(db, now).filter((w) =>
-        isSpecialist
-          ? w.target.type === 'referral' && db.referrals.find((r) => r.id === w.target.id)?.department === dept
-          : w.audience === 'both' || w.audience === (isPaed ? 'paed' : 'ob'),
-      ),
-    [db, now, isPaed, isSpecialist, dept],
-  );
-  const inboxCount = careInbox(db, now, { department: dept, specialist: isSpecialist }).length;
+  // Her specialty's items; a referral only on the side whose move it is (receiving department vs referring team).
+  const all = useMemo(() => worklist(db, now).filter((w) => onMyWorklist(w, me)), [db, now, me]);
+  const inboxCount = careInbox(db, now, { department: dept, specialist: isSpecialist, teamIds: me.teamIds }).length;
   const count = (g: WorkGroup) => all.filter((w) => w.group === g).length;
   const items = all.filter((w) => w.group === group && (!q || w.name.toLowerCase().includes(q.toLowerCase())));
   const shortName = account?.name.split(' ').slice(0, 2).join(' ') ?? '';

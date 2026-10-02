@@ -11,7 +11,10 @@ import {
   makeDischargeTimeSchema,
   makeEndAdmissionSchema,
   makeObserveSchema,
+  makeScheduleReferralSchema,
   pickerDay,
+  referralReasonSchema,
+  referralRecsSchema,
   makeAssignCareSchema,
   makeMotherSchema,
   makeRegisterSchema,
@@ -221,9 +224,27 @@ describe('visit schema', () => {
 describe('tags schema', () => {
   it('needs a note only when a tag is removed', () => {
     const schema = makeTagsSchema(['gdm', 'prev_lscs']);
-    expect(schema.safeParse({ codes: ['gdm', 'prev_lscs', 'anaemia'], intensity: 'close', note: '' }).data).toEqual({ codes: ['gdm', 'prev_lscs', 'anaemia'], intensity: 'close', note: undefined });
+    expect(schema.safeParse({ codes: ['gdm', 'prev_lscs', 'anaemia'], intensity: 'close', note: '' }).data).toEqual({ add: ['anaemia'], remove: [], intensity: 'close', note: undefined });
     expect(messages(schema.safeParse({ codes: ['gdm'], intensity: 'routine', note: '  ' }))).toEqual(['note: Please add a note explaining why a tag was removed.']);
     expect(schema.safeParse({ codes: ['gdm'], intensity: 'routine', note: 'Resolved' }).success).toBe(true);
+  });
+
+  it('sends only what changed, so a tag set by someone else meanwhile is kept', () => {
+    const schema = makeTagsSchema(['gdm', 'prev_lscs']);
+    expect(schema.parse({ codes: ['prev_lscs', 'heart'], intensity: 'routine', note: ' Resolved ' })).toEqual({ add: ['heart'], remove: ['gdm'], intensity: 'routine', note: 'Resolved' });
+    expect(schema.parse({ codes: ['gdm', 'prev_lscs'], intensity: 'enhanced', note: '' })).toMatchObject({ add: [], remove: [] });
+  });
+});
+
+describe('visit schema: counselling and fetal movements are kept', () => {
+  it('passes counselling topics and fetal movements (as reported) to the visit', () => {
+    const r = makeVisitSchema(30).parse({
+      weight: '', sys: '', dia: '', pulse: '', fundal: '', fhr: '', ifa: false, complaints: [], otherComplaint: '', gaps: {},
+      nextOn: new Date('2026-10-30T00:00:00Z'), counselling: ['Nutrition', 'Warning signs'], movements: 'Reduced',
+    });
+    expect(r.counselling).toEqual(['Nutrition', 'Warning signs']);
+    expect(r.vitals.fetalMovements).toBe('Reduced');
+    expect(r.checklist.counselling).toEqual({ state: 'done' });
   });
 });
 
@@ -231,6 +252,22 @@ describe('referral schemas', () => {
   it('needs a department and a reason', () => {
     expect(messages(referSchema.safeParse({ dept: undefined, urgency: 'Routine', reason: 'x', question: '' }))).toEqual(['dept: Choose a department and add the reason.']);
     expect(referSchema.parse({ dept: 'Cardiology', urgency: 'Within 24 h', reason: ' Palpitations ', question: ' Fit? ' })).toEqual({ department: 'Cardiology', urgency: '24h', reason: 'Palpitations', question: 'Fit?' });
+  });
+
+  it('an appointment needs its exact date, time and place, not in the past (nothing is invented)', () => {
+    const now = new Date(2026, 9, 2, 9, 0);
+    const schema = makeScheduleReferralSchema(now);
+    expect(messages(schema.safeParse({ date: '05-10-2026', time: '11:30', place: '  ' }))).toEqual(['place: Write where she should come (e.g. the OPD and room).']);
+    expect(messages(schema.safeParse({ date: '01-10-2026', time: '11:30', place: 'Cardiology OPD' }))).toEqual(['time: The appointment cannot be in the past.']);
+    expect(messages(schema.safeParse({ date: '5/10', time: '25:00', place: 'Cardiology OPD' }))).toEqual(['time: Enter the date as DD-MM-YYYY and the time as HH:MM (24-hour).']);
+    expect(schema.parse({ date: '05-10-2026', time: '11:30', place: ' Cardiology OPD, room 4 ' })).toEqual({ scheduledAt: new Date(2026, 9, 5, 11, 30), place: 'Cardiology OPD, room 4' });
+  });
+
+  it('recommendations and a decline / cancel reason are required, never filled in', () => {
+    expect(messages(referralRecsSchema.safeParse({ recs: ' ' }))).toEqual(['recs: Write the recommendations as documented']);
+    expect(referralRecsSchema.parse({ recs: ' Echo documented. ' })).toEqual({ recommendations: 'Echo documented.' });
+    expect(messages(referralReasonSchema.safeParse({ reason: '' }))).toEqual(['reason: Write the reason']);
+    expect(referralReasonSchema.parse({ reason: ' No cardiology slot this month ' })).toEqual({ note: 'No cardiology slot this month' });
   });
 });
 

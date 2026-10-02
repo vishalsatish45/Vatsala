@@ -8,7 +8,7 @@ import { gestationalAge } from '@domain/gestation';
 import { tagLabel } from '@/data/catalogue';
 import { endReasonCodes } from '@/data/codes';
 import { asPregnancyId } from '@/data/ids';
-import { activeTags, ago, continuityEvents, fmtDate, fmtDay, fmtTime, invState, motherOf, nextVisit, patientIds, sexLabel, stillDue, type DueItem } from '@/data/selectors';
+import { activeTags, ago, continuityEvents, fmtDate, fmtDay, fmtTime, invState, motherOf, nextVisit, patientIds, referralStatusLabel, sexLabel, stillDue, type DueItem } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { REFERRAL_STEPS, type Pregnancy } from '@/data/types';
 import { EndAdmissionSheet } from '@/features/care/AdmissionSheets';
@@ -18,9 +18,9 @@ import { EnteredInErrorSheet, type EieTarget } from '@/features/care/EnteredInEr
 import { noteSchema } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
 import { OverrideBanner } from '@/features/care/OverrideBanner';
+import { canCorrectSelfLog, canWriteSubject } from '@/features/care/permissions';
 import { PrescriptionsCard } from '@/features/care/PrescriptionsCard';
 import { useNow } from '@/lib/clock';
-import { useSession } from '@/state/session';
 import { useZodForm } from '@/lib/forms';
 import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import {
@@ -71,7 +71,6 @@ export default function PatientView() {
   const [eie, setEie] = useState<EieTarget>();
   const [endingAdmission, setEndingAdmission] = useState(false);
   const by = useActor();
-  const role = useSession((s) => s.account?.care?.role);
   const me = useCareMe();
 
   const p = db.pregnancies.find((x) => x.id === id);
@@ -97,8 +96,9 @@ export default function PatientView() {
   const delivered = p.status === 'delivered';
   const closed = p.status === 'closed';
   const ongoing = p.status === 'active' || p.status === 'admitted';
-  // Specialists see a referral's slice of the record; corrections and plans are the treating team's (server-enforced).
-  const treating = role !== 'specialist';
+  // A pregnancy's record is written by an obstetrician (app.require_writer): visits, tags, referrals, captures,
+  // plans and corrections. Specialists and paediatricians read it; the server refuses their writes, so no button.
+  const treating = canWriteSubject(me, 'pregnancy');
   const facts = db.facts.filter((f) => f.motherId === m.id);
   const since = last?.at ?? p.registeredOn;
   const notes = db.notes.filter((n) => n.subjectId === p.id).sort((a, b) => b.at.getTime() - a.at.getTime());
@@ -117,7 +117,8 @@ export default function PatientView() {
       blobCenterY={150}
       header={<TopBar back title={m.name} right={<Chip label="Handoff" onPress={() => router.push({ pathname: '/care/p/[id]/handoff', params: { id: p.id } })} />} />}
       footer={
-        ongoing && (
+        ongoing &&
+        treating && (
           <View style={styles.footer}>
             <View style={{ flex: 1 }}>
               <Button label="Record visit" icon={ClipboardPlus} onPress={() => router.push({ pathname: '/care/p/[id]/visit', params: { id: p.id } })} />
@@ -175,7 +176,7 @@ export default function PatientView() {
             <Chip key={t.id} label={tagLabel(t.code)} variant="tag" />
           ))}
           <IntensityPill value={p.intensity} />
-          <Chip label="Edit tags" icon={Tags} onPress={() => router.push({ pathname: '/care/p/[id]/tags', params: { id: p.id } })} />
+          {treating && !closed && <Chip label="Edit tags" icon={Tags} onPress={() => router.push({ pathname: '/care/p/[id]/tags', params: { id: p.id } })} />}
         </View>
       </View>
 
@@ -219,7 +220,7 @@ export default function PatientView() {
 
           {delivery && <DeliverySummaryCard delivery={delivery} babies={babies} />}
 
-          {delivered && motherDischarge && !motherDischarge.completedAt && (
+          {treating && delivered && motherDischarge && !motherDischarge.completedAt && (
             <Button variant="secondary" label={`Mother's discharge checklist · ${motherDischarge.items.filter((i) => !i.state).length} open`} onPress={() => router.push({ pathname: '/care/discharge/[id]', params: { id: p.id } })} />
           )}
 
@@ -265,7 +266,7 @@ export default function PatientView() {
                 key={l.id}
                 title={`${l.kind.toUpperCase()} ${l.value}`}
                 subtitle={`Home reading · family-reported · ${fmtDay(l.at)} ${fmtTime(l.at)}`}
-                trailing={treating ? <Chip label="Entered in error" onPress={() => setEie({ kind: 'self_log', id: l.id, label: `Home reading · ${l.kind.toUpperCase()} ${l.value} · ${fmtDay(l.at)}` })} /> : undefined}
+                trailing={canCorrectSelfLog(me, l.subject) ? <Chip label="Entered in error" onPress={() => setEie({ kind: 'self_log', id: l.id, label: `Home reading · ${l.kind.toUpperCase()} ${l.value} · ${fmtDay(l.at)}` })} /> : undefined}
               />
             ))}
           </Section>
@@ -318,11 +319,11 @@ export default function PatientView() {
             </Card>
             <View style={styles.actions}>
               {canEditMother(db, me, m.id) && <Chip label="Edit details" icon={Pencil} onPress={() => router.push({ pathname: '/care/p/[id]/details', params: { id: p.id } })} />}
-              <Chip label="Refer" icon={GitPullRequestArrow} onPress={() => router.push({ pathname: '/care/p/[id]/refer', params: { id: p.id } })} />
+              {treating && !closed && <Chip label="Refer" icon={GitPullRequestArrow} onPress={() => router.push({ pathname: '/care/p/[id]/refer', params: { id: p.id } })} />}
               <Chip label="Who viewed this record" onPress={() => router.push({ pathname: '/care/p/[id]/access', params: { id: p.id } })} />
-              <Chip label="Capture paper record" icon={Camera} onPress={() => router.push({ pathname: '/care/capture', params: { id: p.id } })} />
-              {ongoing && <Chip label="Admit / record delivery" icon={Baby} onPress={() => router.push({ pathname: '/care/p/[id]/deliver', params: { id: p.id } })} />}
-              {delivered && <Chip label="Discharge checklist" onPress={() => router.push({ pathname: '/care/discharge/[id]', params: { id: p.id } })} />}
+              {treating && ongoing && <Chip label="Capture paper record" icon={Camera} onPress={() => router.push({ pathname: '/care/capture', params: { id: p.id } })} />}
+              {treating && ongoing && <Chip label="Admit / record delivery" icon={Baby} onPress={() => router.push({ pathname: '/care/p/[id]/deliver', params: { id: p.id } })} />}
+              {treating && delivered && <Chip label="Discharge checklist" onPress={() => router.push({ pathname: '/care/discharge/[id]', params: { id: p.id } })} />}
               {treating && ongoing && <Chip label="Re-date (EDD)" icon={CalendarClock} onPress={() => router.push({ pathname: '/care/p/[id]/redate', params: { id: p.id } })} />}
               {treating && p.status === 'admitted' && <Chip label="End admission (no delivery)" icon={DoorOpen} onPress={() => setEndingAdmission(true)} />}
               {treating && (p.status === 'active' || delivered) && (
@@ -386,11 +387,11 @@ export default function PatientView() {
 
       {tab === 'referrals' && (
         <View style={{ gap: space.sm }}>
-          <Button variant="secondary" label="New referral" icon={GitPullRequestArrow} onPress={() => router.push({ pathname: '/care/p/[id]/refer', params: { id: p.id } })} />
+          {treating && !closed && <Button variant="secondary" label="New referral" icon={GitPullRequestArrow} onPress={() => router.push({ pathname: '/care/p/[id]/refer', params: { id: p.id } })} />}
           {refs.map((r) => (
             <ListRow
               key={r.id}
-              title={`${r.department} · ${r.status}`}
+              title={`${r.department} · ${referralStatusLabel(r.status)}`}
               subtitle={r.reason}
               meta={
                 <View style={{ flexDirection: 'row', gap: 4 }}>
@@ -436,7 +437,12 @@ export default function PatientView() {
               <ListRow
                 key={v.id}
                 title={`${fmtDay(v.at)} · ${gestationalAge(p.edd, v.at).weeks} weeks`}
-                subtitle={`BP ${v.vitals.bpSys ?? '—'}/${v.vitals.bpDia ?? '—'} · ${v.vitals.weightKg ?? '—'} kg${v.complaints.length ? ` · ${v.complaints.join(', ')}` : ''}`}
+                subtitle={[
+                  `BP ${v.vitals.bpSys ?? '—'}/${v.vitals.bpDia ?? '—'} · ${v.vitals.weightKg ?? '—'} kg`,
+                  v.complaints.length ? v.complaints.join(', ') : '',
+                  v.vitals.fetalMovements ? `Fetal movements (as reported): ${v.vitals.fetalMovements}` : '',
+                  v.counselling?.length ? `Counselling: ${v.counselling.join(', ')}` : '',
+                ].filter(Boolean).join(' · ')}
                 meta={
                   <>
                     <AncBadge />

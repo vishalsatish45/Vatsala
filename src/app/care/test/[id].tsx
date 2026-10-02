@@ -8,13 +8,14 @@ import { asInvestigationId } from '@/data/ids';
 import { fmtDay, invState, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import type { Investigation, PregnancyId } from '@/data/types';
+import { useCareMe } from '@/features/care/CareTeam';
 import { EnteredInErrorSheet, type EieTarget } from '@/features/care/EnteredInErrorSheet';
 import { FOLLOW_UPS, notDoneSchema, resultSchema, reviewSchema } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
+import { canWriteSubject } from '@/features/care/permissions';
 import { useNow } from '@/lib/clock';
 import { useZodForm } from '@/lib/forms';
 import { useSubmitOnce } from '@/lib/useSubmitOnce';
-import { useSession } from '@/state/session';
 import { AppText, Button, Card, Chip, Field, InfoRow, OptionChips, Screen, StatusBadge, TopBar, space } from '@/ui';
 
 /** CT-23/24 Investigation: order → enter result → clinician review (PRD F-16). No auto "abnormal". */
@@ -26,11 +27,14 @@ export default function TestDetail() {
   const order = useSubmitOnce(db.investigations.find((x) => x.id === id)?.status);
   const inv = db.investigations.find((x) => x.id === id);
   const [eie, setEie] = useState<EieTarget>();
-  const treating = useSession((s) => s.account?.care?.role) !== 'specialist';
+  const me = useCareMe();
   if (!inv) return <Screen header={<TopBar back title="Test" />}><AppText>Not found.</AppText></Screen>;
   const p = db.pregnancies.find((x) => x.id === inv.subjectId);
   const m = p ? motherOf(db, p.motherId) : undefined;
   const s = invState(inv, now);
+  // app.require_writer: a pregnancy's tests are the obstetrician's, a baby's the paediatrician's (order, result,
+  // not done, review, entered in error). Others read only.
+  const treating = canWriteSubject(me, db.babies.some((b) => b.id === inv.subjectId) ? 'baby' : 'pregnancy');
 
   return (
     <Screen blob="none" header={<TopBar back title="Investigation" />}>
@@ -59,7 +63,7 @@ export default function TestDetail() {
       </Card>
       <EnteredInErrorSheet target={eie} onClose={() => setEie(undefined)} />
 
-      {(inv.status === 'due' || inv.status === 'ordered') && (
+      {treating && (inv.status === 'due' || inv.status === 'ordered') && (
         <Card style={{ gap: space.md }}>
           <AppText variant="title">{inv.status === 'due' ? 'Order or enter result' : 'Enter result'}</AppText>
           {inv.status === 'due' && <Button variant="secondary" label="Mark as ordered" disabled={order.busy} onPress={order.once(() => db.orderInvestigation(inv.id, by, now))} />}
@@ -68,7 +72,7 @@ export default function TestDetail() {
         </Card>
       )}
 
-      {inv.status === 'resulted' && <ReviewForm key={inv.id} inv={inv} pregnancyId={p?.id} />}
+      {treating && inv.status === 'resulted' && <ReviewForm key={inv.id} inv={inv} pregnancyId={p?.id} />}
     </Screen>
   );
 }

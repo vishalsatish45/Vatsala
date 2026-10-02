@@ -42,9 +42,9 @@ async function load(db: SupabaseClient, subject: { pregnancyId?: string; babyId?
   const [
     mothers, caregivers, staff, teams, datings, conditions, allergies, previous, tags, tagCat, encounters, investigations,
     referrals, tasks, callbacks, selfLogs, notes, medications, immunizations, vaccineCat, discharges, deliveries, babies,
-    admissions, pickLists,
+    admissions, pickLists, nationalIds,
   ] = await Promise.all([
-    rows(db.from('mothers').select('id,name,husband_name,phone,alt_phone,village,district,pincode,age_at_registration').eq('id', motherId).limit(1)),
+    rows(db.from('mothers').select('id,name,husband_name,phone,alt_phone,village,district,state,pincode,emergency_contact,age_at_registration').eq('id', motherId).limit(1)),
     rows(db.from('caregivers').select('id,name,phone').eq('mother_id', motherId).limit(20)),
     rows(db.from('staff').select('id,name,role').limit(1000)),
     rows(db.from('teams').select('id,name').limit(500)),
@@ -72,6 +72,8 @@ async function load(db: SupabaseClient, subject: { pregnancyId?: string; babyId?
     rows(db.from('babies').select('name,child_id').eq('mother_id', motherId).limit(10)),
     rows(db.from('admissions').select('ip_no').eq('mother_id', motherId).limit(10)),
     rows(db.from('pick_lists').select('list,code,label').limit(2000)),
+    // Her RCH / ABHA ids (RLS: what this clinician may see) — scrubbed like any other number.
+    rows(db.from('patient_identifiers').select('value').eq('mother_id', motherId).limit(20)),
   ]);
 
   const role = new Map(staff.map((s) => [s.id as string, s.role as string]));
@@ -146,12 +148,16 @@ async function load(db: SupabaseClient, subject: { pregnancyId?: string; babyId?
   };
 
   // Everything that could identify her or the people around her, scrubbed from any free text that slipped in.
+  const ec = (mother.emergency_contact ?? {}) as { name?: string; phone?: string };
   const ids: Identifiers = {
     mother: [mother.name],
-    family: [mother.husband_name, ...caregivers.map((c) => c.name), ...babies.map((b) => b.name)],
+    family: [mother.husband_name, ec.name, ...caregivers.map((c) => c.name), ...babies.map((b) => b.name)],
     staff: staff.map((s) => s.name),
-    places: [mother.village, mother.district, mother.pincode],
-    numbers: [preg?.mch_id, baby?.child_id, mother.phone, mother.alt_phone, ...caregivers.map((c) => c.phone), ...babies.map((b) => b.child_id), ...admissions.map((a) => a.ip_no)],
+    places: [mother.village, mother.district, mother.state, mother.pincode],
+    numbers: [
+      preg?.mch_id, baby?.child_id, mother.phone, mother.alt_phone, ec.phone, ...caregivers.map((c) => c.phone), ...babies.map((b) => b.child_id),
+      ...admissions.map((a) => a.ip_no), ...nationalIds.map((i) => i.value),
+    ],
   };
   return { raw, ids };
 }
@@ -176,7 +182,8 @@ Deno.serve(async (req) => {
     const { items, map } = prepareRecord(raw, ids);
 
     const { data, model } = await askModel(BRIEF_SYSTEM, [{ text: briefPrompt(kind, today, items) }], BRIEF_SCHEMA);
-    const { kept, dropped } = filterCited(data, map);
+    // The model's sentences are checked against this record's own identifiers too, not only generic patterns.
+    const { kept, dropped } = filterCited(data, map, ids);
     if (!kept.length) throw new HttpError(502, 'PT502', 'The AI draft had no sentence that could be traced to the record. Try again.');
 
     const { data: draft, error } = await db.rpc('save_ai_draft', {

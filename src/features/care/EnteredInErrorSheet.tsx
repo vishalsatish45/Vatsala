@@ -4,6 +4,7 @@ import { reasonOk } from '@/data/payloads';
 import { useDb } from '@/data/store';
 import type { EieKind, Id } from '@/data/types';
 import { useActor } from '@/features/care/nav';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Field, OptionChips, Sheet } from '@/ui';
 
 export type EieTarget = { kind: EieKind; id: Id; label: string };
@@ -18,6 +19,8 @@ export function EnteredInErrorSheet({ target, onClose }: { target?: EieTarget; o
   const markEnteredInError = useDb((s) => s.markEnteredInError);
   const by = useActor();
   const [reason, setReason] = useState('');
+  // One withdrawal per entry: the lock is per target (the sheet is reused for the next entry).
+  const { busy, once } = useSubmitOnce(target ? `${target.kind}:${target.id}` : '');
   const close = () => {
     setReason('');
     onClose();
@@ -31,11 +34,13 @@ export function EnteredInErrorSheet({ target, onClose }: { target?: EieTarget; o
       footer={
         <Button
           label="Mark entered in error"
-          disabled={!reasonOk(reason)}
+          disabled={!reasonOk(reason) || busy}
           onPress={() => {
             if (!target || !reasonOk(reason)) return;
-            markEnteredInError(target.kind, target.id, reason, by, new Date());
-            close();
+            once(() => {
+              markEnteredInError(target.kind, target.id, reason, by, new Date());
+              close();
+            })();
           }}
         />
       }

@@ -20,6 +20,9 @@ export const DEMO_UNITS = {
   obB: asTeamId('team_ob_unit_b'),
   paeds: asTeamId('team_paediatrics_unit'),
 };
+/** A demo department's team id ("Cardiology" → team_cardiology), as the referral destinations are listed. */
+export const demoDepartmentId = (name: string) => asTeamId(`team_${name.toLowerCase().replace(/\W+/g, '_')}`);
+
 const STAFF = { priya: asStaffId('staff_priya'), meera: asStaffId('staff_meera'), neha: asStaffId('staff_neha'), arjun: asStaffId('staff_arjun') };
 
 const RESULTS: Record<string, string> = {
@@ -96,7 +99,7 @@ export function buildSeed(nowIn: Date): DbState {
       { id: asStaffId('staff_kiran'), name: 'Dr. Kiran Shah', role: 'specialist' },
     ],
     teams: [
-      ...DEPARTMENTS.map((name) => ({ id: asTeamId(`team_${name.toLowerCase().replace(/\W+/g, '_')}`), name, kind: 'department' as const, specialty: name === 'Paediatrics' ? 'paediatrics' : 'other' })),
+      ...DEPARTMENTS.map((name) => ({ id: demoDepartmentId(name), name, kind: 'department' as const, specialty: name === 'Paediatrics' ? 'paediatrics' : 'other' })),
       { id: DEMO_UNITS.obA, name: 'OB Unit A', kind: 'unit', specialty: 'obstetrics' },
       { id: DEMO_UNITS.obB, name: 'OB Unit B', kind: 'unit', specialty: 'obstetrics' },
       { id: DEMO_UNITS.paeds, name: 'Paediatrics Unit', kind: 'unit', specialty: 'paediatrics' },
@@ -107,6 +110,8 @@ export function buildSeed(nowIn: Date): DbState {
       { teamId: DEMO_UNITS.obB, staffId: STAFF.meera },
       { teamId: DEMO_UNITS.obB, staffId: STAFF.neha },
       { teamId: DEMO_UNITS.paeds, staffId: STAFF.arjun },
+      // Dr. Kiran receives Cardiology's referrals.
+      { teamId: demoDepartmentId('Cardiology'), staffId: asStaffId('staff_kiran') },
     ],
     assignments: [],
     prescriptions: [],
@@ -347,6 +352,9 @@ export function buildSeed(nowIn: Date): DbState {
       ...p.previous.map((x) => ({ id: x.id!, motherId: p.motherId, kind: 'previous_pregnancy' as const, label: previousLabel(x) })),
     );
   }
+
+  // Each referral is addressed to its department's team (who may accept, schedule and answer it).
+  for (const r of s.referrals) r.toTeamId ??= demoDepartmentId(r.department);
 
   s.audit.sort((a, b) => b.at.getTime() - a.at.getTime());
   return s;

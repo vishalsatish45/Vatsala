@@ -48,7 +48,8 @@ export default function NewbornView() {
   const [tab, setTab] = useState<Tab>('overview');
   const [dose, setDose] = useState<string>();
   const [eie, setEie] = useState<EieTarget>();
-  const treating = useSession((s) => s.account?.care?.role) !== 'specialist';
+  // app.require_writer: a baby's record (observations, tags, prescriptions, doses, corrections) is the paediatrician's.
+  const treating = useSession((s) => s.account?.care?.role) === 'paediatrician';
 
   const b = db.babies.find((x) => x.id === id);
   if (!b) return <Screen header={<TopBar back title="Newborn" />}><AppText>Not found.</AppText></Screen>;
@@ -93,7 +94,7 @@ export default function NewbornView() {
             <Chip key={t.id} label={tagLabel(t.code)} variant="tag" />
           ))}
           <IntensityPill value={b.intensity} />
-          <Chip label="Edit tags" icon={Tags} onPress={() => router.push({ pathname: '/care/p/[id]/tags', params: { id: b.id } })} />
+          {treating && <Chip label="Edit tags" icon={Tags} onPress={() => router.push({ pathname: '/care/p/[id]/tags', params: { id: b.id } })} />}
         </View>
       </View>
 
@@ -142,7 +143,7 @@ export default function NewbornView() {
             <StatTile icon={Scale} label="Birth weight" value={b.birthWeightG != null ? String(b.birthWeightG) : '—'} unit="g" caption={fmtDate(b.dob)} />
             <StatTile icon={Timer} label="Apgar 1 / 5" value={`${b.apgar1 ?? '–'}/${b.apgar5 ?? '–'}`} caption={fmtDate(b.dob)} />
           </View>
-          {living && <Button icon={NotebookPen} label="Record observation" onPress={() => router.push({ pathname: '/care/b/[id]/observe', params: { id: b.id } })} />}
+          {living && treating && <Button icon={NotebookPen} label="Record observation" onPress={() => router.push({ pathname: '/care/b/[id]/observe', params: { id: b.id } })} />}
           {latest && (
             <Card>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>

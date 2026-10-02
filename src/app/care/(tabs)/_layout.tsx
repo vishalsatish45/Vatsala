@@ -18,7 +18,8 @@ const right: [NavItem, NavItem] = [
 /** DESIGN.md §5.3 — Worklist · Patients · (+) · Call-backs · Referrals. */
 export default function CareTabs() {
   const [sheet, setSheet] = useState(false);
-  // Registering and importing pregnancies is the obstetrician's (register_pregnancy / confirm_import refuse others).
+  // Registering and importing pregnancies, recording ANC visits and capturing paper ANC cards are the obstetrician's
+  // (register_pregnancy / confirm_import / record_visit / create_document refuse other roles for a pregnancy).
   const obstetrician = useSession((s) => s.account?.care?.role) === 'obstetrician';
 
   return (
@@ -38,8 +39,12 @@ export default function CareTabs() {
         title="Quick actions"
         actions={[
           ...(obstetrician ? [{ key: 'register', label: 'Register pregnancy', icon: UserPlus, onPress: () => router.push('/care/register') }] : []),
-          { key: 'visit', label: 'Record visit', icon: ClipboardPlus, onPress: () => router.push('/care/patients') },
-          { key: 'capture', label: 'Capture paper record', icon: Camera, tint: palette.lav600, onPress: () => router.push('/care/capture') },
+          ...(obstetrician
+            ? [
+                { key: 'visit', label: 'Record visit', icon: ClipboardPlus, onPress: () => router.push('/care/patients') },
+                { key: 'capture', label: 'Capture paper record', icon: Camera, tint: palette.lav600, onPress: () => router.push('/care/capture') },
+              ]
+            : [{ key: 'find', label: 'Find a patient', icon: Users, onPress: () => router.push('/care/patients') }]),
           ...(obstetrician ? [{ key: 'import', label: 'Import register', icon: FileSpreadsheet, tint: palette.done, onPress: () => router.push('/care/import') }] : []),
         ]}
       />

@@ -126,9 +126,13 @@ export type Visit = {
     urineAlbumin?: string;
     urineSugar?: string;
     oedema?: string;
+    /** Fetal movements as the mother reported them ('Normal' | 'Reduced'), stored as reported. */
+    fetalMovements?: string;
   };
   checklist: Record<string, { state: ChecklistState; reason?: string }>;
   complaints: string[];
+  /** Counselling topics given at the visit (English labels; server codes in src/data/codes.ts). */
+  counselling?: string[];
   note?: string;
 };
 
@@ -174,13 +178,22 @@ export type Investigation = {
   notDoneReason?: string;
 };
 
-export type ReferralStatus = 'requested' | 'accepted' | 'scheduled' | 'seen' | 'recommendations' | 'closed' | 'declined';
+/** `cancelled`: withdrawn by the referring team before it was answered (never counted as answered). */
+export type ReferralStatus = 'requested' | 'accepted' | 'scheduled' | 'seen' | 'recommendations' | 'closed' | 'declined' | 'cancelled';
+
+/** A referral that has ended: answered and closed, declined by the department, or cancelled by the referrer. */
+export const REFERRAL_ENDED: readonly ReferralStatus[] = ['closed', 'declined', 'cancelled'];
 
 export const REFERRAL_STEPS: ReferralStatus[] = ['requested', 'accepted', 'scheduled', 'seen', 'recommendations', 'closed'];
 
 export type Referral = {
   id: ReferralId;
+  /** The pregnancy the referral belongs to (a baby's referral: the baby's birth pregnancy). */
   pregnancyId: PregnancyId;
+  /** Set when the referral is about a baby (the paediatric team refers and closes it). */
+  babyId?: BabyId;
+  /** The receiving department: its members accept, schedule, see and answer (server advance_referral). */
+  toTeamId?: TeamId;
   department: string;
   urgency: 'emergency' | '24h' | 'routine';
   reason: string;
@@ -336,7 +349,12 @@ export type Prescription = {
   instructions?: string;
 };
 
-export type AuditEntry = { id: Id; at: Date; actor: string; action: string; entity: string };
+/**
+ * One audit entry. `action` is the raw action code (e.g. 'view_record'); `entity` is what the entry is about as shown
+ * (a table name in Supabase mode, an id or MCH id in the demo store); `entityId` / `motherId` are the record ids
+ * (Supabase mode) used to find the entries of one record.
+ */
+export type AuditEntry = { id: Id; at: Date; actor: string; action: string; entity: string; entityId?: string; motherId?: MotherId };
 
 export type CaregiverScopes = { schedule: boolean; baby: boolean; logs: boolean; tests: boolean };
 

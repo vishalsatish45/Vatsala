@@ -8,6 +8,7 @@ import { fmtDay, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, DatePicker, Field, OptionChips, Screen, TopBar, space } from '@/ui';
 
 const METHODS = { 'LMP': 'lmp', 'Scan': 'scan', 'Clinician EDD': 'clinician' } as const;
@@ -31,6 +32,7 @@ export default function Redate() {
   const [gaDays, setGaDays] = useState('0');
   const [edd, setEdd] = useState(now);
   const [note, setNote] = useState('');
+  const { busy, once } = useSubmitOnce();
 
   const p = db.pregnancies.find((x) => x.id === id);
   if (!p) return <Screen header={<TopBar back title="Re-date" />}><AppText>Not found.</AppText></Screen>;
@@ -107,11 +109,13 @@ export default function Redate() {
 
       <Button
         label="Use the new EDD"
-        disabled={!newEdd || !ongoing}
+        disabled={!newEdd || !ongoing || busy}
         onPress={() => {
           if (!newEdd || !ongoing) return;
-          db.redatePregnancy(p.id, input, by, now);
-          router.back();
+          once(() => {
+            db.redatePregnancy(p.id, input, by, now);
+            router.back();
+          })();
         }}
       />
       <Button variant="secondary" label="Keep the current EDD" onPress={() => router.back()} />
