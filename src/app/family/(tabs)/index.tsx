@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { Bell, Pill } from 'lucide-react-native';
+import { Bell, Pill, Salad } from 'lucide-react-native';
 import { daysBetween, gestationalAge, localDay, trimester } from '@domain/gestation';
 
 import { useDb } from '@/data/store';
@@ -23,6 +23,7 @@ import {
   GlassIconButton,
   GlassSurface,
   HeroNumber,
+  LinkCard,
   NextStepCard,
   Screen,
   StatTile,
@@ -154,6 +155,18 @@ export default function FamilyHome() {
     </DropdownSection>
   );
 
+  // Diet, exercise and the Learn library (no scope needed: general education, nothing from her record).
+  const wellbeingCard = (
+    <LinkCard
+      title={t('family.wellbeing.title')}
+      subtitle={t('family.wellbeing.sub')}
+      icon={Salad}
+      iconColor={palette.amber}
+      iconBg={palette.beige}
+      onPress={() => router.push('/family/wellbeing')}
+    />
+  );
+
   const nextCard = next && (
     <NextStepCard
       eyebrow={next.status === 'missed' ? t('family.missedUs') : t('family.nextStep')}
@@ -227,11 +240,13 @@ export default function FamilyHome() {
           <>
             {nextMother && card(nextMother, isCaregiver ? t('family.forMother') : t('family.forYou'))}
             {medicinesDropdown}
+            {wellbeingCard}
           </>
         )
       ) : (
         <>
           {medicinesDropdown}
+          {wellbeingCard}
           {nextCard ?? (
             <GlassSurface strong style={{ padding: space.lg }}>
               <AppText tone="secondary">{t('family.noUpcoming')}</AppText>

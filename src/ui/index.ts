@@ -41,3 +41,4 @@ export * from './LockScreen';
 export * from './DatePicker';
 export * from './AncBadge';
 export * from './DropdownSection';
+export * from './LinkCard';

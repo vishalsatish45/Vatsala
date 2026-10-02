@@ -1,12 +1,12 @@
 import { router } from 'expo-router';
 import { TabList, TabSlot, TabTrigger, Tabs } from 'expo-router/ui';
 import { useTranslation } from 'react-i18next';
-import { Baby, BookOpen, CalendarDays, HeartPulse, House } from 'lucide-react-native';
+import { Baby, CalendarDays, HeartPulse, House, AudioLines } from 'lucide-react-native';
 
 import { useFamilyFocus } from '@/features/family/FocusSwitch';
 import { FloatingNavBar, type NavItem } from '@/ui';
 
-/** Home · Schedule · (Emergency call) · My pregnancy (My health / My baby after delivery, per the Me / Baby switch) · Learn. */
+/** Home · Schedule · (Emergency call) · My pregnancy (My health / My baby after delivery, per the Me / Baby switch) · Ask. */
 export default function FamilyTabs() {
   const { t } = useTranslation();
   const { focus, canSwitch } = useFamilyFocus();
@@ -18,7 +18,7 @@ export default function FamilyTabs() {
   ];
   const right: [NavItem, NavItem] = [
     { name: 'journey', href: '/family/journey', icon: hasBaby ? Baby : HeartPulse, label: hasBaby ? t('family.baby.title') : canSwitch ? t('family.tabs.myHealth') : t('family.tabs.journey') },
-    { name: 'learn', href: '/family/learn', icon: BookOpen, label: t('family.tabs.learn') },
+    { name: 'ask', href: '/family/ask', icon: AudioLines, label: t('family.tabs.ask') },
   ];
 
   return (

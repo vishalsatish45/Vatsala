@@ -48,7 +48,8 @@
       "journey": "मेरी गर्भावस्था",
       "myHealth": "मेरा स्वास्थ्य",
       "learn": "जानें",
-      "actions": "त्वरित कार्य"
+      "actions": "त्वरित कार्य",
+      "ask": "Ask"
     },
     "pregnancyWeek": "गर्भावस्था का सप्ताह",
     "trimester": "तिमाही {{n}}",
@@ -390,6 +391,32 @@
     "noAccess": {
       "title": "अब साझा नहीं",
       "caregiver": "{{name}} अब अपनी जानकारी आपके साथ साझा नहीं करतीं। अगर आपको लगता है कि यह गलती है, तो कृपया उनसे पूछें।"
+    },
+    "wellbeing": {
+      "title": "My diet & exercises",
+      "sub": "Food, gentle exercise and learning",
+      "diet": "My Diet",
+      "exercise": "Exercises",
+      "learn": "Learn"
+    },
+    "ask": {
+      "title": "Ask",
+      "intro": "Ask about your visits, tests, medicines, or eating and exercise in pregnancy. Answers come from your hospital record and the app's health cards. This is not medical advice — for anything about how you feel, ask the hospital to call you. In an emergency, call 108.",
+      "needsServer": "Ask works when the app is connected to the hospital server.",
+      "voiceOn": "Read aloud",
+      "voiceOff": "Muted",
+      "thinking": "Finding the answer…",
+      "label": "Your question",
+      "placeholder": "Type, or tap the mic and speak",
+      "send": "Ask",
+      "disclaimer": "Answers can take up to a minute. They never replace your doctor.",
+      "s": {
+        "nextVisit": "When is my next visit?",
+        "bring": "What should I bring to my visit?",
+        "medicines": "Which medicines do I take, and when?",
+        "tests": "Are my test results back?",
+        "eat": "What should I eat?"
+      }
     }
   },
   "on": {

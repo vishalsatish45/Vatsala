@@ -29,7 +29,7 @@ export default function Journey() {
   const now = useNow();
   const db = useDb();
   const ctx = useFamily();
-  const [tab, setTab] = useState<Tab>('journey');
+  const [tab, setTab] = useState<Tab>('readings');
   const { focus, canSwitch } = useFamilyFocus();
   const p = ctx.pregnancy;
   if (!p || !ctx.mother) return <Screen withNav header={<TopBar large title={t('family.tabs.journey')} />}><AppText>—</AppText></Screen>;
@@ -60,11 +60,11 @@ export default function Journey() {
         value={tab}
         onChange={setTab}
         tabs={[
-          { value: 'journey', label: t('family.journey.journey') },
-          { value: 'tests', label: t('family.journey.tests') },
-          { value: 'meds', label: t('family.journey.meds') },
           { value: 'readings', label: t('family.journey.readings') },
           { value: 'record', label: t('family.journey.record') },
+          { value: 'meds', label: t('family.journey.meds') },
+          { value: 'tests', label: t('family.journey.tests') },
+          { value: 'journey', label: t('family.journey.journey') },
         ]}
       />
 

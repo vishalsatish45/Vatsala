@@ -2,22 +2,22 @@ import { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
+import { Baby } from 'lucide-react-native';
 import { gestationalAge, localDay } from '@domain/gestation';
 
-import { LEARN, learnText, type LearnCard } from '@/features/family/learn';
-import { LEARN_ICONS } from '@/features/family/learnIcons';
-import { FocusSwitch, useFamilyFocus } from '@/features/family/FocusSwitch';
-import { birthHappened } from '@/features/family/stage';
-import { useFamily } from '@/features/family/useFamily';
 import { useNow } from '@/lib/clock';
-import { Baby } from 'lucide-react-native';
+import { AppText, ListRow, StoryCard, UnderlineTabs, palette, space } from '@/ui';
 
-import { AppText, ListRow, Screen, StoryCard, TopBar, UnderlineTabs, palette, space } from '@/ui';
+import { useFamilyFocus } from './FocusSwitch';
+import { LEARN, learnText, type LearnCard } from './learn';
+import { LEARN_ICONS } from './learnIcons';
+import { birthHappened } from './stage';
+import { useFamily } from './useFamily';
 
 type Tab = 'thisWeek' | LearnCard['stage'];
 
-/** FH-50 Learn — clinically reviewed content only (PRD F-47); this set is pending review. */
-export default function Learn() {
+/** FH-50 Learn (inside "My diet & exercises") — clinically reviewed content only (PRD F-47); this set is pending review. */
+export function LearnSection() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const now = useNow();
@@ -45,12 +45,8 @@ export default function Learn() {
   const open = (slug: string) => router.push({ pathname: '/family/learn/[slug]', params: { slug } });
 
   return (
-    <Screen withNav blob="none" header={<TopBar large title={t('family.tabs.learn')} below={<FocusSwitch />} />}>
-      <UnderlineTabs
-        value={tab}
-        onChange={setTab}
-        tabs={tabs.map((v) => ({ value: v, label: t(`family.learn.${v}`) }))}
-      />
+    <>
+      <UnderlineTabs value={tab} onChange={setTab} tabs={tabs.map((v) => ({ value: v, label: t(`family.learn.${v}`) }))} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm, paddingVertical: 8, paddingRight: space.md }} snapToInterval={272} decelerationRate="fast">
         {list.slice(0, 4).map((c) => (
           <StoryCard key={c.slug} icon={LEARN_ICONS[c.icon]} tone={c.tone} title={learnText(c, lang).title} body={learnText(c, lang).summary} onPress={() => open(c.slug)} />
@@ -65,9 +61,6 @@ export default function Learn() {
       {((tab === 'newborn' && tabs.includes('newborn')) || (tab === 'thisWeek' && withBaby && (!canSwitch || focus === 'baby'))) && (
         <ListRow leading={<Baby size={22} color={palette.lav600} />} title={t('family.guide.title')} onPress={() => router.push('/family/newborn-guide')} />
       )}
-      <AppText variant="caption" tone="faint" align="center">
-        {t('family.learn.reviewed')}
-      </AppText>
-    </Screen>
+    </>
   );
 }

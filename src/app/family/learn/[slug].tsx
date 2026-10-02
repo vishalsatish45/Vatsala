@@ -3,8 +3,9 @@ import { useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { LEARN, learnText } from '@/features/family/learn';
+import { learnText } from '@/features/family/learn';
 import { LEARN_ICONS } from '@/features/family/learnIcons';
+import { findArticle } from '@/features/family/wellbeing';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { AppText, Card, Screen, TopBar, radius, space } from '@/ui';
 
@@ -14,7 +15,7 @@ const TONES = { rose: ['#F9C9DA', '#EE9CBD'], peach: ['#FCE0CC', '#F6B28A'], lav
 export default function Article() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const { t, i18n } = useTranslation();
-  const c = LEARN.find((x) => x.slug === slug);
+  const c = findArticle(slug);
   if (!c) return <Screen header={<TopBar back />}><AppText>—</AppText></Screen>;
   const Icon = LEARN_ICONS[c.icon];
   const tx = learnText(c, i18n.language);

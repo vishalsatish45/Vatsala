@@ -47,7 +47,8 @@
       "journey": "My pregnancy",
       "myHealth": "My health",
       "learn": "Learn",
-      "actions": "Quick actions"
+      "actions": "Quick actions",
+      "ask": "Ask"
     },
     "pregnancyWeek": "Pregnancy week",
     "trimester": "Trimester {{n}}",
@@ -389,6 +390,32 @@
     "noAccess": {
       "title": "No longer shared",
       "caregiver": "{{name}} no longer shares her information with you. Please ask her if you think this is a mistake."
+    },
+    "wellbeing": {
+      "title": "My diet & exercises",
+      "sub": "Food, gentle exercise and learning",
+      "diet": "My Diet",
+      "exercise": "Exercises",
+      "learn": "Learn"
+    },
+    "ask": {
+      "title": "Ask",
+      "intro": "Ask about your visits, tests, medicines, or eating and exercise in pregnancy. Answers come from your hospital record and the app's health cards. This is not medical advice — for anything about how you feel, ask the hospital to call you. In an emergency, call 108.",
+      "needsServer": "Ask works when the app is connected to the hospital server.",
+      "voiceOn": "Read aloud",
+      "voiceOff": "Muted",
+      "thinking": "Finding the answer…",
+      "label": "Your question",
+      "placeholder": "Type, or tap the mic and speak",
+      "send": "Ask",
+      "disclaimer": "Answers can take up to a minute. They never replace your doctor.",
+      "s": {
+        "nextVisit": "When is my next visit?",
+        "bring": "What should I bring to my visit?",
+        "medicines": "Which medicines do I take, and when?",
+        "tests": "Are my test results back?",
+        "eat": "What should I eat?"
+      }
     }
   },
   "on": {

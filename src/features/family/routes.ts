@@ -18,4 +18,5 @@ export const FAMILY_ROUTES = [
   'settings',
   'signs',
   'test/[id]',
+  'wellbeing',
 ] as const;
