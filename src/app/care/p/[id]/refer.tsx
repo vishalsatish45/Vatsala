@@ -1,44 +1,54 @@
-import { useState } from 'react';
 import { Alert, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Controller } from 'react-hook-form';
 
 import { DEPARTMENTS, tagLabel } from '@/data/catalogue';
+import { asPregnancyId } from '@/data/ids';
 import { activeTags, gaLabel, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
-import type { Referral } from '@/data/types';
+import type { PregnancyId } from '@/data/types';
+import { URGENCY, referSchema } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
+import { firstError, useZodForm } from '@/lib/forms';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Field, OptionChips, Screen, TopBar, space } from '@/ui';
-
-const URGENCY: Record<string, Referral['urgency']> = { Routine: 'routine', 'Within 24 h': '24h', Emergency: 'emergency' };
 
 /** CT-51 New referral with an auto-attached context bundle (PRD F-17). */
 export default function NewReferral() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asPregnancyId(useLocalSearchParams<{ id: string }>().id);
+  return <ReferralForm key={id} id={id} />;
+}
+
+function ReferralForm({ id }: { id: PregnancyId }) {
   const db = useDb();
   const now = useNow();
   const by = useActor();
   const p = db.pregnancies.find((x) => x.id === id)!;
   const m = motherOf(db, p.motherId);
-  const [dept, setDept] = useState<string>();
-  const [urgency, setUrgency] = useState<string>('Routine');
-  const [reason, setReason] = useState('');
-  const [question, setQuestion] = useState('');
+  const { control, handleSubmit } = useZodForm(referSchema, { defaultValues: { dept: undefined, urgency: 'Routine', reason: '', question: '' } });
+  const { busy, once } = useSubmitOnce();
 
-  function send() {
-    if (!dept || !reason.trim()) return Alert.alert('Missing details', 'Choose a department and add the reason.');
-    const rid = db.createReferral({ pregnancyId: p.id, department: dept, urgency: URGENCY[urgency] ?? 'routine', reason: reason.trim(), question: question.trim() }, by, now);
-    router.replace({ pathname: '/care/referral/[id]', params: { id: rid } });
-  }
+  const send = handleSubmit(
+    once((r) => {
+      const rid = db.createReferral({ pregnancyId: p.id, ...r }, by, now);
+      router.replace({ pathname: '/care/referral/[id]', params: { id: rid } });
+    }),
+    (errors) => Alert.alert('Missing details', firstError(errors) ?? ''),
+  );
 
   return (
-    <Screen blob="none" header={<TopBar back title="New referral" />} footer={<Button label="Send referral" onPress={send} />}>
+    <Screen blob="none" header={<TopBar back title="New referral" />} footer={<Button label="Send referral" disabled={busy} onPress={send} />}>
       <AppText variant="display">Refer {m.name}</AppText>
       <Card style={{ gap: space.md }}>
-        <OptionChips label="Department" options={DEPARTMENTS} value={dept} onChange={setDept} />
-        <OptionChips label="Urgency (your choice)" options={Object.keys(URGENCY)} value={urgency} onChange={(v) => v && setUrgency(v)} />
-        <Field label="Reason" value={reason} onChangeText={setReason} placeholder="e.g. Palpitations reported" multiline />
-        <Field label="Question to answer" value={question} onChangeText={setQuestion} placeholder="e.g. Fitness for vaginal delivery?" multiline />
+        <Controller control={control} name="dept" render={({ field }) => <OptionChips label="Department" options={DEPARTMENTS} value={field.value} onChange={field.onChange} />} />
+        <Controller control={control} name="urgency" render={({ field }) => <OptionChips label="Urgency (your choice)" options={Object.keys(URGENCY)} value={field.value} onChange={(v) => v && field.onChange(v)} />} />
+        <Controller control={control} name="reason" render={({ field }) => <Field label="Reason" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} placeholder="e.g. Palpitations reported" multiline />} />
+        <Controller
+          control={control}
+          name="question"
+          render={({ field }) => <Field label="Question to answer" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} placeholder="e.g. Fitness for vaginal delivery?" multiline />}
+        />
       </Card>
       <Card style={{ gap: 6 }}>
         <AppText variant="headline">Attached context</AppText>

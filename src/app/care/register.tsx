@@ -1,29 +1,46 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { addDays, eddFromLmp, formatGA, gestationalAge } from '@domain/gestation';
+import { Controller, useWatch } from 'react-hook-form';
+import { formatGA, gestationalAge } from '@domain/gestation';
 
 import { TAGS } from '@/data/catalogue';
 import { fmtDay } from '@/data/selectors';
-import { useDb } from '@/data/store';
-import type { Intensity, Pregnancy } from '@/data/types';
+import { useDb, type RegisterInput } from '@/data/store';
+import { LANGUAGES, REGISTER_STEPS, eddOptions, makeRegisterSchema, type RegisterForm } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
+import { useZodForm } from '@/lib/forms';
 import { isRemote } from '@/lib/supabase';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Chip, Field, OptionChips, ProgressBar, Screen, SegmentedPills, TopBar, space } from '@/ui';
 
-/** Parses DD-MM-YYYY or DD/MM/YYYY into a UTC date. */
-function parseDate(s: string): Date | undefined {
-  const m = s.trim().match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
-  if (!m) return undefined;
-  const d = new Date(Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1])));
-  return Number.isNaN(d.getTime()) ? undefined : d;
-}
-
-const LANG = { English: 'en', Kannada: 'kn', Hindi: 'hi' } as const;
 const PREV = ['Normal delivery', 'LSCS', 'Stillbirth', 'Miscarriage', 'MTP'];
 const CONDITIONS = ['Hypertension', 'Diabetes', 'Heart disease', 'Kidney disease', 'Thyroid disorder', 'Epilepsy', 'Asthma', 'TB'];
 const BLOOD = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-', 'Unknown'];
+
+const DEFAULTS: RegisterForm = {
+  name: '',
+  age: '',
+  phone: '',
+  village: '',
+  lang: 'Kannada',
+  ecName: '',
+  ecPhone: '',
+  lmpText: '',
+  scanWeeks: '',
+  eddSource: 'lmp',
+  g: '1',
+  p: '0',
+  l: '0',
+  a: '0',
+  previous: [],
+  conditions: [],
+  allergies: '',
+  blood: undefined,
+  tags: [],
+  intensity: 'routine',
+};
 
 /** CT-61…66 Pregnancy registration — creates MCH ID, schedules and tasks (PRD F-11). */
 export default function Register() {
@@ -31,75 +48,26 @@ export default function Register() {
   const now = useNow();
   const by = useActor();
   const [step, setStep] = useState(0);
+  const schema = useMemo(() => makeRegisterSchema(now), [now]);
+  const { control, handleSubmit } = useZodForm(schema, { defaultValues: DEFAULTS });
+  const { busy, once } = useSubmitOnce();
 
-  const [name, setName] = useState('');
-  const [age, setAge] = useState('');
-  const [phone, setPhone] = useState('');
-  const [village, setVillage] = useState('');
-  const [lang, setLang] = useState<string>('Kannada');
-  const [ecName, setEcName] = useState('');
-  const [ecPhone, setEcPhone] = useState('');
-
-  const [lmpText, setLmpText] = useState('');
-  const [scanWeeks, setScanWeeks] = useState('');
-  const [eddSource, setEddSource] = useState<Pregnancy['eddSource']>('lmp');
-  const [g, setG] = useState('1');
-  const [pp, setP] = useState('0');
-  const [l, setL] = useState('0');
-  const [a, setA] = useState('0');
-  const [previous, setPrevious] = useState<string[]>([]);
-
-  const [conditions, setConditions] = useState<string[]>([]);
-  const [allergies, setAllergies] = useState('');
-  const [blood, setBlood] = useState<string>();
-  const [tags, setTags] = useState<string[]>([]);
-  const [intensity, setIntensity] = useState<Intensity>('routine');
-
-  const lmp = parseDate(lmpText);
-  const eddLmp = lmp ? eddFromLmp(lmp) : undefined;
-  const scanW = Number(scanWeeks);
-  const eddScan = scanWeeks && scanW > 0 && scanW < 42 ? addDays(now, 280 - Math.round(scanW * 7)) : undefined;
-  const edd = eddSource === 'scan' ? eddScan : (eddLmp ?? eddScan);
-
-  const gpla = { g: Number(g) || 0, p: Number(pp) || 0, l: Number(l) || 0, a: Number(a) || 0 };
-  const gplaError = gpla.p + gpla.a > Math.max(0, gpla.g - 1) ? 'P + A must be ≤ G − 1 for a current pregnancy' : undefined;
-
+  const values = useWatch({ control }) as RegisterForm;
+  const { lmp, eddLmp, eddScan, edd } = eddOptions(values, now);
+  // "Next" is enabled when the fields this step owns have no issue (the schema is the only rulebook).
+  const issues = schema.safeParse(values).error?.issues ?? [];
+  const issueIn = (fields: readonly string[]) => issues.find((i) => fields.includes(String(i.path[0])));
+  const gplaError = issues.find((i) => i.path[0] === 'g')?.message;
   const steps = ['Identity', 'Pregnancy', 'History & tags'];
-  const valid = [
-    name.trim().length > 1 && Number(age) > 10 && /^[6-9]\d{9}$/.test(phone),
-    !!edd && !gplaError,
-    true,
-  ];
+  const valid = REGISTER_STEPS.map((fields) => !issueIn(fields));
 
-  function create() {
-    if (!edd) return;
-    const id = db.registerPregnancy(
-      {
-        mother: {
-          name: name.trim(),
-          age: Number(age),
-          phone,
-          village: village.trim() || '—',
-          lang: LANG[lang as keyof typeof LANG] ?? 'kn',
-          emergencyContact: { name: ecName.trim() || '—', relation: 'Family', phone: ecPhone || '—' },
-        },
-        lmp,
-        edd,
-        eddSource: eddSource === 'scan' && eddScan ? 'scan' : 'lmp',
-        gpla,
-        history: { conditions, allergies: allergies.split(',').map((x) => x.trim()).filter(Boolean), medicines: [], bloodGroup: blood === 'Unknown' ? undefined : blood },
-        previous: previous.map((p) => ({ year: now.getFullYear() - 2, outcome: p === 'LSCS' || p === 'Normal delivery' ? 'Live birth' : p, mode: p === 'LSCS' ? 'LSCS' : p === 'Normal delivery' ? 'Normal' : undefined })),
-        tagCodes: tags,
-        intensity,
-      },
-      by,
-      now,
-    );
+  const create = once((input: RegisterInput) => {
+    const id = db.registerPregnancy(input, by, now);
     const p = useDb.getState().pregnancies.find((x) => x.id === id);
     // In Supabase mode the MCH id is assigned by the server and appears on her record once saved.
     Alert.alert('Pregnancy registered', `${isRemote ? 'MCH id is being assigned.' : p?.mchId}\nANC visits and test windows have been scheduled.`);
     router.replace({ pathname: '/care/p/[id]', params: { id } });
-  }
+  });
 
   return (
     <Screen
@@ -113,7 +81,11 @@ export default function Register() {
             </View>
           )}
           <View style={{ flex: 2 }}>
-            {step < 2 ? <Button label="Next" disabled={!valid[step]} onPress={() => setStep((s) => s + 1)} /> : <Button label="Create & schedule" onPress={create} />}
+            {step < 2 ? (
+              <Button label="Next" disabled={!valid[step]} onPress={() => setStep((s) => s + 1)} />
+            ) : (
+              <Button label="Create & schedule" disabled={busy} onPress={handleSubmit(create)} />
+            )}
           </View>
         </View>
       }
@@ -123,16 +95,26 @@ export default function Register() {
       {step === 0 && (
         <Card style={{ gap: space.md }}>
           <AppText variant="title">Mother</AppText>
-          <Field label="Full name" value={name} onChangeText={setName} placeholder="e.g. Asha R" />
+          <Controller control={control} name="name" render={({ field }) => <Field label="Full name" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} placeholder="e.g. Asha R" />} />
           <View style={styles.row}>
-            <Field flex label="Age" unit="yrs" keyboardType="number-pad" value={age} onChangeText={setAge} />
-            <Field flex label="Village / area" value={village} onChangeText={setVillage} />
+            <Controller control={control} name="age" render={({ field }) => <Field flex label="Age" unit="yrs" keyboardType="number-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+            <Controller control={control} name="village" render={({ field }) => <Field flex label="Village / area" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
           </View>
-          <Field label="Mobile (used for her login)" keyboardType="number-pad" maxLength={10} value={phone} onChangeText={(v) => setPhone(v.replace(/\D/g, ''))} hint="She logs in with this number and an OTP." />
-          <OptionChips label="Preferred language" options={Object.keys(LANG)} value={lang} onChange={(v) => v && setLang(v)} />
+          <Controller
+            control={control}
+            name="phone"
+            render={({ field }) => (
+              <Field label="Mobile (used for her login)" keyboardType="number-pad" maxLength={10} value={field.value} onChangeText={(v) => field.onChange(v.replace(/\D/g, ''))} onBlur={field.onBlur} hint="She logs in with this number and an OTP." />
+            )}
+          />
+          <Controller control={control} name="lang" render={({ field }) => <OptionChips label="Preferred language" options={Object.keys(LANGUAGES)} value={field.value} onChange={(v) => v && field.onChange(v)} />} />
           <View style={styles.row}>
-            <Field flex label="Emergency contact" value={ecName} onChangeText={setEcName} />
-            <Field flex label="Their phone" keyboardType="number-pad" maxLength={10} value={ecPhone} onChangeText={(v) => setEcPhone(v.replace(/\D/g, ''))} />
+            <Controller control={control} name="ecName" render={({ field }) => <Field flex label="Emergency contact" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+            <Controller
+              control={control}
+              name="ecPhone"
+              render={({ field }) => <Field flex label="Their phone" keyboardType="number-pad" maxLength={10} value={field.value} onChangeText={(v) => field.onChange(v.replace(/\D/g, ''))} onBlur={field.onBlur} />}
+            />
           </View>
         </Card>
       )}
@@ -141,17 +123,29 @@ export default function Register() {
         <>
           <Card style={{ gap: space.md }}>
             <AppText variant="title">Dating</AppText>
-            <Field label="LMP (DD-MM-YYYY)" value={lmpText} onChangeText={setLmpText} placeholder="07-02-2026" keyboardType="numbers-and-punctuation" error={lmpText && !lmp ? 'Use DD-MM-YYYY' : undefined} />
-            <Field label="Or GA by dating scan today" unit="weeks" keyboardType="decimal-pad" value={scanWeeks} onChangeText={setScanWeeks} />
+            <Controller
+              control={control}
+              name="lmpText"
+              render={({ field }) => (
+                <Field label="LMP (DD-MM-YYYY)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} placeholder="07-02-2026" keyboardType="numbers-and-punctuation" error={field.value && !lmp ? 'Use DD-MM-YYYY' : undefined} />
+              )}
+            />
+            <Controller control={control} name="scanWeeks" render={({ field }) => <Field label="Or GA by dating scan today" unit="weeks" keyboardType="decimal-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
             {(eddLmp || eddScan) && (
               <View style={{ gap: 8 }}>
                 <AppText variant="label" tone="secondary">
                   EDD source — you choose
                 </AppText>
-                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                  {eddLmp && <Chip label={`LMP → ${fmtDay(eddLmp)}`} variant={eddSource === 'lmp' ? 'selected' : 'soft'} onPress={() => setEddSource('lmp')} />}
-                  {eddScan && <Chip label={`Scan → ${fmtDay(eddScan)}`} variant={eddSource === 'scan' ? 'selected' : 'soft'} onPress={() => setEddSource('scan')} />}
-                </View>
+                <Controller
+                  control={control}
+                  name="eddSource"
+                  render={({ field }) => (
+                    <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                      {eddLmp && <Chip label={`LMP → ${fmtDay(eddLmp)}`} variant={field.value === 'lmp' ? 'selected' : 'soft'} onPress={() => field.onChange('lmp')} />}
+                      {eddScan && <Chip label={`Scan → ${fmtDay(eddScan)}`} variant={field.value === 'scan' ? 'selected' : 'soft'} onPress={() => field.onChange('scan')} />}
+                    </View>
+                  )}
+                />
                 {edd && (
                   <AppText variant="bodyMedium">
                     GA today {formatGA(gestationalAge(edd, now))} · EDD {fmtDay(edd)}
@@ -163,17 +157,16 @@ export default function Register() {
           <Card style={{ gap: space.md }}>
             <AppText variant="title">Obstetric summary</AppText>
             <View style={styles.row}>
-              <Field flex label="G" keyboardType="number-pad" value={g} onChangeText={setG} />
-              <Field flex label="P" keyboardType="number-pad" value={pp} onChangeText={setP} />
-              <Field flex label="L" keyboardType="number-pad" value={l} onChangeText={setL} />
-              <Field flex label="A" keyboardType="number-pad" value={a} onChangeText={setA} />
+              {(['g', 'p', 'l', 'a'] as const).map((k) => (
+                <Controller key={k} control={control} name={k} render={({ field }) => <Field flex label={k.toUpperCase()} keyboardType="number-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+              ))}
             </View>
             {!!gplaError && (
               <AppText variant="caption" tone="overdue">
                 {gplaError}
               </AppText>
             )}
-            <OptionChips multi label="Previous pregnancies (documented)" options={PREV} value={previous} onChange={setPrevious} />
+            <Controller control={control} name="previous" render={({ field }) => <OptionChips multi label="Previous pregnancies (documented)" options={PREV} value={field.value} onChange={field.onChange} />} />
           </Card>
         </>
       )}
@@ -182,32 +175,44 @@ export default function Register() {
         <>
           <Card style={{ gap: space.md }}>
             <AppText variant="title">History</AppText>
-            <OptionChips multi label="Documented conditions" options={CONDITIONS} value={conditions} onChange={setConditions} />
-            <Field label="Allergies (comma separated)" value={allergies} onChangeText={setAllergies} />
-            <OptionChips label="Blood group (if known)" options={BLOOD} value={blood} onChange={setBlood} />
+            <Controller control={control} name="conditions" render={({ field }) => <OptionChips multi label="Documented conditions" options={CONDITIONS} value={field.value} onChange={field.onChange} />} />
+            <Controller control={control} name="allergies" render={({ field }) => <Field label="Allergies (comma separated)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+            <Controller control={control} name="blood" render={({ field }) => <OptionChips label="Blood group (if known)" options={BLOOD} value={field.value} onChange={field.onChange} />} />
           </Card>
           <Card style={{ gap: space.md }}>
             <AppText variant="title">Tags (optional)</AppText>
             <AppText variant="caption" tone="secondary">
               Your choice — nothing is pre-selected.
             </AppText>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {TAGS.filter((t) => t.group !== 'Newborn').map((t) => {
-                const on = tags.includes(t.code);
-                return <Chip key={t.code} label={t.label} variant={on ? 'selected' : 'soft'} onPress={() => setTags((c) => (on ? c.filter((x) => x !== t.code) : [...c, t.code]))} />;
-              })}
-            </View>
+            <Controller
+              control={control}
+              name="tags"
+              render={({ field }) => (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {TAGS.filter((t) => t.group !== 'Newborn').map((t) => {
+                    const on = field.value.includes(t.code);
+                    return <Chip key={t.code} label={t.label} variant={on ? 'selected' : 'soft'} onPress={() => field.onChange(on ? field.value.filter((x) => x !== t.code) : [...field.value, t.code])} />;
+                  })}
+                </View>
+              )}
+            />
             <AppText variant="label" tone="secondary">
               Follow-up intensity
             </AppText>
-            <SegmentedPills
-              value={intensity}
-              onChange={setIntensity}
-              options={[
-                { value: 'routine', label: 'Routine' },
-                { value: 'enhanced', label: 'Enhanced' },
-                { value: 'close', label: 'Close' },
-              ]}
+            <Controller
+              control={control}
+              name="intensity"
+              render={({ field }) => (
+                <SegmentedPills
+                  value={field.value}
+                  onChange={field.onChange}
+                  options={[
+                    { value: 'routine', label: 'Routine' },
+                    { value: 'enhanced', label: 'Enhanced' },
+                    { value: 'close', label: 'Close' },
+                  ]}
+                />
+              )}
             />
           </Card>
         </>

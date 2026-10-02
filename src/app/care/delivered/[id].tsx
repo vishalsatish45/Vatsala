@@ -2,13 +2,14 @@ import { StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
 
+import { asPregnancyId } from '@/data/ids';
 import { motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { AppText, Button, GlassSurface, Screen, TopBar, palette, space } from '@/ui';
 
 /** CT-58 Delivered — linked baby IDs, paediatrics notified (PRD F-18, F-19). Neutral tone for loss. */
 export default function Delivered() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asPregnancyId(useLocalSearchParams<{ id: string }>().id);
   const db = useDb();
   const p = db.pregnancies.find((x) => x.id === id)!;
   const m = motherOf(db, p.motherId);

@@ -2,15 +2,20 @@ import { Suspense, lazy, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
+import { Controller, useWatch } from 'react-hook-form';
 import { CircleCheck, TriangleAlert } from 'lucide-react-native';
 
 import { WARNING_SIGNS, type SignStage } from '@/data/catalogue';
 import { useDb } from '@/data/store';
+import type { CallbackId } from '@/data/types';
+import { callbackRequestSchema } from '@/features/family/forms';
 import { useFamily } from '@/features/family/useFamily';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { VoiceField } from '@/features/voice/VoiceField';
 import VoicePlayer from '@/features/device/VoicePlayer';
 import { useNow } from '@/lib/clock';
+import { useZodForm } from '@/lib/forms';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Chip, EmergencyButtons, GlassSurface, Screen, SegmentedPills, SyncBadge, TopBar, palette, space } from '@/ui';
 
 const VoiceRecorder = lazy(() => import('@/features/device/VoiceRecorder'));
@@ -26,23 +31,22 @@ export default function AskForCall() {
   const db = useDb();
   const ctx = useFamily();
   const stages: SignStage[] = ctx.pregnancy?.status === 'delivered' ? ['postnatal', 'baby'] : ['pregnancy'];
-  const [signs, setSigns] = useState<string[]>([]);
-  const [note, setNote] = useState('');
-  const [sent, setSent] = useState(false);
-  const [voice, setVoice] = useState<{ uri: string; seconds: number }>();
-  const [sentId, setSentId] = useState<string>();
+  const { control, handleSubmit, setValue } = useZodForm(callbackRequestSchema, { defaultValues: { signs: [], note: '', voice: undefined } });
+  const { busy, once } = useSubmitOnce();
+  const voice = useWatch({ control, name: 'voice' });
+  const [sentId, setSentId] = useState<CallbackId>();
+  // Which warning-sign cards are shown below (reading only, not part of the request).
   const [infoStage, setInfoStage] = useState<SignStage>(ctx.pregnancy?.status === 'delivered' ? 'postnatal' : 'pregnancy');
 
-  const toggle = (k: string) => setSigns((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
+  const send = handleSubmit(
+    once((r) => {
+      if (!ctx.mother) return;
+      // Signs travel as codes; the care team reads their English labels.
+      setSentId(db.requestCallback(ctx.mother.id, r.signs, r.note, ctx.isCaregiver ? `${ctx.accountName} (caregiver)` : `${ctx.mother.name} (mother)`, 'app', now, r.voice));
+    }),
+  );
 
-  function send() {
-    if (!ctx.mother) return;
-    // Signs travel as codes; the care team reads their English labels.
-    setSentId(db.requestCallback(ctx.mother.id, signs, note.trim() || undefined, ctx.isCaregiver ? `${ctx.accountName} (caregiver)` : `${ctx.mother.name} (mother)`, 'app', now, voice));
-    setSent(true);
-  }
-
-  if (sent) {
+  if (sentId) {
     return (
       <Screen blobCenterY={200} header={<TopBar back title={t('family.emergencyCall')} />} footer={<Button label={t('family.cb.done')} onPress={() => router.back()} />}>
         <View style={styles.sent}>
@@ -67,7 +71,7 @@ export default function AskForCall() {
     <Screen
       blob="none"
       header={<TopBar back title={t('family.emergencyCall')} right={<ReadAloudButton text={[t('family.cb.title'), t('family.cb.sub')].join('. ')} />} />}
-      footer={<Button label={t('family.cb.send')} onPress={send} />}
+      footer={<Button label={t('family.cb.send')} disabled={busy} onPress={send} />}
     >
       <View style={{ gap: 4 }}>
         <AppText variant="display">{t('family.emergencyCall')}</AppText>
@@ -81,21 +85,30 @@ export default function AskForCall() {
         <AppText tone="secondary">{t('family.cb.sub')}</AppText>
       </View>
 
-      {stages.map((st) => (
-        <Card key={st} style={{ gap: space.sm }}>
-          <AppText variant="headline">{t(`family.signs.${st}`)}</AppText>
-          <View style={styles.chips}>
-            {Object.keys(WARNING_SIGNS[st]).map((k) => (
-              <Chip key={k} label={t(`signs.${k}`)} variant={signs.includes(k) ? 'selected' : 'soft'} onPress={() => toggle(k)} />
+      <Controller
+        control={control}
+        name="signs"
+        render={({ field }) => (
+          <>
+            {stages.map((st) => (
+              <Card key={st} style={{ gap: space.sm }}>
+                <AppText variant="headline">{t(`family.signs.${st}`)}</AppText>
+                <View style={styles.chips}>
+                  {Object.keys(WARNING_SIGNS[st]).map((k) => {
+                    const on = field.value.includes(k);
+                    return <Chip key={k} label={t(`signs.${k}`)} variant={on ? 'selected' : 'soft'} onPress={() => field.onChange(on ? field.value.filter((x) => x !== k) : [...field.value, k])} />;
+                  })}
+                </View>
+              </Card>
             ))}
-          </View>
-        </Card>
-      ))}
+          </>
+        )}
+      />
 
-      <VoiceField label={t('family.cb.note')} value={note} onChangeText={setNote} multiline />
+      <Controller control={control} name="note" render={({ field }) => <VoiceField label={t('family.cb.note')} value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} multiline />} />
 
       <Suspense fallback={null}>
-        <VoiceRecorder labels={{ record: t('family.cb.voice'), stop: t('family.cb.stop'), saved: t('family.cb.recorded') }} onRecorded={(uri, seconds) => setVoice(uri ? { uri, seconds } : undefined)} />
+        <VoiceRecorder labels={{ record: t('family.cb.voice'), stop: t('family.cb.stop'), saved: t('family.cb.recorded') }} onRecorded={(uri, seconds) => setValue('voice', uri ? { uri, seconds } : undefined)} />
       </Suspense>
       {!!voice && <VoicePlayer uri={voice.uri} seconds={voice.seconds} />}
 

@@ -1,4 +1,5 @@
 import { addDays } from '@domain/gestation';
+import { asBabyId, asMotherId, asPregnancyId } from '../ids';
 
 import {
   caregiverScopesPayload,
@@ -48,7 +49,7 @@ describe('re-dating', () => {
 
 describe('prescriptions', () => {
   it('maps one subject, trims free text and orders slots morning → night', () => {
-    expect(prescribePayload('rx1', { babyId: 'b1' }, { name: ' Syrup X ', dose: '', slots: ['night', 'morning'], instructions: ' after feeds ' }, now)).toEqual({
+    expect(prescribePayload('rx1', { babyId: asBabyId('b1') }, { name: ' Syrup X ', dose: '', slots: ['night', 'morning'], instructions: ' after feeds ' }, now)).toEqual({
       id: 'rx1',
       baby_id: 'b1',
       name: 'Syrup X',
@@ -57,7 +58,7 @@ describe('prescriptions', () => {
       instructions: 'after feeds',
       start_on: '2026-10-02',
     });
-    const p = prescribePayload('rx2', { pregnancyId: 'p1' }, { name: 'Tab Y', slots: ['afternoon'] }, now);
+    const p = prescribePayload('rx2', { pregnancyId: asPregnancyId('p1') }, { name: 'Tab Y', slots: ['afternoon'] }, now);
     expect(p).toMatchObject({ pregnancy_id: 'p1', slots: ['afternoon'] });
     expect(p).not.toHaveProperty('baby_id');
   });
@@ -92,7 +93,7 @@ describe('small payloads', () => {
   });
 
   it('an override counts until it expires', () => {
-    const o = { id: 'o', motherId: 'm', reason: 'r', grantedAt: now, expiresAt: new Date(now.getTime() + 3_600_000) };
+    const o = { id: 'o', motherId: asMotherId('m'), reason: 'r', grantedAt: now, expiresAt: new Date(now.getTime() + 3_600_000) };
     expect(overrideActive(o, now)).toBe(true);
     expect(overrideActive(o, new Date(now.getTime() + 2 * 3_600_000))).toBe(false);
   });

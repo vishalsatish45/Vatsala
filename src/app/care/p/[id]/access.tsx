@@ -2,6 +2,7 @@ import { View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Eye, PencilLine } from 'lucide-react-native';
 
+import { asPregnancyId } from '@/data/ids';
 import { ago, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { useNow } from '@/lib/clock';
@@ -9,7 +10,7 @@ import { AppText, Card, EmptyState, Screen, TopBar, palette, space } from '@/ui'
 
 /** CT-82 Access history for one record (PRD F-60): who viewed or changed it, and when. */
 export default function AccessHistory() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asPregnancyId(useLocalSearchParams<{ id: string }>().id);
   const db = useDb();
   const now = useNow();
   const p = db.pregnancies.find((x) => x.id === id)!;

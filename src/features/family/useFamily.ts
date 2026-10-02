@@ -3,7 +3,7 @@ import { GRACE_DAYS, taskStatus, type TaskStatus } from '@domain/schedules';
 
 import type { DbState } from '@/data/store';
 import { useDb } from '@/data/store';
-import type { Baby, Caregiver, CaregiverScopes, Mother, Pregnancy } from '@/data/types';
+import type { Baby, Caregiver, CaregiverScopes, Mother, Pregnancy, SubjectId } from '@/data/types';
 import { useSession } from '@/state/session';
 
 export type FamilyContext = {
@@ -72,7 +72,7 @@ export function familyItems(db: DbState, ctx: FamilyContext, now: Date): FamilyI
   const p = ctx.pregnancy;
   if (!p) return out;
   const grace = GRACE_DAYS[p.intensity];
-  const babyIds = new Set(ctx.babies.map((b) => b.id));
+  const babyIds = new Set<SubjectId>(ctx.babies.map((b) => b.id));
 
   for (const t of db.tasks.filter((x) => (x.subjectId === p.id || babyIds.has(x.subjectId)) && !x.completedAt && !x.cancelledAt)) {
     const st = taskStatus({ dueFrom: t.dueFrom, dueBy: t.dueBy, completed: false }, now, grace);

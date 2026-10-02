@@ -1,14 +1,19 @@
 import { useState } from 'react';
 import { Alert, Image, StyleSheet, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Controller, useWatch } from 'react-hook-form';
 import { Camera, Check, FileImage, Pencil, ScanText } from 'lucide-react-native';
 
+import { asPregnancyId } from '@/data/ids';
 import { gaLabel, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
-import type { CaptureField } from '@/data/types';
+import type { CaptureField, Pregnancy, PregnancyId } from '@/data/types';
+import { captureSchema } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
 import { pickPhoto } from '@/lib/device';
 import { useNow } from '@/lib/clock';
+import { useZodForm } from '@/lib/forms';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Chip, GlassSurface, ProgressBar, Screen, TopBar, families, palette, radius, space } from '@/ui';
 
 /** Demo transcription — the LLM vision gateway (ai-gateway) replaces this with the backend. */
@@ -56,36 +61,8 @@ function SamplePaper() {
 export default function Capture() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const db = useDb();
-  const now = useNow();
-  const by = useActor();
-  const [patientId, setPatientId] = useState<string | undefined>(id);
-  const [uri, setUri] = useState<string>();
-  const [sample, setSample] = useState(false);
-  const [fields, setFields] = useState<CaptureField[]>([]);
-  const [editing, setEditing] = useState<string>();
-
+  const [patientId, setPatientId] = useState<PregnancyId | undefined>(id ? asPregnancyId(id) : undefined);
   const p = db.pregnancies.find((x) => x.id === patientId);
-  const confirmed = fields.filter((f) => f.confirmed).length;
-
-  async function shoot(source: 'camera' | 'library') {
-    try {
-      const u = await pickPhoto(source);
-      if (u) {
-        setUri(u);
-        setSample(false);
-        setFields(demoTranscribe());
-      }
-    } catch {
-      /* alert already shown */
-    }
-  }
-
-  function save() {
-    if (!p) return;
-    db.saveCapture({ subjectId: p.id, uri, fields, at: now, by }, now);
-    Alert.alert('Saved', `${confirmed} confirmed field${confirmed === 1 ? '' : 's'} added to ${motherOf(db, p.motherId).name}'s record as a visit (from paper). Unconfirmed fields were discarded.`);
-    router.back();
-  }
 
   if (!p) {
     const active = db.pregnancies.filter((x) => x.status === 'active');
@@ -99,11 +76,48 @@ export default function Capture() {
     );
   }
 
+  return <CaptureForm key={p.id} p={p} />;
+}
+
+/** The photo (or sample card), its transcribed draft, and the clinician's per-field confirmation. */
+function CaptureForm({ p }: { p: Pregnancy }) {
+  const db = useDb();
+  const now = useNow();
+  const by = useActor();
+  const [uri, setUri] = useState<string>();
+  const [sample, setSample] = useState(false);
+  const [editing, setEditing] = useState<string>();
+  const { control, handleSubmit, reset } = useZodForm(captureSchema, { defaultValues: { fields: [] } });
+  const { busy, once } = useSubmitOnce();
+  const fields = useWatch({ control, name: 'fields' }) as CaptureField[];
+  const confirmed = fields.filter((f) => f.confirmed).length;
+
+  async function shoot(source: 'camera' | 'library') {
+    try {
+      const u = await pickPhoto(source);
+      if (u) {
+        setUri(u);
+        setSample(false);
+        reset({ fields: demoTranscribe() });
+      }
+    } catch {
+      /* alert already shown */
+    }
+  }
+
+  const save = handleSubmit(
+    once((v) => {
+      db.saveCapture({ subjectId: p.id, uri, fields: v.fields, at: now, by }, now);
+      Alert.alert('Saved', `${confirmed} confirmed field${confirmed === 1 ? '' : 's'} added to ${motherOf(db, p.motherId).name}'s record as a visit (from paper). Unconfirmed fields were discarded.`);
+      router.back();
+    }),
+  );
+
   return (
     <Screen
       blob="none"
       header={<TopBar back title="Capture paper record" />}
-      footer={fields.length ? <Button label={`Save ${confirmed} confirmed field${confirmed === 1 ? '' : 's'}`} disabled={confirmed === 0} onPress={save} /> : undefined}
+      footer={fields.length ? <Button label={`Save ${confirmed} confirmed field${confirmed === 1 ? '' : 's'}`} disabled={confirmed === 0 || busy} onPress={save} /> : undefined}
     >
       <View style={{ gap: 4 }}>
         <AppText variant="display">{motherOf(db, p.motherId).name}</AppText>
@@ -129,7 +143,7 @@ export default function Capture() {
             onPress={() => {
               setSample(true);
               setUri(undefined);
-              setFields(demoTranscribe());
+              reset({ fields: demoTranscribe() });
             }}
           />
           <AppText variant="caption" tone="faint">
@@ -143,30 +157,38 @@ export default function Capture() {
           <GlassSurface strong style={{ padding: space.sm }}>{uri ? <Image source={{ uri }} style={styles.photo} resizeMode="cover" /> : sample ? <SamplePaper /> : null}</GlassSurface>
           <Card style={{ gap: space.sm }}>
             <ProgressBar progress={confirmed / fields.length} leftCaption={`${confirmed} of ${fields.length} confirmed`} rightCaption="Transcription · demo" />
-            {fields.map((f) => (
+            {fields.map((f, i) => (
               <View key={f.key} style={styles.field}>
                 <View style={{ flex: 1, gap: 2 }}>
                   <AppText variant="label" tone="secondary">
                     {f.label} · {Math.round(f.confidence * 100)}% sure
                   </AppText>
                   {editing === f.key ? (
-                    <TextInput
-                      autoFocus
-                      value={f.value}
-                      onChangeText={(v) => setFields((all) => all.map((x) => (x.key === f.key ? { ...x, value: v } : x)))}
-                      onBlur={() => setEditing(undefined)}
-                      style={styles.input}
+                    <Controller
+                      control={control}
+                      name={`fields.${i}.value`}
+                      render={({ field }) => (
+                        <TextInput
+                          autoFocus
+                          value={field.value}
+                          onChangeText={field.onChange}
+                          onBlur={() => {
+                            field.onBlur();
+                            setEditing(undefined);
+                          }}
+                          style={styles.input}
+                        />
+                      )}
                     />
                   ) : (
                     <AppText variant="headline">{f.value}</AppText>
                   )}
                 </View>
                 <Chip label="Edit" icon={Pencil} onPress={() => setEditing(f.key)} />
-                <Chip
-                  label={f.confirmed ? 'Confirmed' : 'Confirm'}
-                  icon={Check}
-                  variant={f.confirmed ? 'selected' : 'soft'}
-                  onPress={() => setFields((all) => all.map((x) => (x.key === f.key ? { ...x, confirmed: !x.confirmed } : x)))}
+                <Controller
+                  control={control}
+                  name={`fields.${i}.confirmed`}
+                  render={({ field }) => <Chip label={field.value ? 'Confirmed' : 'Confirm'} icon={Check} variant={field.value ? 'selected' : 'soft'} onPress={() => field.onChange(!field.value)} />}
                 />
               </View>
             ))}

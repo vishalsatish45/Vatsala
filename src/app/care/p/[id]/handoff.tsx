@@ -1,6 +1,7 @@
 import { View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 
+import { asPregnancyId } from '@/data/ids';
 import { tagLabel } from '@/data/catalogue';
 import { activeTags, fmtDay, gaLabel, invState, motherOf, nextVisit, stillDue } from '@/data/selectors';
 import { useDb } from '@/data/store';
@@ -10,7 +11,7 @@ import { AppText, Button, Card, InfoRow, Screen, Section, TopBar, space } from '
 
 /** CT-29 Structured handoff summary (PRD F-29): documented facts, what's done, what's due. */
 export default function Handoff() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asPregnancyId(useLocalSearchParams<{ id: string }>().id);
   const db = useDb();
   const now = useNow();
   const p = db.pregnancies.find((x) => x.id === id)!;

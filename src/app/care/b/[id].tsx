@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Baby, ClipboardCheck, NotebookPen, Scale, Syringe, Tags, Timer } from 'lucide-react-native';
 import { daysBetween, formatGA } from '@domain/gestation';
 
+import { asBabyId } from '@/data/ids';
 import { tagLabel } from '@/data/catalogue';
 import { activeTags, babyAgeLabel, continuityEvents, fmtDate, fmtDay, motherOf, taskState } from '@/data/selectors';
 import { useDb } from '@/data/store';
@@ -13,6 +14,7 @@ import { OverrideBanner } from '@/features/care/OverrideBanner';
 import { PrescriptionsCard } from '@/features/care/PrescriptionsCard';
 import { useNow } from '@/lib/clock';
 import { useSession } from '@/state/session';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import {
   AppText,
   Button,
@@ -40,7 +42,7 @@ type Tab = 'overview' | 'vaccines' | 'timeline';
 
 /** CT-90 Newborn view with the mother's documented history panel (PRD F-19, F-20). */
 export default function NewbornView() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asBabyId(useLocalSearchParams<{ id: string }>().id);
   const db = useDb();
   const now = useNow();
   const by = useActor();
@@ -48,6 +50,7 @@ export default function NewbornView() {
   const [dose, setDose] = useState<string>();
   const [eie, setEie] = useState<EieTarget>();
   const treating = useSession((s) => s.account?.care?.role) !== 'specialist';
+  const record = useSubmitOnce(dose);
 
   const b = db.babies.find((x) => x.id === id);
   if (!b) return <Screen header={<TopBar back title="Newborn" />}><AppText>Not found.</AppText></Screen>;
@@ -213,7 +216,7 @@ export default function NewbornView() {
         <ContinuityTimeline events={events} now={now} fmt={fmtDay} motherLabel="Mother" babyLabel="Baby" todayLabel="Today" />
       )}
 
-      <Sheet visible={!!doseItem} onClose={() => setDose(undefined)} title={`Record ${doseItem?.label ?? ''}`} subtitle="Given today at this facility" footer={<Button label="Record dose" onPress={() => { if (doseItem) db.recordVaccine(doseItem.id, now, by); setDose(undefined); }} />}>
+      <Sheet visible={!!doseItem} onClose={() => setDose(undefined)} title={`Record ${doseItem?.label ?? ''}`} subtitle="Given today at this facility" footer={<Button label="Record dose" disabled={record.busy} onPress={record.once(() => { if (doseItem) db.recordVaccine(doseItem.id, now, by); setDose(undefined); })} />}>
         <AppText tone="secondary">Due {doseItem ? fmtDay(doseItem.dueOn) : ''}. Recording closes the reminder in the family’s app.</AppText>
       </Sheet>
       <EnteredInErrorSheet target={eie} onClose={() => setEie(undefined)} />

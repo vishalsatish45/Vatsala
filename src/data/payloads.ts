@@ -6,7 +6,7 @@
 import { addDays, daysBetween, eddFromLmp, PREGNANCY_DAYS } from '@domain/gestation';
 
 import { isoDay } from './remote';
-import type { AccessOverride, CaregiverScopes, DoseSlot, EieKind, Id } from './types';
+import type { AccessOverride, BabyId, CaregiverScopes, DoseSlot, EieKind, Id, PregnancyId } from './types';
 
 // ── Re-dating ─────────────────────────────────────────────────────────────────────
 
@@ -59,7 +59,7 @@ export const SLOTS: readonly DoseSlot[] = ['morning', 'afternoon', 'night'];
 
 /** Free text typed by the clinician — the app never suggests a medicine, dose or schedule. */
 export type PrescriptionInput = { name: string; dose?: string; slots: DoseSlot[]; instructions?: string };
-export type Subject = { pregnancyId: Id; babyId?: undefined } | { babyId: Id; pregnancyId?: undefined };
+export type Subject = { pregnancyId: PregnancyId; babyId?: undefined } | { babyId: BabyId; pregnancyId?: undefined };
 
 export function prescriptionProblem(input: PrescriptionInput): string | undefined {
   if (!input.name.trim()) return 'Enter the medicine as prescribed.';

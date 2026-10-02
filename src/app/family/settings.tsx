@@ -12,6 +12,7 @@ import { familyItems, useFamily } from '@/features/family/useFamily';
 import { canUseDeviceLock, scheduleAt } from '@/lib/device';
 import { fmtShort } from '@/features/family/itemText';
 import { useNow } from '@/lib/clock';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { LANGUAGES } from '@/lib/i18n';
 import { useSession } from '@/state/session';
 import { AppText, Avatar, Button, Card, Chip, ListRow, Screen, Section, TopBar, palette, space } from '@/ui';
@@ -35,6 +36,8 @@ export default function FamilySettings() {
   const channels = prefs?.channels ?? [];
   const setLock = useSession((s) => s.setLock);
   const [remMsg, setRemMsg] = useState<string>();
+  // One removal per tap: the lock lifts once the removed person leaves the list.
+  const revoke = useSubmitOnce(caregivers.map((c) => c.id).join(','));
 
   async function setVisitReminders() {
     try {
@@ -87,7 +90,7 @@ export default function FamilySettings() {
                     {c.phone}
                   </AppText>
                 </View>
-                <Chip label={t('family.me.remove')} onPress={() => db.revokeCaregiver(c.id, ctx.accountName, now)} />
+                <Chip label={t('family.me.remove')} onPress={revoke.once(() => db.revokeCaregiver(c.id, ctx.accountName, now))} />
               </View>
               <AppText variant="label" tone="secondary">
                 {t('family.me.canSee')}

@@ -43,13 +43,17 @@ import { useNetwork } from '@/lib/network';
 import { isRemote } from '@/lib/supabase';
 import { useSession } from '@/state/session';
 
+import { asPregnancyId, type IdKind, type IdOf } from './ids';
 import { buildSeed } from './seed';
 import type { CardField } from './catalogue';
 import type {
   AccessOverride,
   AppNotification,
   AuditEntry,
+  BabyId,
+  CallbackId,
   CaptureDoc,
+  CaregiverId,
   Caregiver,
   CaregiverScopes,
   DocumentedFact,
@@ -64,19 +68,29 @@ import type {
   Discharge,
   Id,
   Immunization,
+  ImmunizationId,
   Investigation,
+  InvestigationId,
   Mother,
+  MotherId,
   Pregnancy,
+  PregnancyId,
   Prescription,
   Referral,
+  ReferralId,
   ReferralStatus,
   SelfLog,
   SharedResult,
+  SelfLogId,
+  StaffId,
   StaffMember,
+  SubjectId,
   Tag,
   Task,
+  TaskId,
   TeamRef,
   Visit,
+  VisitId,
 } from './types';
 
 export type DbState = {
@@ -116,8 +130,12 @@ export type DbState = {
   mchSeq: number;
 };
 
-/** A new record id. UUIDs, so an id made on the phone is the id the server stores. */
-export const uid = (_kind?: string) => randomUUID();
+/** A new record id, typed by its kind. UUIDs, so an id made on the phone is the id the server stores. */
+export function uid<K extends IdKind>(kind: K): IdOf[K];
+export function uid(kind?: string): Id;
+export function uid(_kind?: string): Id {
+  return randomUUID();
+}
 
 export type RegisterInput = {
   mother: Omit<Mother, 'id'>;
@@ -149,38 +167,38 @@ type Actions = {
   reset: (now: Date) => void;
   /** Replace the whole state with the server's (Supabase mode). */
   hydrate: (state: DbState) => void;
-  registerPregnancy: (input: RegisterInput, by: string, now: Date) => Id;
-  recordVisit: (pregnancyId: Id, input: VisitInput, by: string, at: Date) => Id;
-  setTags: (subjectId: Id, codes: string[], note: string | undefined, by: string, now: Date) => void;
-  setIntensity: (subjectId: Id, intensity: Intensity, by: string, now: Date) => void;
-  assignDoctor: (pregnancyId: Id, doctor: { name: string; staffId?: Id }, reason: string, by: string, now: Date) => void;
-  orderInvestigation: (id: Id, by: string, now: Date) => void;
-  enterResult: (id: Id, value: string, unit: string | undefined, note: string | undefined, by: string, now: Date) => void;
-  reviewResult: (id: Id, followUp: string, by: string, now: Date) => void;
-  markNotDone: (id: Id, reason: string, by: string, now: Date) => void;
-  createReferral: (r: Pick<Referral, 'pregnancyId' | 'department' | 'urgency' | 'reason' | 'question'>, by: string, now: Date) => Id;
-  advanceReferral: (id: Id, to: ReferralStatus, data: { scheduledAt?: Date; place?: string; recommendations?: string; note?: string }, by: string, now: Date) => void;
+  registerPregnancy: (input: RegisterInput, by: string, now: Date) => PregnancyId;
+  recordVisit: (pregnancyId: PregnancyId, input: VisitInput, by: string, at: Date) => VisitId;
+  setTags: (subjectId: SubjectId, codes: string[], note: string | undefined, by: string, now: Date) => void;
+  setIntensity: (subjectId: SubjectId, intensity: Intensity, by: string, now: Date) => void;
+  assignDoctor: (pregnancyId: PregnancyId, doctor: { name: string; staffId?: StaffId }, reason: string, by: string, now: Date) => void;
+  orderInvestigation: (id: InvestigationId, by: string, now: Date) => void;
+  enterResult: (id: InvestigationId, value: string, unit: string | undefined, note: string | undefined, by: string, now: Date) => void;
+  reviewResult: (id: InvestigationId, followUp: string, by: string, now: Date) => void;
+  markNotDone: (id: InvestigationId, reason: string, by: string, now: Date) => void;
+  createReferral: (r: Pick<Referral, 'pregnancyId' | 'department' | 'urgency' | 'reason' | 'question'>, by: string, now: Date) => ReferralId;
+  advanceReferral: (id: ReferralId, to: ReferralStatus, data: { scheduledAt?: Date; place?: string; recommendations?: string; note?: string }, by: string, now: Date) => void;
   /** `signs` are warning-sign codes (catalogue WARNING_SIGNS keys); the record shows their English labels. */
-  requestCallback: (motherId: Id, signs: string[], note: string | undefined, requestedBy: string, channel: Callback['channel'], now: Date, voice?: { uri: string; seconds: number }) => Id;
-  logAccess: (subjectId: Id, actor: string, now: Date) => void;
-  closeCallback: (id: Id, outcome: string, note: string | undefined, by: string, now: Date) => void;
-  logContact: (taskId: Id, outcome: string, by: string, now: Date) => void;
-  rescheduleTask: (taskId: Id, dueBy: Date, reason: string, by: string, now: Date) => void;
-  cancelTask: (taskId: Id, reason: string, by: string, now: Date) => void;
-  addSelfLog: (log: Omit<SelfLog, 'id'>) => Id;
-  admit: (pregnancyId: Id, by: string, now: Date) => void;
-  recordDelivery: (pregnancyId: Id, input: DeliveryInput, by: string) => Id[];
-  setDischargeItem: (subjectId: Id, key: string, state: 'done' | 'na' | 'deferred' | undefined, reason: string | undefined) => void;
-  completeDischarge: (subjectId: Id, by: string, now: Date) => void;
-  recordVaccine: (immunizationId: Id, givenOn: Date, by: string) => void;
+  requestCallback: (motherId: MotherId, signs: string[], note: string | undefined, requestedBy: string, channel: Callback['channel'], now: Date, voice?: { uri: string; seconds: number }) => CallbackId;
+  logAccess: (subjectId: SubjectId, actor: string, now: Date) => void;
+  closeCallback: (id: CallbackId, outcome: string, note: string | undefined, by: string, now: Date) => void;
+  logContact: (taskId: TaskId, outcome: string, by: string, now: Date) => void;
+  rescheduleTask: (taskId: TaskId, dueBy: Date, reason: string, by: string, now: Date) => void;
+  cancelTask: (taskId: TaskId, reason: string, by: string, now: Date) => void;
+  addSelfLog: (log: Omit<SelfLog, 'id'>) => SelfLogId;
+  admit: (pregnancyId: PregnancyId, by: string, now: Date) => void;
+  recordDelivery: (pregnancyId: PregnancyId, input: DeliveryInput, by: string) => BabyId[];
+  setDischargeItem: (subjectId: SubjectId, key: string, state: 'done' | 'na' | 'deferred' | undefined, reason: string | undefined) => void;
+  completeDischarge: (subjectId: SubjectId, by: string, now: Date) => void;
+  recordVaccine: (immunizationId: ImmunizationId, givenOn: Date, by: string) => void;
   addCaregiver: (c: Omit<Caregiver, 'id' | 'addedAt'>, now: Date) => void;
-  revokeCaregiver: (id: Id, by: string, now: Date) => void;
-  setCardFields: (motherId: Id, fields: CardField[]) => void;
-  addNote: (subjectId: Id, body: string, author: string, kind: Note['kind'], now: Date) => void;
+  revokeCaregiver: (id: CaregiverId, by: string, now: Date) => void;
+  setCardFields: (motherId: MotherId, fields: CardField[]) => void;
+  addNote: (subjectId: SubjectId, body: string, author: string, kind: Note['kind'], now: Date) => void;
   addNewbornObs: (obs: Omit<NewbornObs, 'id'>) => void;
   logDose: (d: Omit<MedDose, 'id'>) => void;
-  saveCapture: (doc: Omit<CaptureDoc, 'id' | 'visitId'>, now: Date) => Id;
-  importRegister: (rows: RegisterInput[], by: string, now: Date) => Id[];
+  saveCapture: (doc: Omit<CaptureDoc, 'id' | 'visitId'>, now: Date) => VisitId;
+  importRegister: (rows: RegisterInput[], by: string, now: Date) => PregnancyId[];
   /** A clinician-entered prescription for a pregnancy (obstetrics) or a baby (paediatrics). */
   prescribe: (subject: Subject, input: PrescriptionInput, by: string, now: Date) => Id;
   stopMedication: (id: Id, reason: string, by: string, now: Date) => void;
@@ -192,7 +210,7 @@ type Actions = {
   endAdmission: (pregnancyId: Id, by: string, now: Date) => void;
   recordBabyDeath: (babyId: Id, at: Date, note: string | undefined, by: string) => void;
   markEnteredInError: (kind: EieKind, id: Id, reason: string, by: string, now: Date) => void;
-  shareResult: (referralId: Id, investigationId: Id, by: string, now: Date) => void;
+  shareResult: (referralId: ReferralId, investigationId: InvestigationId, by: string, now: Date) => void;
   updateCaregiver: (id: Id, scopes: CaregiverScopes, by: string, now: Date) => void;
   markNotificationsRead: (ids: Id[] | 'all', now: Date) => void;
   /** Demo mode only: emergency access is simulated on the phone (Supabase mode asks the server, src/data/emergency.ts). */
@@ -279,7 +297,7 @@ function myObstetricUnit() {
   return useSession.getState().account?.care?.teams?.find((t) => t.kind === 'unit' && t.specialty === 'obstetrics')?.id;
 }
 
-function registerPayload(input: RegisterInput, p: Pregnancy, motherId: Id, inv: Investigation[], tasks: Task[], now: Date) {
+function registerPayload(input: RegisterInput, p: Pregnancy, motherId: MotherId, inv: Investigation[], tasks: Task[], now: Date) {
   const m = input.mother;
   const ec = m.emergencyContact;
   const scanDays = 280 - daysBetween(now, input.edd);
@@ -523,7 +541,7 @@ export const useDb = create<Db>()((set, get) => {
         events: [...ref.events, { status: to, at: now, by, note: data.note }],
       };
       let tasks = s.tasks;
-      let appointmentId: Id | undefined;
+      let appointmentId: TaskId | undefined;
       if (to === 'scheduled' && data.scheduledAt) {
         appointmentId = uid('tk');
         tasks = [
@@ -822,7 +840,7 @@ export const useDb = create<Db>()((set, get) => {
       const bp = val('bp')?.match(/(\d{2,3})\s*\/\s*(\d{2,3})/);
       const visit: Visit = {
         id: uid('vs'),
-        pregnancyId: doc.subjectId,
+        pregnancyId: asPregnancyId(doc.subjectId),
         at: now,
         by: `${doc.by} (from paper record)`,
         vitals: {

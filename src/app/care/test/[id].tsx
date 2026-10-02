@@ -1,29 +1,30 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Controller, useWatch } from 'react-hook-form';
 
 import { NOT_DONE_REASONS } from '@/data/catalogue';
+import { asInvestigationId } from '@/data/ids';
 import { fmtDay, invState, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
+import type { Investigation, PregnancyId } from '@/data/types';
 import { EnteredInErrorSheet, type EieTarget } from '@/features/care/EnteredInErrorSheet';
+import { FOLLOW_UPS, notDoneSchema, resultSchema, reviewSchema } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
+import { useZodForm } from '@/lib/forms';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { useSession } from '@/state/session';
 import { AppText, Button, Card, Chip, Field, InfoRow, OptionChips, Screen, StatusBadge, TopBar, space } from '@/ui';
 
-const FOLLOW_UPS = ['None', 'Repeat test', 'Refer', 'Discuss at next visit'];
-
 /** CT-23/24 Investigation: order → enter result → clinician review (PRD F-16). No auto "abnormal". */
 export default function TestDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asInvestigationId(useLocalSearchParams<{ id: string }>().id);
   const db = useDb();
   const now = useNow();
   const by = useActor();
+  const order = useSubmitOnce(db.investigations.find((x) => x.id === id)?.status);
   const inv = db.investigations.find((x) => x.id === id);
-  const [value, setValue] = useState('');
-  const [note, setNote] = useState('');
-  const [followUp, setFollowUp] = useState<string>();
-  const [reason, setReason] = useState<string>();
   const [eie, setEie] = useState<EieTarget>();
   const treating = useSession((s) => s.account?.care?.role) !== 'specialist';
   if (!inv) return <Screen header={<TopBar back title="Test" />}><AppText>Not found.</AppText></Screen>;
@@ -61,33 +62,80 @@ export default function TestDetail() {
       {(inv.status === 'due' || inv.status === 'ordered') && (
         <Card style={{ gap: space.md }}>
           <AppText variant="title">{inv.status === 'due' ? 'Order or enter result' : 'Enter result'}</AppText>
-          {inv.status === 'due' && <Button variant="secondary" label="Mark as ordered" onPress={() => db.orderInvestigation(inv.id, by, now)} />}
-          <Field label="Result" value={value} onChangeText={setValue} placeholder={inv.kind === 'scan' ? 'e.g. Report documented' : 'e.g. 11.2 g/dL'} />
-          <Field label="Note (optional)" value={note} onChangeText={setNote} multiline />
-          <Button label="Save result" onPress={() => value.trim() && db.enterResult(inv.id, value.trim(), undefined, note.trim() || undefined, by, now)} />
-          <OptionChips label="Or mark not done" options={NOT_DONE_REASONS} value={reason} onChange={setReason} />
-          {reason && <Button variant="secondary" label={`Not done · ${reason}`} onPress={() => { db.markNotDone(inv.id, reason, by, now); router.back(); }} />}
+          {inv.status === 'due' && <Button variant="secondary" label="Mark as ordered" disabled={order.busy} onPress={order.once(() => db.orderInvestigation(inv.id, by, now))} />}
+          <ResultForm key={inv.id} inv={inv} />
+          <NotDoneForm key={`nd-${inv.id}`} inv={inv} />
         </Card>
       )}
 
-      {inv.status === 'resulted' && (
-        <Card style={{ gap: space.md }}>
-          <AppText variant="title">Your review</AppText>
-          <AppText variant="caption" tone="secondary">
-            The app never marks results normal or abnormal. Choose what happens next.
-          </AppText>
-          <OptionChips label="Follow-up" options={FOLLOW_UPS} value={followUp} onChange={setFollowUp} />
-          <Button
-            label="Mark reviewed"
-            onPress={() => {
-              if (!followUp) return;
-              db.reviewResult(inv.id, followUp, by, now);
-              if (followUp === 'Refer' && p) router.replace({ pathname: '/care/p/[id]/refer', params: { id: p.id } });
-              else router.back();
-            }}
-          />
-        </Card>
-      )}
+      {inv.status === 'resulted' && <ReviewForm key={inv.id} inv={inv} pregnancyId={p?.id} />}
     </Screen>
+  );
+}
+
+function ResultForm({ inv }: { inv: Investigation }) {
+  const db = useDb();
+  const now = useNow();
+  const by = useActor();
+  const { control, handleSubmit } = useZodForm(resultSchema, { defaultValues: { value: '', note: '' } });
+  const { busy, once } = useSubmitOnce(inv.status);
+  const save = handleSubmit(once((r) => db.enterResult(inv.id, r.value, undefined, r.note, by, now)));
+  return (
+    <>
+      <Controller
+        control={control}
+        name="value"
+        render={({ field }) => <Field label="Result" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} placeholder={inv.kind === 'scan' ? 'e.g. Report documented' : 'e.g. 11.2 g/dL'} />}
+      />
+      <Controller control={control} name="note" render={({ field }) => <Field label="Note (optional)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} multiline />} />
+      <Button label="Save result" disabled={busy} onPress={save} />
+    </>
+  );
+}
+
+function NotDoneForm({ inv }: { inv: Investigation }) {
+  const db = useDb();
+  const now = useNow();
+  const by = useActor();
+  const { control, handleSubmit } = useZodForm(notDoneSchema, { defaultValues: { reason: undefined } });
+  const { busy, once } = useSubmitOnce();
+  const reason = useWatch({ control, name: 'reason' });
+  const save = handleSubmit(
+    once((v) => {
+      db.markNotDone(inv.id, v.reason ?? '', by, now);
+      router.back();
+    }),
+  );
+  return (
+    <>
+      <Controller control={control} name="reason" render={({ field }) => <OptionChips label="Or mark not done" options={NOT_DONE_REASONS} value={field.value} onChange={field.onChange} />} />
+      {reason && <Button variant="secondary" label={`Not done · ${reason}`} disabled={busy} onPress={save} />}
+    </>
+  );
+}
+
+function ReviewForm({ inv, pregnancyId }: { inv: Investigation; pregnancyId?: PregnancyId }) {
+  const db = useDb();
+  const now = useNow();
+  const by = useActor();
+  const { control, handleSubmit } = useZodForm(reviewSchema, { defaultValues: { followUp: undefined } });
+  const { busy, once } = useSubmitOnce();
+  const save = handleSubmit(
+    once(({ followUp }) => {
+      if (!followUp) return;
+      db.reviewResult(inv.id, followUp, by, now);
+      if (followUp === 'Refer' && pregnancyId) router.replace({ pathname: '/care/p/[id]/refer', params: { id: pregnancyId } });
+      else router.back();
+    }),
+  );
+  return (
+    <Card style={{ gap: space.md }}>
+      <AppText variant="title">Your review</AppText>
+      <AppText variant="caption" tone="secondary">
+        The app never marks results normal or abnormal. Choose what happens next.
+      </AppText>
+      <Controller control={control} name="followUp" render={({ field }) => <OptionChips label="Follow-up" options={FOLLOW_UPS} value={field.value} onChange={field.onChange} />} />
+      <Button label="Mark reviewed" disabled={busy} onPress={save} />
+    </Card>
   );
 }

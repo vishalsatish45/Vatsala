@@ -1,6 +1,7 @@
 import { View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
+import { asPregnancyId } from '@/data/ids';
 import { tagLabel } from '@/data/catalogue';
 import { activeTags, fmtDay, motherOf, patientIds } from '@/data/selectors';
 import { useDb } from '@/data/store';
@@ -17,7 +18,7 @@ import { AppText, Button, Card, Chip, InfoRow, ListRow, Screen, Section, TopBar 
  * only when the clinician verifies it. Mock mode shows the case file alone, unchanged.
  */
 export default function CaseFile() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asPregnancyId(useLocalSearchParams<{ id: string }>().id);
   const db = useDb();
   const p = db.pregnancies.find((x) => x.id === id);
   if (!p) return <Screen header={<TopBar back title="Case File" />}><AppText>Not found.</AppText></Screen>;

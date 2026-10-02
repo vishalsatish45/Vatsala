@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { asTeamId } from '@/data/ids';
 import { env } from '@/lib/env';
 import { supabase } from '@/lib/supabase';
 
@@ -60,7 +61,7 @@ export function accountFrom(who: z.infer<typeof WhoAmI>, phone: string): Account
     phone,
     name: staff?.name ?? who.mother?.name ?? caring?.name ?? '',
     faces,
-    care: staff ? { role: staff.role as CareRole, department, hospital: staff.hospital, staffId: staff.id, teams: staff.teams } : undefined,
+    care: staff ? { role: staff.role as CareRole, department, hospital: staff.hospital, staffId: staff.id, teams: staff.teams.map((t) => ({ ...t, id: asTeamId(t.id) })) } : undefined,
     family: who.mother
       ? { role: 'mother', motherName: who.mother.name, hospital: '', motherId: who.mother.mother_id, consentPurposes: who.mother.purposes ?? undefined }
       : caring

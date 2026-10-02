@@ -6,6 +6,7 @@ import { addDays, toDateOnly } from '@domain/gestation';
 
 import { medSlots } from '@/data/catalogue';
 import { useDb } from '@/data/store';
+import type { PrescriptionId } from '@/data/types';
 import { useFamily } from '@/features/family/useFamily';
 import { scheduleDaily } from '@/lib/device';
 import { useNow } from '@/lib/clock';
@@ -14,7 +15,7 @@ import { localeFor } from '@/lib/i18n';
 import { AppText, Button, Card, Chip, GlassSurface, palette, space } from '@/ui';
 
 const SLOT_HOUR = { morning: 8, afternoon: 14, night: 20 } as const;
-type Med = { name: string; id?: string; slots: ('morning' | 'afternoon' | 'night')[]; note: string };
+type Med = { name: string; id?: PrescriptionId; slots: ('morning' | 'afternoon' | 'night')[]; note: string };
 const iso = (d: Date) => toDateOnly(d).toISOString().slice(0, 10);
 
 /**

@@ -1,6 +1,6 @@
 import type { Href } from 'expo-router';
 
-import type { AppNotification, Baby } from '@/data/types';
+import type { AppNotification } from '@/data/types';
 
 export type FamilyNotificationRow = { id: string; at: Date; titleKey: string; unread: boolean; href?: Href };
 
@@ -9,8 +9,8 @@ export type FamilyNotificationRow = { id: string; at: Date; titleKey: string; un
  * clinical detail). A "baby arrived" row is not shown once that baby is no longer with the family (no cheerful
  * content after a loss).
  */
-export function familyNotificationRows(rows: AppNotification[], liveBabies: Pick<Baby, 'id'>[]): FamilyNotificationRow[] {
-  const live = new Set(liveBabies.map((b) => b.id));
+export function familyNotificationRows(rows: AppNotification[], liveBabies: { id: string }[]): FamilyNotificationRow[] {
+  const live = new Set<string>(liveBabies.map((b) => b.id));
   return rows.flatMap((n): FamilyNotificationRow[] => {
     const base = { id: n.id, at: n.at, unread: !n.readAt };
     if (n.kind === 'appointment_booked') {

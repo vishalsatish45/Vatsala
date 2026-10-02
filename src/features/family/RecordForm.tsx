@@ -1,53 +1,67 @@
-import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import { Controller, useWatch } from 'react-hook-form';
 
 import { useDb } from '@/data/store';
+import type { SelfLogId } from '@/data/types';
+import { FEEDING_CHOICES, MOVEMENT_CHOICES, blankSelfLog, selfLogSchema, selfLogValue, type SelfLogForm, type SelfLogKind } from '@/features/family/forms';
 import { useFamily } from '@/features/family/useFamily';
 import { VoiceField } from '@/features/voice/VoiceField';
 import { useClock } from '@/lib/clock';
+import { useZodForm } from '@/lib/forms';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, OptionChips, PressableScale, palette, radius, space } from '@/ui';
 
-type Kind = 'bp' | 'weight' | 'movements' | 'contractions' | 'feeding';
+/** The moment of saving (date + hh:mm, on the demo clock), not when the screen last rendered. */
+const savedAt = () => new Date(Date.now() + useClock.getState().offsetDays * 86_400_000);
 
-/** Self-report form shared by /family/log and the Journey Record tab. */
-export function RecordForm({ onSaved }: { onSaved?: () => void }) {
+/**
+ * The self-report form (one schema, `selfLogSchema`) shared by /family/log and the Journey Record tab.
+ * `save` stores the reading once per tap and hands back its id and timestamp.
+ */
+export function useSelfLogForm(onSaved: (saved: { id: SelfLogId; at: Date }) => void) {
   const { t } = useTranslation();
   const db = useDb();
   const ctx = useFamily();
-  const delivered = ctx.pregnancy?.status === 'delivered';
-  const kinds: Kind[] = delivered ? ['bp', 'weight', 'feeding'] : ['bp', 'weight', 'movements', 'contractions'];
-  const [kind, setKind] = useState<Kind>('bp');
-  const [sys, setSys] = useState('');
-  const [dia, setDia] = useState('');
-  const [kg, setKg] = useState('');
-  const [count, setCount] = useState('');
-  const [choice, setChoice] = useState<string>();
+  const { control, handleSubmit, setValue } = useZodForm(selfLogSchema, { defaultValues: blankSelfLog });
+  const { busy, once } = useSubmitOnce();
+  const values = useWatch({ control }) as SelfLogForm;
+  const kinds: SelfLogKind[] = ctx.pregnancy?.status === 'delivered' ? ['bp', 'weight', 'feeding'] : ['bp', 'weight', 'movements', 'contractions'];
 
-  const value =
-    kind === 'bp' ? (sys && dia ? `${sys}/${dia}` : '') : kind === 'weight' ? (kg ? `${kg} kg` : '') : kind === 'contractions' ? (count ? `${count} in last hour` : '') : (choice ?? '');
+  const save = handleSubmit(
+    once((r) => {
+      if (!ctx.mother) return;
+      // Chip readings are stored as their English label; numbers exactly as typed.
+      const value = r.isChoice ? t(r.value, { lng: 'en' }) : r.value;
+      const at = savedAt();
+      onSaved({ id: db.addSelfLog({ motherId: ctx.mother.id, subject: r.subject, kind: r.kind, value, at, by: ctx.accountName }), at });
+    }),
+  );
 
-  function save() {
-    if (!ctx.mother || !value) return;
-    const tEn = (k: string) => t(k, { lng: 'en' });
-    const enValue = kind === 'movements' || kind === 'feeding' ? tEn(choice!) : value;
-    const at = new Date(Date.now() + useClock.getState().offsetDays * 86_400_000);
-    db.addSelfLog({ motherId: ctx.mother.id, subject: kind === 'feeding' ? 'baby' : 'mother', kind, value: enValue, at, by: ctx.accountName });
-    onSaved?.();
-  }
+  const chooseKind = (k: SelfLogKind) => {
+    setValue('kind', k, { shouldValidate: true });
+    setValue('choice', undefined, { shouldValidate: true });
+  };
 
+  return { control, kinds, kind: values.kind, chooseKind, ready: !!selfLogValue(values), busy, save };
+}
+
+/** Kind picker + the inputs for the chosen kind. `minHeight` keeps each screen's original row height. */
+export function SelfLogFields({ form, rowHeight }: { form: Pick<ReturnType<typeof useSelfLogForm>, 'control' | 'kinds' | 'kind' | 'chooseKind'>; rowHeight: number }) {
+  const { t } = useTranslation();
+  const { control, kinds, kind, chooseKind } = form;
   return (
-    <View style={{ gap: space.sm }}>
+    <>
       <View style={styles.kinds} accessibilityRole="radiogroup">
         {kinds.map((k) => {
           const active = k === kind;
           return (
             <PressableScale
               key={k}
-              onPress={() => { setKind(k); setChoice(undefined); }}
+              onPress={() => chooseKind(k)}
               accessibilityRole="radio"
               accessibilityState={{ selected: active }}
-              style={[styles.kind, { backgroundColor: active ? palette.ink : 'rgba(255,255,255,0.75)' }]}
+              style={[styles.kind, { minHeight: rowHeight, backgroundColor: active ? palette.ink : 'rgba(255,255,255,0.75)' }]}
             >
               <View style={[styles.dot, { borderColor: active ? palette.white : palette.inkFaint }]}>{active && <View style={styles.dotFill} />}</View>
               <AppText variant="bodyMedium" style={{ color: active ? palette.white : palette.ink }}>
@@ -60,20 +74,46 @@ export function RecordForm({ onSaved }: { onSaved?: () => void }) {
       <Card style={{ gap: space.md }}>
         {kind === 'bp' && (
           <View style={styles.row}>
-            <VoiceField voiceMode="number" flex label={t('family.log.sys')} keyboardType="number-pad" value={sys} onChangeText={setSys} unit="mmHg" />
-            <VoiceField voiceMode="number" flex label={t('family.log.dia')} keyboardType="number-pad" value={dia} onChangeText={setDia} unit="mmHg" />
+            <Controller control={control} name="sys" render={({ field }) => <VoiceField voiceMode="number" flex label={t('family.log.sys')} keyboardType="number-pad" value={field.value} onChangeText={field.onChange} unit="mmHg" />} />
+            <Controller control={control} name="dia" render={({ field }) => <VoiceField voiceMode="number" flex label={t('family.log.dia')} keyboardType="number-pad" value={field.value} onChangeText={field.onChange} unit="mmHg" />} />
           </View>
         )}
-        {kind === 'contractions' && <VoiceField voiceMode="number" label={t('family.log.contractionsCount')} hint={t('family.log.contractionsHint')} keyboardType="number-pad" value={count} onChangeText={(v) => setCount(v.replace(/[^0-9]/g, ''))} />}
-        {kind === 'weight' && <VoiceField voiceMode="number" label={t('family.log.weight')} keyboardType="decimal-pad" value={kg} onChangeText={setKg} unit="kg" />}
-        {kind === 'movements' && (
-          <OptionChips options={['family.log.moveNormal', 'family.log.moveLess'].map((k) => t(k))} value={choice ? t(choice) : undefined} onChange={(v) => setChoice(['family.log.moveNormal', 'family.log.moveLess'].find((k) => t(k) === v))} />
+        {kind === 'contractions' && (
+          <Controller
+            control={control}
+            name="count"
+            render={({ field }) => (
+              <VoiceField voiceMode="number" label={t('family.log.contractionsCount')} hint={t('family.log.contractionsHint')} keyboardType="number-pad" value={field.value} onChangeText={(v) => field.onChange(v.replace(/[^0-9]/g, ''))} />
+            )}
+          />
         )}
-        {kind === 'feeding' && (
-          <OptionChips options={['family.log.feedWell', 'family.log.feedPoorly', 'family.log.feedNot'].map((k) => t(k))} value={choice ? t(choice) : undefined} onChange={(v) => setChoice(['family.log.feedWell', 'family.log.feedPoorly', 'family.log.feedNot'].find((k) => t(k) === v))} />
-        )}
+        {kind === 'weight' && <Controller control={control} name="kg" render={({ field }) => <VoiceField voiceMode="number" label={t('family.log.weight')} keyboardType="decimal-pad" value={field.value} onChangeText={field.onChange} unit="kg" />} />}
+        {(kind === 'movements' || kind === 'feeding') && <ChoiceChips control={control} keys={kind === 'movements' ? MOVEMENT_CHOICES : FEEDING_CHOICES} />}
       </Card>
-      <Button label={t('family.log.save')} onPress={save} disabled={!value} />
+    </>
+  );
+}
+
+/** Chips show the translated label; the form keeps the i18n key. */
+function ChoiceChips({ control, keys }: { control: ReturnType<typeof useSelfLogForm>['control']; keys: readonly string[] }) {
+  const { t } = useTranslation();
+  return (
+    <Controller
+      control={control}
+      name="choice"
+      render={({ field }) => <OptionChips options={keys.map((k) => t(k))} value={field.value ? t(field.value) : undefined} onChange={(v) => field.onChange(keys.find((k) => t(k) === v))} />}
+    />
+  );
+}
+
+/** Self-report form shared by /family/log and the Journey Record tab. */
+export function RecordForm({ onSaved }: { onSaved?: () => void }) {
+  const { t } = useTranslation();
+  const form = useSelfLogForm(() => onSaved?.());
+  return (
+    <View style={{ gap: space.sm }}>
+      <SelfLogFields form={form} rowHeight={48} />
+      <Button label={t('family.log.save')} onPress={form.save} disabled={!form.ready || form.busy} />
     </View>
   );
 }
@@ -85,7 +125,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    minHeight: 48,
     paddingHorizontal: space.md,
     borderRadius: radius.md,
     borderWidth: 1,

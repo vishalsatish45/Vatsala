@@ -6,10 +6,43 @@ import type { Intensity } from '@domain/schedules';
 
 export type { Intensity };
 
+/** A plain id string (audit rows, composite keys). Entity ids below are branded. */
 export type Id = string;
 
+declare const idBrand: unique symbol;
+/**
+ * A string id that only the adapter boundary (src/data/remote.ts), the id minting in the store, the demo seed and
+ * the typed helpers in src/data/ids.ts may produce — a bare `string` (or another entity's id) does not type-check.
+ */
+export type Branded<B extends string> = string & { readonly [idBrand]: B };
+
+export type MotherId = Branded<'MotherId'>;
+export type PregnancyId = Branded<'PregnancyId'>;
+export type BabyId = Branded<'BabyId'>;
+/** A record a tag, note, task, investigation or discharge belongs to: a pregnancy or a baby. */
+export type SubjectId = PregnancyId | BabyId;
+export type TagId = Branded<'TagId'>;
+/** An encounter: an ANC visit, a newborn observation or a paper-record transcription. */
+export type EncounterId = Branded<'EncounterId'>;
+export type VisitId = EncounterId;
+export type TaskId = Branded<'TaskId'>;
+export type InvestigationId = Branded<'InvestigationId'>;
+export type ReferralId = Branded<'ReferralId'>;
+export type CallbackId = Branded<'CallbackId'>;
+export type SelfLogId = Branded<'SelfLogId'>;
+export type DeliveryId = Branded<'DeliveryId'>;
+export type ImmunizationId = Branded<'ImmunizationId'>;
+export type DischargeId = Branded<'DischargeId'>;
+export type StaffId = Branded<'StaffId'>;
+export type TeamId = Branded<'TeamId'>;
+export type PrescriptionId = Branded<'PrescriptionId'>;
+export type CaregiverId = Branded<'CaregiverId'>;
+export type NoteId = Branded<'NoteId'>;
+export type MedDoseId = Branded<'MedDoseId'>;
+export type DocumentId = Branded<'DocumentId'>;
+
 export type Mother = {
-  id: Id;
+  id: MotherId;
   name: string;
   age: number;
   phone: string;
@@ -25,9 +58,9 @@ export type PregnancyStatus = 'active' | 'admitted' | 'delivered' | 'closed';
 export type PrevPregnancy = { id?: Id; year: number; outcome: string; mode?: string; note?: string };
 
 export type Pregnancy = {
-  id: Id;
+  id: PregnancyId;
   mchId: string;
-  motherId: Id;
+  motherId: MotherId;
   registeredOn: Date;
   lmp?: Date;
   edd: Date;
@@ -46,8 +79,8 @@ export type Pregnancy = {
 };
 
 export type Tag = {
-  id: Id;
-  subjectId: Id;
+  id: TagId;
+  subjectId: SubjectId;
   code: string;
   note?: string;
   setBy: string;
@@ -59,8 +92,8 @@ export type Tag = {
 export type ChecklistState = 'done' | 'not_done' | 'na';
 
 export type Visit = {
-  id: Id;
-  pregnancyId: Id;
+  id: VisitId;
+  pregnancyId: PregnancyId;
   at: Date;
   by: string;
   vitals: {
@@ -83,12 +116,13 @@ export type Visit = {
 export type TaskKind = 'anc_visit' | 'investigation' | 'referral_appt' | 'pn_visit' | 'nb_visit' | 'vaccine' | 'review_result' | 'template';
 
 export type Task = {
-  id: Id;
+  id: TaskId;
   kind: TaskKind;
   subjectType: 'pregnancy' | 'baby';
-  subjectId: Id;
+  subjectId: SubjectId;
   title: string;
-  refId?: Id;
+  /** The referral an appointment belongs to, or the visit that completed the task. */
+  refId?: ReferralId | VisitId;
   /** Where the family should go (referral appointments). */
   place?: string;
   dueFrom?: Date;
@@ -103,8 +137,8 @@ export type Task = {
 export type InvestigationStatus = 'due' | 'ordered' | 'resulted' | 'reviewed' | 'not_done';
 
 export type Investigation = {
-  id: Id;
-  subjectId: Id;
+  id: InvestigationId;
+  subjectId: SubjectId;
   code: string;
   label: string;
   kind: 'lab' | 'scan';
@@ -126,8 +160,8 @@ export type ReferralStatus = 'requested' | 'accepted' | 'scheduled' | 'seen' | '
 export const REFERRAL_STEPS: ReferralStatus[] = ['requested', 'accepted', 'scheduled', 'seen', 'recommendations', 'closed'];
 
 export type Referral = {
-  id: Id;
-  pregnancyId: Id;
+  id: ReferralId;
+  pregnancyId: PregnancyId;
   department: string;
   urgency: 'emergency' | '24h' | 'routine';
   reason: string;
@@ -141,8 +175,8 @@ export type Referral = {
 };
 
 export type Callback = {
-  id: Id;
-  motherId: Id;
+  id: CallbackId;
+  motherId: MotherId;
   requestedBy: string;
   channel: 'app' | 'whatsapp';
   signs: string[];
@@ -160,11 +194,11 @@ export type Callback = {
 };
 
 export type SelfLog = {
-  id: Id;
-  motherId: Id;
+  id: SelfLogId;
+  motherId: MotherId;
   subject: 'mother' | 'baby';
   /** Which baby a baby reading is about (needed by the server; the demo store has one baby per mother). */
-  babyId?: Id;
+  babyId?: BabyId;
   kind: 'bp' | 'weight' | 'movements' | 'contractions' | 'feeding' | 'note';
   /** As entered, in English (e.g. "120/80", "62 kg", "4 in last hour"). */
   value: string;
@@ -174,10 +208,10 @@ export type SelfLog = {
 };
 
 export type Baby = {
-  id: Id;
+  id: BabyId;
   childId: string;
-  motherId: Id;
-  pregnancyId: Id;
+  motherId: MotherId;
+  pregnancyId: PregnancyId;
   dob: Date;
   sex: 'F' | 'M';
   birthWeightG: number;
@@ -191,38 +225,38 @@ export type Baby = {
 };
 
 export type Delivery = {
-  id: Id;
-  pregnancyId: Id;
+  id: DeliveryId;
+  pregnancyId: PregnancyId;
   at: Date;
   mode: string;
   indication?: string;
   bloodLossMl?: number;
   complications: string[];
   medicines: string[];
-  babyIds: Id[];
+  babyIds: BabyId[];
 };
 
-export type Immunization = { id: Id; babyId: Id; code: string; label: string; group: string; dueOn: Date; givenOn?: Date };
+export type Immunization = { id: ImmunizationId; babyId: BabyId; code: string; label: string; group: string; dueOn: Date; givenOn?: Date };
 
 export type DischargeItem = { key: string; label: string; state?: 'done' | 'na' | 'deferred'; reason?: string };
 /** `id` is the server's discharge id (Supabase mode); the demo store keys discharges by subject. */
-export type Discharge = { id?: Id; subjectId: Id; subject: 'mother' | 'baby'; items: DischargeItem[]; completedAt?: Date; completedBy?: string };
+export type Discharge = { id?: DischargeId; subjectId: SubjectId; subject: 'mother' | 'baby'; items: DischargeItem[]; completedAt?: Date; completedBy?: string };
 
 /** A Care Team member of the signed-in clinician's hospital (assignment picker, display names). */
-export type StaffMember = { id: Id; name: string; role: string };
+export type StaffMember = { id: StaffId; name: string; role: string };
 
 /** A hospital team: departments receive referrals; units hold patients. */
-export type TeamRef = { id: Id; name: string; kind: 'department' | 'unit'; specialty: string };
+export type TeamRef = { id: TeamId; name: string; kind: 'department' | 'unit'; specialty: string };
 
 export type DoseSlot = 'morning' | 'afternoon' | 'night';
 
 /** A clinician-entered prescription — the only medicines that drive Family reminders. The app never suggests one. */
 export type Prescription = {
-  id: Id;
-  motherId: Id;
+  id: PrescriptionId;
+  motherId: MotherId;
   /** Whose prescription: the pregnancy (obstetrician) xor the baby (paediatrician). Unknown on the Family face. */
-  pregnancyId?: Id;
-  babyId?: Id;
+  pregnancyId?: PregnancyId;
+  babyId?: BabyId;
   name: string;
   dose?: string;
   slots: DoseSlot[];
@@ -234,8 +268,8 @@ export type AuditEntry = { id: Id; at: Date; actor: string; action: string; enti
 export type CaregiverScopes = { schedule: boolean; baby: boolean; logs: boolean; tests: boolean };
 
 export type Caregiver = {
-  id: Id;
-  motherId: Id;
+  id: CaregiverId;
+  motherId: MotherId;
   name: string;
   relation: string;
   phone: string;
@@ -244,11 +278,11 @@ export type Caregiver = {
   revokedAt?: Date;
 };
 
-export type Note = { id: Id; subjectId: Id; author: string; body: string; at: Date; kind: 'note' | 'ai_verified' };
+export type Note = { id: NoteId; subjectId: SubjectId; author: string; body: string; at: Date; kind: 'note' | 'ai_verified' };
 
 export type NewbornObs = {
-  id: Id;
-  babyId: Id;
+  id: EncounterId;
+  babyId: BabyId;
   at: Date;
   by: string;
   weightG?: number;
@@ -258,13 +292,13 @@ export type NewbornObs = {
   jaundice?: string;
 };
 
-export type MedDose = { id: Id; motherId: Id; med: string; medicationId?: Id; date: string; slot: 'morning' | 'afternoon' | 'night'; status: 'taken' | 'skipped'; at: Date };
+export type MedDose = { id: MedDoseId; motherId: MotherId; med: string; medicationId?: PrescriptionId; date: string; slot: 'morning' | 'afternoon' | 'night'; status: 'taken' | 'skipped'; at: Date };
 
 export type CaptureField = { key: string; label: string; value: string; confidence: number; confirmed: boolean };
 
 export type CaptureDoc = {
-  id: Id;
-  subjectId: Id;
+  id: DocumentId;
+  subjectId: SubjectId;
   /** The photo on this phone (just captured). */
   uri?: string;
   /** Internal storage key of the uploaded photo — only for a signed URL, never shown. */
@@ -272,14 +306,14 @@ export type CaptureDoc = {
   fields: CaptureField[];
   at: Date;
   by: string;
-  visitId?: Id;
+  visitId?: VisitId;
 };
 
 /** A documented history fact of the mother (correctable only by entered-in-error). */
-export type DocumentedFact = { id: Id; motherId: Id; kind: 'condition' | 'allergy' | 'previous_pregnancy'; label: string };
+export type DocumentedFact = { id: Id; motherId: MotherId; kind: 'condition' | 'allergy' | 'previous_pregnancy'; label: string };
 
 /** Emergency access ("break the glass") held by the signed-in clinician: 24 hours at most, with a reason. */
-export type AccessOverride = { id: Id; motherId: Id; reason: string; grantedAt: Date; expiresAt: Date; /** Whose override (Supabase mode). */ staffId?: Id };
+export type AccessOverride = { id: Id; motherId: MotherId; reason: string; grantedAt: Date; expiresAt: Date; /** Whose override (Supabase mode). */ staffId?: StaffId };
 
 /** A server notification for the signed-in person (Supabase mode). Text is chosen on the phone from `kind`. */
 export type AppNotification = {
@@ -292,7 +326,7 @@ export type AppNotification = {
 };
 
 /** A test result the referring team shared with a referral's department (sensitive tests reach specialists only this way). */
-export type SharedResult = { referralId: Id; investigationId: Id };
+export type SharedResult = { referralId: ReferralId; investigationId: InvestigationId };
 
 /** Kinds of recorded facts that can be marked entered in error (server `mark_entered_in_error`). */
 export type EieKind = 'encounter' | 'investigation_result' | 'care_note' | 'self_log' | 'condition' | 'allergy' | 'previous_pregnancy';
