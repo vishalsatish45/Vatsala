@@ -22,7 +22,7 @@ export type Mother = {
 
 export type PregnancyStatus = 'active' | 'admitted' | 'delivered' | 'closed';
 
-export type PrevPregnancy = { year: number; outcome: string; mode?: string; note?: string };
+export type PrevPregnancy = { id?: Id; year: number; outcome: string; mode?: string; note?: string };
 
 export type Pregnancy = {
   id: Id;
@@ -35,6 +35,11 @@ export type Pregnancy = {
   gpla: { g: number; p: number; l: number; a: number };
   status: PregnancyStatus;
   intensity: Intensity;
+  /** Why a closed episode ended (server code, e.g. 'delivered', 'miscarriage'); set with `endedOn`. */
+  endReason?: string;
+  endedOn?: Date;
+  /** The open admission (status 'admitted'), so it can be ended without a delivery. */
+  admissionId?: Id;
   assignedDoctor?: { name: string; phone?: string };
   history: { conditions: string[]; allergies: string[]; medicines: string[]; bloodGroup?: string; heightCm?: number };
   previous: PrevPregnancy[];
@@ -110,6 +115,8 @@ export type Investigation = {
   status: InvestigationStatus;
   orderedAt?: Date;
   result?: { value: string; unit?: string; at: Date; note?: string };
+  /** Id of the result shown in `result` (for entered-in-error). */
+  resultId?: Id;
   review?: { by: string; at: Date; followUp: string };
   notDoneReason?: string;
 };
@@ -176,6 +183,8 @@ export type Baby = {
   apgar5?: number;
   outcome: 'live' | 'stillbirth';
   intensity: Intensity;
+  /** A liveborn baby who later died: no reminders and no cheerful content from then on. */
+  deceasedAt?: Date;
 };
 
 export type Delivery = {
@@ -202,12 +211,24 @@ export type StaffMember = { id: Id; name: string; role: string };
 /** A hospital team: departments receive referrals; units hold patients. */
 export type TeamRef = { id: Id; name: string; kind: 'department' | 'unit'; specialty: string };
 
-/** A clinician-entered prescription — the only medicines that drive Family reminders. */
-export type Prescription = { id: Id; motherId: Id; name: string; dose?: string; slots: ('morning' | 'afternoon' | 'night')[]; instructions?: string };
+export type DoseSlot = 'morning' | 'afternoon' | 'night';
+
+/** A clinician-entered prescription — the only medicines that drive Family reminders. The app never suggests one. */
+export type Prescription = {
+  id: Id;
+  motherId: Id;
+  /** Whose prescription: the pregnancy (obstetrician) xor the baby (paediatrician). Unknown on the Family face. */
+  pregnancyId?: Id;
+  babyId?: Id;
+  name: string;
+  dose?: string;
+  slots: DoseSlot[];
+  instructions?: string;
+};
 
 export type AuditEntry = { id: Id; at: Date; actor: string; action: string; entity: string };
 
-export type CaregiverScopes = { schedule: boolean; baby: boolean; logs: boolean };
+export type CaregiverScopes = { schedule: boolean; baby: boolean; logs: boolean; tests: boolean };
 
 export type Caregiver = {
   id: Id;
@@ -239,3 +260,25 @@ export type MedDose = { id: Id; motherId: Id; med: string; medicationId?: Id; da
 export type CaptureField = { key: string; label: string; value: string; confidence: number; confirmed: boolean };
 
 export type CaptureDoc = { id: Id; subjectId: Id; uri?: string; fields: CaptureField[]; at: Date; by: string; visitId?: Id };
+
+/** A documented history fact of the mother (correctable only by entered-in-error). */
+export type DocumentedFact = { id: Id; motherId: Id; kind: 'condition' | 'allergy' | 'previous_pregnancy'; label: string };
+
+/** Emergency access ("break the glass") held by the signed-in clinician: 24 hours at most, with a reason. */
+export type AccessOverride = { id: Id; motherId: Id; reason: string; grantedAt: Date; expiresAt: Date; /** Whose override (Supabase mode). */ staffId?: Id };
+
+/** A server notification for the signed-in person (Supabase mode). Text is chosen on the phone from `kind`. */
+export type AppNotification = {
+  id: Id;
+  kind: string;
+  targetType?: 'pregnancy' | 'baby' | 'callback' | 'referral' | 'task' | 'investigation';
+  targetId?: Id;
+  at: Date;
+  readAt?: Date;
+};
+
+/** A test result the referring team shared with a referral's department (sensitive tests reach specialists only this way). */
+export type SharedResult = { referralId: Id; investigationId: Id };
+
+/** Kinds of recorded facts that can be marked entered in error (server `mark_entered_in_error`). */
+export type EieKind = 'encounter' | 'investigation_result' | 'care_note' | 'self_log' | 'condition' | 'allergy' | 'previous_pregnancy';

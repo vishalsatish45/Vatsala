@@ -21,11 +21,23 @@ import {
   followUpCodes,
   labourMedicineCodes,
   previousModeCodes,
+  previousLabel,
   previousOutcomeCodes,
   signLabel,
   splitComplaints,
 } from './codes';
 import { enqueue, useOutbox } from './outbox';
+import {
+  caregiverScopesPayload,
+  datingPayload,
+  eddFor,
+  eiePayload,
+  notificationsReadPayload,
+  prescribePayload,
+  type PrescriptionInput,
+  type RedateInput,
+  type Subject,
+} from './payloads';
 import { e164, emptyState, isoDay } from './remote';
 import { useNetwork } from '@/lib/network';
 import { isRemote } from '@/lib/supabase';
@@ -34,9 +46,14 @@ import { useSession } from '@/state/session';
 import { buildSeed } from './seed';
 import type { CardField } from './catalogue';
 import type {
+  AccessOverride,
+  AppNotification,
   AuditEntry,
   CaptureDoc,
   Caregiver,
+  CaregiverScopes,
+  DocumentedFact,
+  EieKind,
   MedDose,
   NewbornObs,
   Note,
@@ -54,6 +71,7 @@ import type {
   Referral,
   ReferralStatus,
   SelfLog,
+  SharedResult,
   StaffMember,
   Tag,
   Task,
@@ -87,6 +105,14 @@ export type DbState = {
   /** Hospital departments and units (referral destinations). */
   teams: TeamRef[];
   prescriptions: Prescription[];
+  /** The mother's documented conditions, allergies and previous pregnancies, by row (entered-in-error needs ids). */
+  facts: DocumentedFact[];
+  /** Active emergency overrides visible to the signed-in clinician. */
+  overrides: AccessOverride[];
+  /** Server notifications for the signed-in person (Supabase mode; the demo store derives its inbox instead). */
+  notifications: AppNotification[];
+  /** Results shared with referrals (sensitive tests reach a specialist only this way). */
+  sharedResults: SharedResult[];
   mchSeq: number;
 };
 
@@ -155,6 +181,23 @@ type Actions = {
   logDose: (d: Omit<MedDose, 'id'>) => void;
   saveCapture: (doc: Omit<CaptureDoc, 'id' | 'visitId'>, now: Date) => Id;
   importRegister: (rows: RegisterInput[], by: string, now: Date) => Id[];
+  /** A clinician-entered prescription for a pregnancy (obstetrics) or a baby (paediatrics). */
+  prescribe: (subject: Subject, input: PrescriptionInput, by: string, now: Date) => Id;
+  stopMedication: (id: Id, reason: string, by: string, now: Date) => void;
+  /** New dating chosen by the clinician; future ANC visits are re-planned from the new EDD. */
+  redatePregnancy: (pregnancyId: Id, input: RedateInput, by: string, now: Date) => void;
+  /** End an ongoing pregnancy with its outcome, or close a delivered episode (reason 'delivered'). */
+  endPregnancy: (pregnancyId: Id, reason: string, note: string | undefined, endedOn: Date | undefined, by: string, now: Date) => void;
+  /** End an admission that did not lead to a delivery. */
+  endAdmission: (pregnancyId: Id, by: string, now: Date) => void;
+  recordBabyDeath: (babyId: Id, at: Date, note: string | undefined, by: string) => void;
+  markEnteredInError: (kind: EieKind, id: Id, reason: string, by: string, now: Date) => void;
+  shareResult: (referralId: Id, investigationId: Id, by: string, now: Date) => void;
+  updateCaregiver: (id: Id, scopes: CaregiverScopes, by: string, now: Date) => void;
+  markNotificationsRead: (ids: Id[] | 'all', now: Date) => void;
+  /** Demo mode only: emergency access is simulated on the phone (Supabase mode asks the server, src/data/emergency.ts). */
+  grantOverrideLocal: (mchId: string, reason: string, now: Date) => { motherId: Id; pregnancyId: Id } | undefined;
+  endOverride: (id: Id, by: string, now: Date) => void;
 };
 
 export type Db = DbState & Actions;
@@ -295,8 +338,16 @@ export const useDb = create<Db>()((set, get) => {
       status: 'active',
       intensity: input.intensity,
       history: input.history,
-      previous: input.previous,
+      // Supabase mode: the server's row ids arrive with the next load.
+      previous: input.previous.map((x) => ({ ...x, id: isRemote ? undefined : uid('pp') })),
     };
+    const facts: DocumentedFact[] = isRemote
+      ? []
+      : [
+          ...input.history.conditions.map((label) => ({ id: uid('dc'), motherId, kind: 'condition' as const, label })),
+          ...input.history.allergies.map((label) => ({ id: uid('al'), motherId, kind: 'allergy' as const, label })),
+          ...p.previous.map((x) => ({ id: x.id!, motherId, kind: 'previous_pregnancy' as const, label: previousLabel(x) })),
+        ];
     const rhNegative = /-|neg/i.test(input.history.bloodGroup ?? '') || input.tagCodes.includes('rh_neg');
     const inv: Investigation[] = investigationWindows(p.edd, now, { rhNegative }).map((w) => ({ id: uid('iv'), subjectId: p.id, status: 'due', ...w }));
     const tags: Tag[] = input.tagCodes.map((code) => ({ id: uid('tg'), subjectId: p.id, code, setBy: by, setAt: now }));
@@ -308,6 +359,7 @@ export const useDb = create<Db>()((set, get) => {
       pregnancies: base.pregnancies,
       mchSeq: seq,
       tags: [...s.tags, ...tags],
+      facts: [...s.facts, ...facts],
       investigations: [...s.investigations, ...inv],
       tasks: plan.tasks,
       audit: audit(s, by, 'register_pregnancy', p.mchId, now),
@@ -423,8 +475,9 @@ export const useDb = create<Db>()((set, get) => {
 
     enterResult: (id, value, unit, note, by, now) => {
       const s = get();
-      set({ investigations: s.investigations.map((i) => (i.id === id ? { ...i, status: 'resulted', result: { value, unit, note, at: now } } : i)), audit: audit(s, by, 'enter_result', id, now) });
-      enqueue('record_result', { id: uid('rs'), investigation_id: id, ...resultValue(value, unit), reported_at: now.toISOString(), note }, { entityId: id, withVersion: true });
+      const resultId = uid('rs');
+      set({ investigations: s.investigations.map((i) => (i.id === id ? { ...i, status: 'resulted', result: { value, unit, note, at: now }, resultId, review: undefined } : i)), audit: audit(s, by, 'enter_result', id, now) });
+      enqueue('record_result', { id: resultId, investigation_id: id, ...resultValue(value, unit), reported_at: now.toISOString(), note }, { entityId: id, withVersion: true });
     },
 
     reviewResult: (id, followUp, by, now) => {
@@ -557,8 +610,9 @@ export const useDb = create<Db>()((set, get) => {
 
     admit: (pregnancyId, by, now) => {
       const s = get();
-      set({ pregnancies: s.pregnancies.map((p) => (p.id === pregnancyId ? { ...p, status: 'admitted' } : p)), audit: audit(s, by, 'admit', pregnancyId, now) });
-      enqueue('admit', { id: uid('ad'), pregnancy_id: pregnancyId, at: now.toISOString() }, { entityId: pregnancyId });
+      const admissionId = uid('ad');
+      set({ pregnancies: s.pregnancies.map((p) => (p.id === pregnancyId ? { ...p, status: 'admitted', admissionId } : p)), audit: audit(s, by, 'admit', pregnancyId, now) });
+      enqueue('admit', { id: admissionId, pregnancy_id: pregnancyId, at: now.toISOString() }, { entityId: pregnancyId });
     },
 
     recordDelivery: (pregnancyId, input, by) => {
@@ -793,7 +847,173 @@ export const useDb = create<Db>()((set, get) => {
       enqueue('confirm_import', { file_name: 'register.csv', rows: done.map((d) => d.payload) });
       return done.map((d) => d.id);
     },
+
+    prescribe: (subject, input, by, now) => {
+      const s = get();
+      const motherId = subject.babyId ? s.babies.find((b) => b.id === subject.babyId)?.motherId : s.pregnancies.find((p) => p.id === subject.pregnancyId)?.motherId;
+      if (!motherId) return '';
+      const id = uid('rx');
+      const payload = prescribePayload(id, subject, input, now);
+      const rx: Prescription = { id, motherId, pregnancyId: subject.pregnancyId, babyId: subject.babyId, name: payload.name, dose: payload.dose, slots: payload.slots, instructions: payload.instructions };
+      set({ prescriptions: [...s.prescriptions, rx], audit: audit(s, by, 'prescribe', subject.babyId ?? subject.pregnancyId ?? '', now) });
+      useNetwork.getState().markPending(id);
+      enqueue('prescribe', payload, { entityId: id });
+      return id;
+    },
+
+    stopMedication: (id, reason, by, now) => {
+      const s = get();
+      set({ prescriptions: s.prescriptions.filter((p) => p.id !== id), audit: audit(s, by, 'stop_medication', id, now) });
+      enqueue('stop_medication', { id, reason: reason.trim() }, { entityId: id, withVersion: true });
+    },
+
+    redatePregnancy: (pregnancyId, input, by, now) => {
+      const s = get();
+      const p = s.pregnancies.find((x) => x.id === pregnancyId);
+      if (!p) return;
+      const updated: Pregnancy = { ...p, edd: eddFor(input), eddSource: input.method, lmp: input.method === 'lmp' ? input.lmp : undefined };
+      // The same re-plan as a change of intensity: from the last visit if recent, else from today.
+      const lastVisit = s.visits.filter((v) => v.pregnancyId === p.id).sort((a, b) => b.at.getTime() - a.at.getTime())[0];
+      const from = lastVisit && lastVisit.at.getTime() > addDays(now, -28).getTime() ? lastVisit.at : now;
+      const pregnancies = s.pregnancies.map((x) => (x.id === p.id ? updated : x));
+      const plan = regenerateAnc({ ...s, pregnancies }, updated, from);
+      set({ pregnancies, tasks: plan.tasks, audit: audit(s, by, `redate (${input.method}) → EDD ${isoDay(updated.edd)}`, p.mchId, now) });
+      enqueue(
+        'redate_pregnancy',
+        { pregnancy_id: p.id, dating: datingPayload(input), cancel_task_ids: plan.cancelled.map((t) => t.id), new_tasks: taskRows(plan.fresh), at: now.toISOString() },
+        { entityId: p.id, withVersion: true },
+      );
+    },
+
+    endPregnancy: (pregnancyId, reason, note, endedOn, by, now) => {
+      const s = get();
+      const p = s.pregnancies.find((x) => x.id === pregnancyId);
+      if (!p) return;
+      const why = `Pregnancy ended (${reason})`;
+      set({
+        pregnancies: s.pregnancies.map((x) => (x.id === p.id ? { ...x, status: 'closed', endReason: reason, endedOn: reason === 'delivered' ? x.endedOn : (endedOn ?? now) } : x)),
+        tasks: s.tasks.map((t) => (t.subjectId === p.id && !t.completedAt && !t.cancelledAt ? { ...t, cancelledAt: now, overrideReason: why } : t)),
+        investigations: s.investigations.map((i) => (i.subjectId === p.id && (i.status === 'due' || i.status === 'ordered') ? { ...i, status: 'not_done', notDoneReason: why } : i)),
+        prescriptions: s.prescriptions.filter((x) => x.pregnancyId !== p.id),
+        audit: audit(s, by, `end_pregnancy (${reason})`, p.mchId, now),
+      });
+      enqueue(
+        'end_pregnancy',
+        { pregnancy_id: p.id, reason, ended_on: reason === 'delivered' ? undefined : isoDay(endedOn ?? now), note: note?.trim() || undefined },
+        { entityId: p.id, withVersion: true },
+      );
+    },
+
+    endAdmission: (pregnancyId, by, now) => {
+      const p = get().pregnancies.find((x) => x.id === pregnancyId);
+      if (!p) return;
+      if (isRemote && !p.admissionId) return refuse('end_admission', 'The admission is still being saved — try again in a moment.');
+      set((s) => ({
+        pregnancies: s.pregnancies.map((x) => (x.id === p.id ? { ...x, status: 'active', admissionId: undefined } : x)),
+        audit: audit(s, by, 'end_admission', p.mchId, now),
+      }));
+      if (p.admissionId) enqueue('end_admission', { admission_id: p.admissionId, at: now.toISOString() }, { entityId: p.admissionId });
+    },
+
+    recordBabyDeath: (babyId, at, note, by) => {
+      const s = get();
+      const why = 'Baby died';
+      set({
+        babies: s.babies.map((b) => (b.id === babyId ? { ...b, deceasedAt: at } : b)),
+        tasks: s.tasks.map((t) => (t.subjectId === babyId && !t.completedAt && !t.cancelledAt ? { ...t, cancelledAt: at, overrideReason: why } : t)),
+        // Doses not given are withdrawn (the server marks them not given); given doses stay on record.
+        immunizations: s.immunizations.filter((i) => i.babyId !== babyId || !!i.givenOn),
+        investigations: s.investigations.map((i) => (i.subjectId === babyId && (i.status === 'due' || i.status === 'ordered') ? { ...i, status: 'not_done', notDoneReason: why } : i)),
+        prescriptions: s.prescriptions.filter((x) => x.babyId !== babyId),
+        audit: audit(s, by, 'baby_death_recorded', babyId, at),
+      });
+      enqueue('record_baby_death', { baby_id: babyId, at: at.toISOString(), note: note?.trim() || undefined }, { entityId: babyId, withVersion: true });
+    },
+
+    markEnteredInError: (kind, id, reason, by, now) => {
+      const s = get();
+      const next: Partial<DbState> = { audit: audit(s, by, `entered_in_error (${kind})`, id, now) };
+      switch (kind) {
+        case 'encounter':
+          next.visits = s.visits.filter((v) => v.id !== id);
+          next.newbornObs = s.newbornObs.filter((o) => o.id !== id);
+          break;
+        case 'investigation_result':
+          // Withdrawing the shown result sends the test back to waiting for one (the server does the same).
+          next.investigations = s.investigations.map((i) =>
+            i.resultId === id ? { ...i, status: i.orderedAt ? 'ordered' : 'due', result: undefined, resultId: undefined, review: undefined } : i,
+          );
+          break;
+        case 'care_note':
+          next.notes = s.notes.filter((n) => n.id !== id);
+          break;
+        case 'self_log':
+          next.selfLogs = s.selfLogs.filter((l) => l.id !== id);
+          break;
+        default: {
+          const fact = s.facts.find((f) => f.id === id);
+          next.facts = s.facts.filter((f) => f.id !== id);
+          if (fact) next.pregnancies = s.pregnancies.map((p) => (p.motherId === fact.motherId ? withoutFact(p, fact) : p));
+        }
+      }
+      set(next);
+      enqueue('mark_entered_in_error', eiePayload(kind, id, reason, now), { entityId: id });
+    },
+
+    shareResult: (referralId, investigationId, by, now) => {
+      const s = get();
+      if (s.sharedResults.some((x) => x.referralId === referralId && x.investigationId === investigationId)) return;
+      set({ sharedResults: [...s.sharedResults, { referralId, investigationId }], audit: audit(s, by, 'result_shared', referralId, now) });
+      enqueue('share_result', { referral_id: referralId, investigation_id: investigationId }, { entityId: referralId });
+    },
+
+    updateCaregiver: (id, scopes, by, now) => {
+      const s = get();
+      set({ caregivers: s.caregivers.map((c) => (c.id === id ? { ...c, scopes } : c)), audit: audit(s, by, 'caregiver_scopes_changed', id, now) });
+      enqueue('update_caregiver', { id, scopes: caregiverScopesPayload(scopes) }, { entityId: id, withVersion: true });
+    },
+
+    markNotificationsRead: (ids, now) => {
+      const s = get();
+      const unread = s.notifications.filter((n) => !n.readAt && (ids === 'all' || ids.includes(n.id)));
+      if (!unread.length) return;
+      const marked = new Set(unread.map((n) => n.id));
+      set({ notifications: s.notifications.map((n) => (marked.has(n.id) ? { ...n, readAt: now } : n)) });
+      enqueue('mark_notifications_read', notificationsReadPayload(ids === 'all' ? 'all' : [...marked]));
+    },
+
+    grantOverrideLocal: (mchId, reason, now) => {
+      const s = get();
+      const p = s.pregnancies.filter((x) => x.mchId === mchId).sort((a, b) => b.registeredOn.getTime() - a.registeredOn.getTime())[0];
+      if (!p) return undefined;
+      const o: AccessOverride = { id: uid('ov'), motherId: p.motherId, reason: reason.trim(), grantedAt: now, expiresAt: new Date(now.getTime() + 24 * 3_600_000) };
+      set({ overrides: [...s.overrides, o], audit: audit(s, useSession.getState().account?.name ?? 'Care Team', 'override_granted', p.mchId, now) });
+      return { motherId: p.motherId, pregnancyId: p.id };
+    },
+
+    endOverride: (id, by, now) => {
+      const s = get();
+      set({ overrides: s.overrides.filter((o) => o.id !== id), audit: audit(s, by, 'override_ended', id, now) });
+      enqueue('end_override', { override_id: id }, { entityId: id });
+    },
   };
 });
+
+/** A pregnancy's history without one documented fact (it was entered in error). */
+function withoutFact(p: Pregnancy, fact: DocumentedFact): Pregnancy {
+  const dropFirst = (xs: string[]) => {
+    const i = xs.indexOf(fact.label);
+    return i < 0 ? xs : [...xs.slice(0, i), ...xs.slice(i + 1)];
+  };
+  return {
+    ...p,
+    history: {
+      ...p.history,
+      conditions: fact.kind === 'condition' ? dropFirst(p.history.conditions) : p.history.conditions,
+      allergies: fact.kind === 'allergy' ? dropFirst(p.history.allergies) : p.history.allergies,
+    },
+    previous: fact.kind === 'previous_pregnancy' ? p.previous.filter((x) => x.id !== fact.id) : p.previous,
+  };
+}
 
 export type { ChecklistState };

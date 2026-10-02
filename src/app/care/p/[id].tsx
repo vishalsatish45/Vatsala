@@ -1,16 +1,22 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Baby, Camera, ClipboardPlus, FolderOpen, GitPullRequestArrow, HeartPulse, Pill, Ruler, Scale, Send, Tags } from 'lucide-react-native';
+import { Baby, CalendarClock, Camera, ClipboardPlus, DoorOpen, FolderOpen, GitPullRequestArrow, HeartPulse, Pill, Ruler, Scale, Send, Tags } from 'lucide-react-native';
 import { gestationalAge } from '@domain/gestation';
 
 import { tagLabel } from '@/data/catalogue';
+import { endReasonCodes } from '@/data/codes';
 import { activeTags, ago, continuityEvents, fmtDate, fmtDay, fmtTime, invState, motherOf, nextVisit, patientIds, stillDue, type DueItem } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { REFERRAL_STEPS } from '@/data/types';
+import { EnteredInErrorSheet, type EieTarget } from '@/features/care/EnteredInErrorSheet';
 import { useActor } from '@/features/care/nav';
+import { OverrideBanner } from '@/features/care/OverrideBanner';
+import { PrescriptionsCard } from '@/features/care/PrescriptionsCard';
 import { useNow } from '@/lib/clock';
+import { useSession } from '@/state/session';
 import {
+  Sheet,
   OptionChips,
   AncBadge,
   AppText,
@@ -59,7 +65,10 @@ export default function PatientView() {
   const [draft, setDraft] = useState('');
   const [doctorDraft, setDoctorDraft] = useState('');
   const [assignReason, setAssignReason] = useState('');
+  const [eie, setEie] = useState<EieTarget>();
+  const [endingAdmission, setEndingAdmission] = useState(false);
   const by = useActor();
+  const role = useSession((s) => s.account?.care?.role);
 
   const p = db.pregnancies.find((x) => x.id === id);
   const logAccess = useDb((s) => s.logAccess);
@@ -81,6 +90,11 @@ export default function PatientView() {
   const nv = nextVisit(db, p.id, now);
   const babies = db.babies.filter((b) => b.pregnancyId === p.id);
   const delivered = p.status === 'delivered';
+  const closed = p.status === 'closed';
+  const ongoing = p.status === 'active' || p.status === 'admitted';
+  // Specialists see a referral's slice of the record; corrections and plans are the treating team's (server-enforced).
+  const treating = role !== 'specialist';
+  const facts = db.facts.filter((f) => f.motherId === m.id);
   const since = last?.at ?? p.registeredOn;
   const notes = db.notes.filter((n) => n.subjectId === p.id).sort((a, b) => b.at.getTime() - a.at.getTime());
   const doses = db.medDoses.filter((d) => d.motherId === m.id && now.getTime() - d.at.getTime() < 8 * 86_400_000);
@@ -98,7 +112,7 @@ export default function PatientView() {
       blobCenterY={150}
       header={<TopBar back title={m.name} right={<Chip label="Handoff" onPress={() => router.push({ pathname: '/care/p/[id]/handoff', params: { id: p.id } })} />} />}
       footer={
-        !delivered && (
+        ongoing && (
           <View style={styles.footer}>
             <View style={{ flex: 1 }}>
               <Button label="Record visit" icon={ClipboardPlus} onPress={() => router.push({ pathname: '/care/p/[id]/visit', params: { id: p.id } })} />
@@ -107,6 +121,7 @@ export default function PatientView() {
         )
       }
     >
+      <OverrideBanner motherId={m.id} />
       {/* Header */}
       <View style={styles.header}>
         <AppText variant="caption" tone="secondary" align="center">
@@ -115,7 +130,16 @@ export default function PatientView() {
         <AppText variant="caption" tone="secondary" align="center">
           {[m.ipNo ? `IP ${m.ipNo}` : '', p.mchId].filter(Boolean).join(' · ')}
         </AppText>
-        {delivered ? (
+        {closed ? (
+          <>
+            <AppText variant="display" align="center">
+              Episode closed
+            </AppText>
+            <AppText tone="secondary" align="center">
+              {[p.endReason && endReasonCodes.label(p.endReason), p.endedOn && fmtDay(p.endedOn)].filter(Boolean).join(' · ')}
+            </AppText>
+          </>
+        ) : delivered ? (
           <AppText variant="hero" align="center">
             Delivered
           </AppText>
@@ -205,10 +229,17 @@ export default function PatientView() {
               <StatTile icon={Ruler} label="Fundal height" value={last?.vitals.fundalHeightCm ? String(last.vitals.fundalHeightCm) : '—'} unit="cm" caption={last ? fmtDate(last.at) : undefined} />
               <StatTile icon={HeartPulse} label="FHR" value={last?.vitals.fhr ? String(last.vitals.fhr) : '—'} unit="bpm" caption={last ? fmtDate(last.at) : undefined} />
             </View>
-            {logs.slice(0, 2).map((l) => (
-              <ListRow key={l.id} title={`${l.kind.toUpperCase()} ${l.value}`} subtitle={`Home reading · family-reported · ${fmtDay(l.at)} ${fmtTime(l.at)}`} />
+            {logs.slice(0, 3).map((l) => (
+              <ListRow
+                key={l.id}
+                title={`${l.kind.toUpperCase()} ${l.value}`}
+                subtitle={`Home reading · family-reported · ${fmtDay(l.at)} ${fmtTime(l.at)}`}
+                trailing={treating ? <Chip label="Entered in error" onPress={() => setEie({ kind: 'self_log', id: l.id, label: `Home reading · ${l.kind.toUpperCase()} ${l.value} · ${fmtDay(l.at)}` })} /> : undefined}
+              />
             ))}
           </Section>
+
+          <PrescriptionsCard subjectId={p.id} kind="pregnancy" canWrite={treating && !closed} />
 
           {doses.length > 0 && (
             <Card style={{ gap: 6 }}>
@@ -276,10 +307,33 @@ export default function PatientView() {
               <Chip label="Refer" icon={GitPullRequestArrow} onPress={() => router.push({ pathname: '/care/p/[id]/refer', params: { id: p.id } })} />
               <Chip label="Who viewed this record" onPress={() => router.push({ pathname: '/care/p/[id]/access', params: { id: p.id } })} />
               <Chip label="Capture paper record" icon={Camera} onPress={() => router.push({ pathname: '/care/capture', params: { id: p.id } })} />
-              {!delivered && <Chip label="Admit / record delivery" icon={Baby} onPress={() => router.push({ pathname: '/care/p/[id]/deliver', params: { id: p.id } })} />}
+              {ongoing && <Chip label="Admit / record delivery" icon={Baby} onPress={() => router.push({ pathname: '/care/p/[id]/deliver', params: { id: p.id } })} />}
               {delivered && <Chip label="Discharge checklist" onPress={() => router.push({ pathname: '/care/discharge/[id]', params: { id: p.id } })} />}
+              {treating && ongoing && <Chip label="Re-date (EDD)" icon={CalendarClock} onPress={() => router.push({ pathname: '/care/p/[id]/redate', params: { id: p.id } })} />}
+              {treating && p.status === 'admitted' && <Chip label="End admission (no delivery)" icon={DoorOpen} onPress={() => setEndingAdmission(true)} />}
+              {treating && (p.status === 'active' || delivered) && (
+                <Chip label={delivered ? 'Close episode' : 'End of pregnancy care'} onPress={() => router.push({ pathname: '/care/p/[id]/end', params: { id: p.id } })} />
+              )}
             </View>
           </Section>
+
+          {facts.length > 0 && (
+            <Section title="Documented history">
+              <Card style={{ gap: 6 }}>
+                {facts.map((f) => (
+                  <View key={f.id} style={styles.factRow}>
+                    <View style={{ flex: 1 }}>
+                      <AppText variant="caption" tone="secondary">
+                        {f.kind === 'condition' ? 'Condition' : f.kind === 'allergy' ? 'Allergy' : 'Previous pregnancy'}
+                      </AppText>
+                      <AppText variant="bodyMedium">{f.label}</AppText>
+                    </View>
+                    {treating && <Chip label="Entered in error" onPress={() => setEie({ kind: f.kind, id: f.id, label: f.label })} />}
+                  </View>
+                ))}
+              </Card>
+            </Section>
+          )}
         </>
       )}
 
@@ -359,6 +413,11 @@ export default function PatientView() {
               </View>
               {n.kind === 'ai_verified' && <Chip label="AI draft · verified" variant="tag" />}
               <AppText>{n.body}</AppText>
+              {treating && (
+                <View style={{ flexDirection: 'row' }}>
+                  <Chip label="Entered in error" onPress={() => setEie({ kind: 'care_note', id: n.id, label: `Note · ${n.body.slice(0, 60)}` })} />
+                </View>
+              )}
             </Card>
           ))}
         </View>
@@ -378,6 +437,7 @@ export default function PatientView() {
                     <AncBadge />
                     <StatusBadge status="done" label={`Checklist ${states.filter((x) => x.state === 'done').length}/${states.filter((x) => x.state !== 'na').length}`} />
                     <SyncBadge id={v.id} />
+                    {treating && <Chip label="Entered in error" onPress={() => setEie({ kind: 'encounter', id: v.id, label: `Visit · ${fmtDay(v.at)} · ${v.by}` })} />}
                   </>
                 }
               />
@@ -385,6 +445,28 @@ export default function PatientView() {
           })}
         </View>
       )}
+
+      <EnteredInErrorSheet target={eie} onClose={() => setEie(undefined)} />
+      <Sheet
+        visible={endingAdmission}
+        onClose={() => setEndingAdmission(false)}
+        title="End admission without delivery?"
+        subtitle={m.ipNo ? `IP ${m.ipNo}` : undefined}
+        footer={
+          <>
+            <Button
+              label="End admission"
+              onPress={() => {
+                db.endAdmission(p.id, by, now);
+                setEndingAdmission(false);
+              }}
+            />
+            <Button variant="secondary" label="Keep admitted" onPress={() => setEndingAdmission(false)} />
+          </>
+        }
+      >
+        <AppText tone="secondary">For an antenatal admission that ends without a delivery (for example after observation). After a delivery, the discharge checklist closes the admission instead. Her ANC plan continues.</AppText>
+      </Sheet>
     </Screen>
   );
 }
@@ -399,6 +481,7 @@ const styles = StyleSheet.create({
   event: { flexDirection: 'row', gap: 10 },
   eventDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.rose300, marginTop: 7 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  factRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: 4 },
   footer: { flexDirection: 'row', gap: space.sm },
   step: { width: 18, height: 5, borderRadius: 3 },
 });

@@ -17,7 +17,7 @@ export type FamilyContext = {
   accountId: string;
 };
 
-const ALL: CaregiverScopes = { schedule: true, baby: true, logs: true };
+const ALL: CaregiverScopes = { schedule: true, baby: true, logs: true, tests: true };
 
 /** Resolves the signed-in Family account to the mother it belongs to (mother or consented caregiver). */
 export function useFamily(): FamilyContext {
@@ -36,10 +36,10 @@ export function useFamily(): FamilyContext {
   return {
     mother,
     pregnancy,
-    babies: mother ? db.babies.filter((b) => b.motherId === mother.id && b.outcome === 'live') : [],
+    babies: mother ? db.babies.filter((b) => b.motherId === mother.id && b.outcome === 'live' && !b.deceasedAt) : [],
     isCaregiver,
     caregiver,
-    scopes: isCaregiver ? (caregiver?.scopes ?? { schedule: false, baby: false, logs: false }) : ALL,
+    scopes: isCaregiver ? (caregiver?.scopes ?? { schedule: false, baby: false, logs: false, tests: false }) : ALL,
     accountName: account?.name ?? '',
     accountId: account?.id ?? '',
   };

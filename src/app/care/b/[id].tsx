@@ -7,8 +7,12 @@ import { daysBetween, formatGA } from '@domain/gestation';
 import { tagLabel } from '@/data/catalogue';
 import { activeTags, babyAgeLabel, continuityEvents, fmtDate, fmtDay, motherOf, taskState } from '@/data/selectors';
 import { useDb } from '@/data/store';
+import { EnteredInErrorSheet, type EieTarget } from '@/features/care/EnteredInErrorSheet';
 import { useActor } from '@/features/care/nav';
+import { OverrideBanner } from '@/features/care/OverrideBanner';
+import { PrescriptionsCard } from '@/features/care/PrescriptionsCard';
 import { useNow } from '@/lib/clock';
+import { useSession } from '@/state/session';
 import {
   AppText,
   Button,
@@ -42,6 +46,8 @@ export default function NewbornView() {
   const by = useActor();
   const [tab, setTab] = useState<Tab>('overview');
   const [dose, setDose] = useState<string>();
+  const [eie, setEie] = useState<EieTarget>();
+  const treating = useSession((s) => s.account?.care?.role) !== 'specialist';
 
   const b = db.babies.find((x) => x.id === id);
   if (!b) return <Screen header={<TopBar back title="Newborn" />}><AppText>Not found.</AppText></Screen>;
@@ -61,14 +67,23 @@ export default function NewbornView() {
   const latest = obs[0];
   const weights = [{ at: b.dob, value: b.birthWeightG }, ...obs.filter((o) => o.weightG).map((o) => ({ at: o.at, value: o.weightG! }))];
   const events = continuityEvents(db, p.id, now, 'care').map((e) => ({ ...e, title: e.kind === 'tag' ? `Tagged: ${tagLabel(e.sub ?? '')}` : e.label, sub: e.kind === 'tag' ? undefined : e.sub, anc: e.kind === 'visit' || e.kind === 'planned_visit' }));
+  const died = !!b.deceasedAt;
+  const living = b.outcome === 'live' && !died;
 
   return (
     <Screen blobCenterY={140} header={<TopBar back title={b.childId} />}>
+      <OverrideBanner motherId={m.id} />
       <View style={{ alignItems: 'center', gap: 4 }}>
         <AppText variant="caption" tone="secondary">
           Baby of {m.name} · {b.sex === 'F' ? 'Girl' : 'Boy'}
         </AppText>
-        <AppText variant="hero">{babyAgeLabel(b, now)}</AppText>
+        {died ? (
+          <AppText variant="display" align="center">
+            Death recorded · {fmtDay(b.deceasedAt!)}
+          </AppText>
+        ) : (
+          <AppText variant="hero">{babyAgeLabel(b, now)}</AppText>
+        )}
         <View style={styles.chips}>
           <Chip label={`Born ${fmtDay(b.dob)}`} variant="glass" />
           <Chip label={`GA at birth ${formatGA({ weeks: Math.floor(b.gaAtBirthDays / 7), days: b.gaAtBirthDays % 7, totalDays: b.gaAtBirthDays })}`} variant="glass" />
@@ -127,10 +142,15 @@ export default function NewbornView() {
             <StatTile icon={Scale} label="Birth weight" value={String(b.birthWeightG)} unit="g" caption={fmtDate(b.dob)} />
             <StatTile icon={Timer} label="Apgar 1 / 5" value={`${b.apgar1 ?? '–'}/${b.apgar5 ?? '–'}`} caption={fmtDate(b.dob)} />
           </View>
-          <Button icon={NotebookPen} label="Record observation" onPress={() => router.push({ pathname: '/care/b/[id]/observe', params: { id: b.id } })} />
+          {living && <Button icon={NotebookPen} label="Record observation" onPress={() => router.push({ pathname: '/care/b/[id]/observe', params: { id: b.id } })} />}
           {latest && (
             <Card>
-              <AppText variant="headline">Latest observation · {fmtDay(latest.at)}</AppText>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                <AppText variant="headline" style={{ flex: 1 }}>
+                  Latest observation · {fmtDay(latest.at)}
+                </AppText>
+                {treating && <Chip label="Entered in error" onPress={() => setEie({ kind: 'encounter', id: latest.id, label: `Newborn observation · ${fmtDay(latest.at)} · ${latest.by}` })} />}
+              </View>
               {latest.weightG != null && <InfoRow label="Weight" value={`${latest.weightG} g`} />}
               {latest.tempC != null && <InfoRow label="Temperature" value={`${latest.tempC} °C`} />}
               {latest.respRate != null && <InfoRow label="Respiratory rate" value={`${latest.respRate} /min`} />}
@@ -157,7 +177,13 @@ export default function NewbornView() {
           <Card>
             <InfoRow label="Discharge" value={discharge?.completedAt ? `Completed ${fmtDay(discharge.completedAt)}` : discharge ? `${discharge.items.filter((i) => !i.state).length} items open` : '—'} />
           </Card>
-          {discharge && !discharge.completedAt && <Button icon={ClipboardCheck} label="Discharge checklist" onPress={() => router.push({ pathname: '/care/discharge/[id]', params: { id: b.id } })} />}
+          {discharge && !discharge.completedAt && living && <Button icon={ClipboardCheck} label="Discharge checklist" onPress={() => router.push({ pathname: '/care/discharge/[id]', params: { id: b.id } })} />}
+          {living && <PrescriptionsCard subjectId={b.id} kind="baby" canWrite={treating} />}
+          {living && treating && (
+            <View style={{ flexDirection: 'row' }}>
+              <Chip label="Record a baby’s death" onPress={() => router.push({ pathname: '/care/b/[id]/death', params: { id: b.id } })} />
+            </View>
+          )}
         </>
       )}
 
@@ -176,7 +202,7 @@ export default function NewbornView() {
                       <AppText variant="bodyMedium">{v.label}</AppText>
                       <StatusBadge status={v.givenOn ? 'done' : overdue ? 'overdue' : due ? 'due' : 'upcoming'} label={v.givenOn ? `Given ${fmtDate(v.givenOn)}` : `${overdue ? 'Overdue' : due ? 'Due' : 'Due'} ${fmtDate(v.dueOn)}`} />
                     </View>
-                    {!v.givenOn && ageDays >= 0 && due && <Chip label="Record" icon={Syringe} onPress={() => setDose(v.id)} />}
+                    {living && !v.givenOn && ageDays >= 0 && due && <Chip label="Record" icon={Syringe} onPress={() => setDose(v.id)} />}
                   </View>
                 );
               })}
@@ -190,6 +216,7 @@ export default function NewbornView() {
       <Sheet visible={!!doseItem} onClose={() => setDose(undefined)} title={`Record ${doseItem?.label ?? ''}`} subtitle="Given today at this facility" footer={<Button label="Record dose" onPress={() => { if (doseItem) db.recordVaccine(doseItem.id, now, by); setDose(undefined); }} />}>
         <AppText tone="secondary">Due {doseItem ? fmtDay(doseItem.dueOn) : ''}. Recording closes the reminder in the family’s app.</AppText>
       </Sheet>
+      <EnteredInErrorSheet target={eie} onClose={() => setEie(undefined)} />
     </Screen>
   );
 }

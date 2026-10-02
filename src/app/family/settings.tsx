@@ -6,6 +6,7 @@ import { Ambulance, BellRing, Building2, Phone, UserPlus } from 'lucide-react-na
 import { addDays } from '@domain/gestation';
 
 import { useDb } from '@/data/store';
+import type { CaregiverScopes } from '@/data/types';
 import { changeChannels } from '@/data/sync';
 import { familyItems, useFamily } from '@/features/family/useFamily';
 import { canUseDeviceLock, scheduleAt } from '@/lib/device';
@@ -14,6 +15,8 @@ import { useNow } from '@/lib/clock';
 import { LANGUAGES } from '@/lib/i18n';
 import { useSession } from '@/state/session';
 import { AppText, Avatar, Button, Card, Chip, ListRow, Screen, Section, TopBar, palette, space } from '@/ui';
+
+const SCOPE_KEYS: (keyof CaregiverScopes)[] = ['schedule', 'baby', 'logs', 'tests'];
 
 /** Settings: everything that used to live in Me except card + medicines. */
 export default function FamilySettings() {
@@ -75,26 +78,39 @@ export default function FamilySettings() {
         <Section title={t('family.me.caregivers')}>
           {caregivers.length === 0 && <AppText tone="secondary">{t('family.me.noCaregivers')}</AppText>}
           {caregivers.map((c) => (
-            <ListRow
-              key={c.id}
-              leading={<Avatar name={c.name} size={40} tint="lavender" />}
-              title={`${c.name} · ${c.relation}`}
-              subtitle={c.phone}
-              meta={
-                <>
-                  {(Object.keys(c.scopes) as (keyof typeof c.scopes)[])
-                    .filter((k) => c.scopes[k])
-                    .map((k) => (
-                      <Chip key={k} label={t(`family.me.scope.${k}`)} variant="soft" />
-                    ))}
-                </>
-              }
-              trailing={<Chip label={t('family.me.remove')} onPress={() => db.revokeCaregiver(c.id, ctx.accountName, now)} />}
-            />
+            <Card key={c.id} style={{ gap: space.sm }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                <Avatar name={c.name} size={40} tint="lavender" />
+                <View style={{ flex: 1 }}>
+                  <AppText variant="headline">{`${c.name} · ${c.relation}`}</AppText>
+                  <AppText variant="caption" tone="secondary">
+                    {c.phone}
+                  </AppText>
+                </View>
+                <Chip label={t('family.me.remove')} onPress={() => db.revokeCaregiver(c.id, ctx.accountName, now)} />
+              </View>
+              <AppText variant="label" tone="secondary">
+                {t('family.me.canSee')}
+              </AppText>
+              {SCOPE_KEYS.map((k) => (
+                <View key={k} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm }}>
+                  <AppText variant="bodyMedium" style={{ flex: 1 }}>
+                    {t(`family.me.scope.${k}`)}
+                  </AppText>
+                  <Switch
+                    value={c.scopes[k]}
+                    onValueChange={(v) => db.updateCaregiver(c.id, { ...c.scopes, [k]: v }, ctx.accountName, new Date())}
+                    trackColor={{ true: palette.rose300, false: palette.divider }}
+                    thumbColor={c.scopes[k] ? palette.rose500 : palette.white}
+                    accessibilityLabel={`${c.name}: ${t(`family.me.scope.${k}`)}`}
+                  />
+                </View>
+              ))}
+            </Card>
           ))}
           <Button variant="secondary" icon={UserPlus} label={t('family.me.add')} onPress={() => router.push('/family/caregiver')} />
           <AppText variant="caption" tone="faint">
-            {t('family.me.never')}
+            {caregivers.length ? `${t('family.me.canSeeChange')} ${t('family.me.neverSensitive')}` : t('family.me.neverSensitive')}
           </AppText>
         </Section>
       )}

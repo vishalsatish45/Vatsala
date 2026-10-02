@@ -248,8 +248,11 @@
       "scope": {
         "schedule": "Visits & reminders",
         "baby": "Baby's vaccines & visits",
-        "logs": "Your readings"
+        "logs": "Your readings",
+        "tests": "Test results"
       },
+      "neverSensitive": "Private test results are never shared with family members.",
+      "canSeeChange": "Tap a switch to change what they can see. It applies at once.",
       "rel": {
         "husband": "Husband",
         "mother": "Mother",
@@ -329,7 +332,12 @@
     "notif": {
       "title": "Notifications",
       "empty": "Nothing new right now",
-      "called": "The hospital returned your call"
+      "called": "The hospital returned your call",
+      "appointment": "The hospital booked an appointment for you",
+      "babyArrived": "Your baby's record is ready",
+      "update": "An update from the hospital",
+      "markAll": "Mark all read",
+      "new": "New"
     },
     "consent": {
       "title": "Your consent",

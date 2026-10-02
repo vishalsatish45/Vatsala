@@ -31,7 +31,7 @@ export const useSync = create<SyncState>()(() => ({ phase: 'idle' }));
 /** Tables whose changes the Care Team sees live (all in the supabase_realtime publication). */
 const LIVE_TABLES = [
   'callbacks', 'tasks', 'referrals', 'referral_events', 'investigations', 'investigation_results', 'encounters', 'self_logs',
-  'babies', 'immunizations', 'discharges', 'pregnancies', 'tags', 'admissions', 'care_assignments',
+  'babies', 'immunizations', 'discharges', 'pregnancies', 'tags', 'admissions', 'care_assignments', 'notifications',
 ];
 const FAMILY_POLL_MS = 60_000;
 

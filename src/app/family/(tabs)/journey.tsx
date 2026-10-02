@@ -43,6 +43,8 @@ export default function Journey() {
   }
 
   const ga = gestationalAge(p.edd, now);
+  // Week counters only while the pregnancy is ongoing (not after a birth or an ended pregnancy).
+  const pregnant = p.status === 'active' || p.status === 'admitted';
   const visits = db.visits.filter((v) => v.pregnancyId === p.id).sort((a, b) => b.at.getTime() - a.at.getTime());
   const last = visits[0];
   const logs = ctx.scopes.logs ? db.selfLogs.filter((l) => l.motherId === ctx.mother!.id).sort((a, b) => b.at.getTime() - a.at.getTime()) : [];
@@ -50,8 +52,8 @@ export default function Journey() {
 
   return (
     <Screen withNav blob="none" header={<TopBar large title={canSwitch ? t('family.tabs.myHealth') : t('family.tabs.journey')} below={<FocusSwitch />} />}>
-      <AppText tone="secondary">{p.status === 'delivered' ? '' : `${t('family.weeksDays', { w: ga.weeks, d: ga.days })} · `}🩺 {p.assignedDoctor?.name ?? t('family.noDoctor')}</AppText>
-      {p.status !== 'delivered' && <WeekScrubber week={ga.weeks} label={t('family.weeksDays', { w: ga.weeks, d: ga.days })} />}
+      <AppText tone="secondary">{!pregnant ? '' : `${t('family.weeksDays', { w: ga.weeks, d: ga.days })} · `}🩺 {p.assignedDoctor?.name ?? t('family.noDoctor')}</AppText>
+      {pregnant && <WeekScrubber week={ga.weeks} label={t('family.weeksDays', { w: ga.weeks, d: ga.days })} />}
 
       <UnderlineTabs
         value={tab}
@@ -73,13 +75,13 @@ export default function Journey() {
           motherLabel={t('family.tl.you')}
           babyLabel={t('family.tl.baby')}
           todayLabel={t('family.tl.today')}
-          edd={p.status === 'delivered' ? undefined : p.edd}
+          edd={pregnant ? p.edd : undefined}
           eddLabel={t('family.tl.due')}
         />
       )}
 
       {tab === 'tests' &&
-        (ctx.scopes.logs || !ctx.isCaregiver ? (
+        (ctx.scopes.tests ? (
           <View style={{ gap: space.sm }}>
             {tests.map((i) => {
               const status = i.status === 'reviewed' || i.status === 'not_done' ? 'done' : i.status === 'resulted' ? 'due' : now.getTime() < i.dueFrom.getTime() ? 'upcoming' : 'due';
@@ -96,7 +98,7 @@ export default function Journey() {
             })}
           </View>
         ) : (
-          <AppText tone="secondary">{t('family.me.never')}</AppText>
+          <AppText tone="secondary">{t('family.me.limited', { name: ctx.mother.name })}</AppText>
         ))}
 
       {tab === 'readings' &&

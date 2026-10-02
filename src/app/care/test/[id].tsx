@@ -5,9 +5,11 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { NOT_DONE_REASONS } from '@/data/catalogue';
 import { fmtDay, invState, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
+import { EnteredInErrorSheet, type EieTarget } from '@/features/care/EnteredInErrorSheet';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
-import { AppText, Button, Card, Field, InfoRow, OptionChips, Screen, StatusBadge, TopBar, space } from '@/ui';
+import { useSession } from '@/state/session';
+import { AppText, Button, Card, Chip, Field, InfoRow, OptionChips, Screen, StatusBadge, TopBar, space } from '@/ui';
 
 const FOLLOW_UPS = ['None', 'Repeat test', 'Refer', 'Discuss at next visit'];
 
@@ -22,6 +24,8 @@ export default function TestDetail() {
   const [note, setNote] = useState('');
   const [followUp, setFollowUp] = useState<string>();
   const [reason, setReason] = useState<string>();
+  const [eie, setEie] = useState<EieTarget>();
+  const treating = useSession((s) => s.account?.care?.role) !== 'specialist';
   if (!inv) return <Screen header={<TopBar back title="Test" />}><AppText>Not found.</AppText></Screen>;
   const p = db.pregnancies.find((x) => x.id === inv.subjectId);
   const m = p ? motherOf(db, p.motherId) : undefined;
@@ -46,7 +50,13 @@ export default function TestDetail() {
         {inv.result?.note && <InfoRow label="Note" value={inv.result.note} />}
         {inv.review && <InfoRow label="Reviewed" value={`${inv.review.by} · ${fmtDay(inv.review.at)} · ${inv.review.followUp}`} />}
         {inv.sensitive && <InfoRow label="Privacy" value="Never shown in the Family app" />}
+        {inv.result && inv.resultId && treating && (
+          <View style={{ flexDirection: 'row', paddingTop: space.sm }}>
+            <Chip label="Result entered in error" onPress={() => setEie({ kind: 'investigation_result', id: inv.resultId!, label: `${inv.label} · ${inv.result!.value}${inv.result!.unit ? ` ${inv.result!.unit}` : ''}` })} />
+          </View>
+        )}
       </Card>
+      <EnteredInErrorSheet target={eie} onClose={() => setEie(undefined)} />
 
       {(inv.status === 'due' || inv.status === 'ordered') && (
         <Card style={{ gap: space.md }}>
