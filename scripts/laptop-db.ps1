@@ -19,7 +19,8 @@ $Root = Join-Path $HOME "healthathon-laptop-db"
 $Data = Join-Path $Root "data"
 $Log = Join-Path $Root "postgres.log"
 $Port = 55500
-$Db = "mch_dev"
+# MCH_DB lets parallel work use separate databases on the same cluster (default mch_dev).
+$Db = if ($env:MCH_DB) { $env:MCH_DB } else { "mch_dev" }
 $Supa = Join-Path (Split-Path $PSScriptRoot -Parent) "supabase"
 
 function Invoke-Psql([string]$Database, [string[]]$PsqlArgs) {
