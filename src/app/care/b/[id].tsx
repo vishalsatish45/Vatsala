@@ -6,15 +6,15 @@ import { daysBetween, formatGA } from '@domain/gestation';
 
 import { asBabyId } from '@/data/ids';
 import { tagLabel } from '@/data/catalogue';
-import { activeTags, babyAgeLabel, continuityEvents, fmtDate, fmtDay, motherOf, sexLabel, taskState } from '@/data/selectors';
+import { activeTags, babyAgeLabel, continuityEvents, fmtDate, fmtDay, fmtTime, motherOf, sexLabel, taskState } from '@/data/selectors';
 import { useDb } from '@/data/store';
+import { DeliverySummaryCard } from '@/features/care/DeliverySummaryCard';
 import { EnteredInErrorSheet, type EieTarget } from '@/features/care/EnteredInErrorSheet';
-import { useActor } from '@/features/care/nav';
 import { OverrideBanner } from '@/features/care/OverrideBanner';
 import { PrescriptionsCard } from '@/features/care/PrescriptionsCard';
+import { VaccineDoseSheet } from '@/features/care/VaccineDoseSheet';
 import { useNow } from '@/lib/clock';
 import { useSession } from '@/state/session';
-import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import {
   AppText,
   Button,
@@ -28,7 +28,6 @@ import {
   PressableScale,
   Screen,
   Section,
-  Sheet,
   StatTile,
   StatusBadge,
   TopBar,
@@ -45,12 +44,10 @@ export default function NewbornView() {
   const id = asBabyId(useLocalSearchParams<{ id: string }>().id);
   const db = useDb();
   const now = useNow();
-  const by = useActor();
   const [tab, setTab] = useState<Tab>('overview');
   const [dose, setDose] = useState<string>();
   const [eie, setEie] = useState<EieTarget>();
   const treating = useSession((s) => s.account?.care?.role) !== 'specialist';
-  const record = useSubmitOnce(dose);
 
   const b = db.babies.find((x) => x.id === id);
   if (!b) return <Screen header={<TopBar back title="Newborn" />}><AppText>Not found.</AppText></Screen>;
@@ -64,11 +61,10 @@ export default function NewbornView() {
   const groups = [...new Set(vax.map((v) => v.group))];
   const tasks = db.tasks.filter((t) => t.subjectId === b.id && !t.cancelledAt).sort((a, z) => a.dueBy.getTime() - z.dueBy.getTime());
   const discharge = db.discharges.find((x) => x.subjectId === b.id);
-  const ageDays = daysBetween(b.dob, now);
   const doseItem = vax.find((v) => v.id === dose);
   const obs = db.newbornObs.filter((o) => o.babyId === b.id).sort((a, z) => z.at.getTime() - a.at.getTime());
   const latest = obs[0];
-  const weights = [{ at: b.dob, value: b.birthWeightG }, ...obs.filter((o) => o.weightG).map((o) => ({ at: o.at, value: o.weightG! }))];
+  const weights = [...(b.birthWeightG != null ? [{ at: b.dob, value: b.birthWeightG }] : []), ...obs.filter((o) => o.weightG).map((o) => ({ at: o.at, value: o.weightG! }))];
   const events = continuityEvents(db, p.id, now, 'care').map((e) => ({ ...e, title: e.kind === 'tag' ? `Tagged: ${tagLabel(e.sub ?? '')}` : e.label, sub: e.kind === 'tag' ? undefined : e.sub, anc: e.kind === 'visit' || e.kind === 'planned_visit' }));
   const died = !!b.deceasedAt;
   const living = b.outcome === 'live' && !died;
@@ -88,7 +84,7 @@ export default function NewbornView() {
           <AppText variant="hero">{babyAgeLabel(b, now)}</AppText>
         )}
         <View style={styles.chips}>
-          <Chip label={`Born ${fmtDay(b.dob)}`} variant="glass" />
+          <Chip label={`Born ${fmtDay(b.dob)} · ${fmtTime(b.dob)}`} variant="glass" />
           <Chip label={`GA at birth ${formatGA({ weeks: Math.floor(b.gaAtBirthDays / 7), days: b.gaAtBirthDays % 7, totalDays: b.gaAtBirthDays })}`} variant="glass" />
         </View>
         <View style={styles.chips}>
@@ -121,8 +117,8 @@ export default function NewbornView() {
             <InfoRow key={i.id} label={i.label} value={`${i.result!.value} (as entered)`} />
           ))}
           <InfoRow label="Delivery" value={d ? `${d.mode}${d.indication ? ` · ${d.indication}` : ''}` : undefined} />
-          <InfoRow label="Medicines in labour" value={d?.medicines.join(', ')} />
-          <InfoRow label="Complications" value={d?.complications.join(', ') || 'None documented'} />
+          <InfoRow label="Medicines in labour" value={d ? [...d.medicines.filter((x) => x !== 'Other'), ...(d.medicinesNote ? [d.medicinesNote] : [])].join(', ') : undefined} />
+          <InfoRow label="Complications" value={d ? [...d.complications.filter((x) => x !== 'Other'), ...(d.complicationsNote ? [d.complicationsNote] : [])].join(', ') || 'None documented' : undefined} />
           <AppText variant="caption" tone="faint">
             Documented facts from the mother’s record. The app makes no statement about what the baby needs.
           </AppText>
@@ -142,7 +138,7 @@ export default function NewbornView() {
       {tab === 'overview' && (
         <>
           <View style={styles.tiles}>
-            <StatTile icon={Scale} label="Birth weight" value={String(b.birthWeightG)} unit="g" caption={fmtDate(b.dob)} />
+            <StatTile icon={Scale} label="Birth weight" value={b.birthWeightG != null ? String(b.birthWeightG) : '—'} unit="g" caption={fmtDate(b.dob)} />
             <StatTile icon={Timer} label="Apgar 1 / 5" value={`${b.apgar1 ?? '–'}/${b.apgar5 ?? '–'}`} caption={fmtDate(b.dob)} />
           </View>
           {living && <Button icon={NotebookPen} label="Record observation" onPress={() => router.push({ pathname: '/care/b/[id]/observe', params: { id: b.id } })} />}
@@ -150,15 +146,18 @@ export default function NewbornView() {
             <Card>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
                 <AppText variant="headline" style={{ flex: 1 }}>
-                  Latest observation · {fmtDay(latest.at)}
+                  Latest observation · {fmtDay(latest.at)} {fmtTime(latest.at)}
                 </AppText>
                 {treating && <Chip label="Entered in error" onPress={() => setEie({ kind: 'encounter', id: latest.id, label: `Newborn observation · ${fmtDay(latest.at)} · ${latest.by}` })} />}
               </View>
               {latest.weightG != null && <InfoRow label="Weight" value={`${latest.weightG} g`} />}
+              {latest.lengthCm != null && <InfoRow label="Length" value={`${latest.lengthCm} cm`} />}
+              {latest.headCircCm != null && <InfoRow label="Head circumference" value={`${latest.headCircCm} cm`} />}
               {latest.tempC != null && <InfoRow label="Temperature" value={`${latest.tempC} °C`} />}
               {latest.respRate != null && <InfoRow label="Respiratory rate" value={`${latest.respRate} /min`} />}
               {latest.feeding && <InfoRow label="Feeding" value={latest.feeding} />}
               {latest.jaundice && <InfoRow label="Jaundice (as recorded)" value={latest.jaundice} />}
+              {latest.note && <AppText tone="secondary">{latest.note}</AppText>}
               <AppText variant="caption" tone="faint">
                 {latest.by}
               </AppText>
@@ -181,6 +180,7 @@ export default function NewbornView() {
             <InfoRow label="Discharge" value={discharge?.completedAt ? `Completed ${fmtDay(discharge.completedAt)}` : discharge ? `${discharge.items.filter((i) => !i.state).length} items open` : '—'} />
           </Card>
           {discharge && !discharge.completedAt && living && <Button icon={ClipboardCheck} label="Discharge checklist" onPress={() => router.push({ pathname: '/care/discharge/[id]', params: { id: b.id } })} />}
+          {d && <DeliverySummaryCard delivery={d} babies={[b]} title="Birth record" />}
           {living && <PrescriptionsCard subjectId={b.id} kind="baby" canWrite={treating} />}
           {living && treating && (
             <View style={{ flexDirection: 'row' }}>
@@ -197,15 +197,28 @@ export default function NewbornView() {
             {vax
               .filter((v) => v.group === g)
               .map((v) => {
-                const overdue = !v.givenOn && daysBetween(v.dueOn, now) > 7;
-                const due = !v.givenOn && daysBetween(v.dueOn, now) >= 0;
+                const notGiven = v.notGivenReason !== undefined;
+                const open = !v.givenOn && !notGiven;
+                const overdue = open && daysBetween(v.dueOn, now) > 7;
+                const due = open && daysBetween(v.dueOn, now) >= 0;
+                const recorded = v.givenOn
+                  ? [`Given ${fmtDate(v.givenOn)}`, v.given && !v.given.here ? (v.given.location ?? 'elsewhere (reported)') : undefined, v.given?.batch && `batch ${v.given.batch}`, v.given?.site]
+                      .filter(Boolean)
+                      .join(' · ')
+                  : undefined;
+                // a dose closed because the baby died is not a recorded fact to withdraw
+                const correctable = treating && !open && v.notGivenReason !== 'Baby died';
                 return (
                   <View key={v.id} style={styles.dose}>
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, gap: 2 }}>
                       <AppText variant="bodyMedium">{v.label}</AppText>
-                      <StatusBadge status={v.givenOn ? 'done' : overdue ? 'overdue' : due ? 'due' : 'upcoming'} label={v.givenOn ? `Given ${fmtDate(v.givenOn)}` : `${overdue ? 'Overdue' : due ? 'Due' : 'Due'} ${fmtDate(v.dueOn)}`} />
+                      <StatusBadge
+                        status={v.givenOn || notGiven ? 'done' : overdue ? 'overdue' : due ? 'due' : 'upcoming'}
+                        label={recorded ?? (notGiven ? `Not given · ${v.notGivenReason}` : `${overdue ? 'Overdue' : 'Due'} ${fmtDate(v.dueOn)}`)}
+                      />
                     </View>
-                    {living && !v.givenOn && ageDays >= 0 && due && <Chip label="Record" icon={Syringe} onPress={() => setDose(v.id)} />}
+                    {living && treating && open && <Chip label="Record" icon={Syringe} onPress={() => setDose(v.id)} />}
+                    {correctable && <Chip label="Entered in error" onPress={() => setEie({ kind: 'immunization', id: v.id, label: `${v.label} · ${recorded ?? `not given (${v.notGivenReason})`}` })} />}
                   </View>
                 );
               })}
@@ -216,9 +229,7 @@ export default function NewbornView() {
         <ContinuityTimeline events={events} now={now} fmt={fmtDay} motherLabel="Mother" babyLabel="Baby" todayLabel="Today" />
       )}
 
-      <Sheet visible={!!doseItem} onClose={() => setDose(undefined)} title={`Record ${doseItem?.label ?? ''}`} subtitle="Given today at this facility" footer={<Button label="Record dose" disabled={record.busy} onPress={record.once(() => { if (doseItem) db.recordVaccine(doseItem.id, now, by); setDose(undefined); })} />}>
-        <AppText tone="secondary">Due {doseItem ? fmtDay(doseItem.dueOn) : ''}. Recording closes the reminder in the family’s app.</AppText>
-      </Sheet>
+      <VaccineDoseSheet dose={doseItem} baby={b} onClose={() => setDose(undefined)} />
       <EnteredInErrorSheet target={eie} onClose={() => setEie(undefined)} />
     </Screen>
   );

@@ -8,10 +8,11 @@
  */
 import { randomUUID } from 'expo-crypto';
 import { create } from 'zustand';
-import { addDays, daysBetween, gestationalAge, toDateOnly } from '@domain/gestation';
-import { POSTNATAL_STANDARD, TAG_TEMPLATES, ancVisitDates, investigationWindows, vaccineSchedule, type Intensity } from '@domain/schedules';
+import { addDays, daysBetween, gestationalAge, localDay, toDateOnly } from '@domain/gestation';
+import { ancVisitDates, investigationWindows, vaccineSchedule, type Intensity } from '@domain/schedules';
 
-import { DISCHARGE_BABY, DISCHARGE_MOTHER, TAGS } from './catalogue';
+import { DISCHARGE_BABY, DISCHARGE_MOTHER } from './catalogue';
+import { dischargePlan } from './discharge';
 import {
   callbackOutcomeCodes,
   complicationCodes,
@@ -159,7 +160,8 @@ export type VisitInput = Omit<Visit, 'id' | 'pregnancyId' | 'at' | 'by'> & { nex
 
 export type BabyInput = {
   sex: 'F' | 'M' | 'U';
-  birthWeightG: number;
+  /** Required for a liveborn baby; may be unknown for a stillborn baby. */
+  birthWeightG?: number;
   lengthCm?: number;
   headCircCm?: number;
   apgar1?: number;
@@ -191,6 +193,25 @@ export type DeliveryInput = {
   babies: BabyInput[];
 };
 
+/** Admission to the labour room / ward: the documented time and reason (server `admit`). */
+export type AdmitInput = { at: Date; reason?: string };
+
+/** A vaccine dose as documented (server `record_vaccine`): given here or elsewhere, or not given with a reason. */
+export type VaccineDoseInput =
+  | {
+      action: 'given';
+      givenOn: Date;
+      /** true: given at this facility · false: reported from a card or another facility. */
+      here: boolean;
+      batch?: string;
+      expiryOn?: Date;
+      manufacturer?: string;
+      site?: string;
+      route?: string;
+      location?: string;
+    }
+  | { action: 'not_given'; reason: string };
+
 type Actions = {
   reset: (now: Date) => void;
   /** Replace the whole state with the server's (Supabase mode). */
@@ -214,11 +235,12 @@ type Actions = {
   rescheduleTask: (taskId: TaskId, dueBy: Date, reason: string, by: string, now: Date) => void;
   cancelTask: (taskId: TaskId, reason: string, by: string, now: Date) => void;
   addSelfLog: (log: Omit<SelfLog, 'id'>) => SelfLogId;
-  admit: (pregnancyId: PregnancyId, by: string, now: Date) => void;
+  admit: (pregnancyId: PregnancyId, input: AdmitInput, by: string) => void;
   recordDelivery: (pregnancyId: PregnancyId, input: DeliveryInput, by: string) => BabyId[];
   setDischargeItem: (subjectId: SubjectId, key: string, state: 'done' | 'na' | 'deferred' | undefined, reason: string | undefined) => void;
-  completeDischarge: (subjectId: SubjectId, by: string, now: Date) => void;
-  recordVaccine: (immunizationId: ImmunizationId, givenOn: Date, by: string) => void;
+  /** `at`: when the discharge happened (documented time); the follow-up plan counts from the birth. */
+  completeDischarge: (subjectId: SubjectId, by: string, at: Date) => void;
+  recordVaccine: (immunizationId: ImmunizationId, dose: VaccineDoseInput, by: string, now: Date) => void;
   addCaregiver: (c: Omit<Caregiver, 'id' | 'addedAt'>, now: Date) => void;
   revokeCaregiver: (id: CaregiverId, by: string, now: Date) => void;
   setCardFields: (motherId: MotherId, fields: CardField[]) => void;
@@ -235,8 +257,8 @@ type Actions = {
   redatePregnancy: (pregnancyId: Id, input: RedateInput, by: string, now: Date) => void;
   /** End an ongoing pregnancy with its outcome, or close a delivered episode (reason 'delivered'). */
   endPregnancy: (pregnancyId: Id, reason: string, note: string | undefined, endedOn: Date | undefined, by: string, now: Date) => void;
-  /** End an admission that did not lead to a delivery. */
-  endAdmission: (pregnancyId: Id, by: string, now: Date) => void;
+  /** End an admission that did not lead to a delivery, at the documented time `at`. */
+  endAdmission: (pregnancyId: Id, by: string, at: Date) => void;
   recordBabyDeath: (babyId: Id, at: Date, note: string | undefined, by: string) => void;
   markEnteredInError: (kind: EieKind, id: Id, reason: string, by: string, now: Date) => void;
   shareResult: (referralId: ReferralId, investigationId: InvestigationId, by: string, now: Date) => void;
@@ -672,11 +694,15 @@ export const useDb = create<Db>()((set, get) => {
       return id;
     },
 
-    admit: (pregnancyId, by, now) => {
+    admit: (pregnancyId, input, by) => {
       const s = get();
       const admissionId = uid('ad');
-      set({ pregnancies: s.pregnancies.map((p) => (p.id === pregnancyId ? { ...p, status: 'admitted', admissionId } : p)), audit: audit(s, by, 'admit', pregnancyId, now) });
-      enqueue('admit', { id: admissionId, pregnancy_id: pregnancyId, at: now.toISOString() }, { entityId: pregnancyId });
+      const reason = input.reason?.trim() || undefined;
+      set({
+        pregnancies: s.pregnancies.map((p) => (p.id === pregnancyId ? { ...p, status: 'admitted', admissionId, admittedAt: input.at, admissionReason: reason } : p)),
+        audit: audit(s, by, 'admit', pregnancyId, input.at),
+      });
+      enqueue('admit', { id: admissionId, pregnancy_id: pregnancyId, at: input.at.toISOString(), reason }, { entityId: pregnancyId });
     },
 
     recordDelivery: (pregnancyId, input, by) => {
@@ -696,17 +722,31 @@ export const useDb = create<Db>()((set, get) => {
         apgar5: b.apgar5,
         outcome: b.outcome,
         intensity: 'routine',
+        lengthCm: b.lengthCm,
+        headCircCm: b.headCircCm,
+        stillbirthType: b.outcome === 'stillbirth' ? b.stillbirthType : undefined,
+        resuscitation: b.resuscitation,
+        birthDefects: b.birthDefects,
+        breastfedWithin1h: b.outcome === 'live' ? b.breastfedWithin1h : undefined,
+        vitaminK: b.outcome === 'live' ? b.vitaminK : undefined,
       }));
       const delivery: Delivery = {
         id: uid('dl'), pregnancyId, at: input.at, mode: input.mode, indication: input.indication, bloodLossMl: input.bloodLossMl,
-        complications: input.complications, medicines: input.medicines, babyIds: babies.map((b) => b.id),
+        complications: input.complications.filter((c) => c !== 'Other'), complicationsNote: input.complicationsNote,
+        medicines: input.medicines.filter((c) => c !== 'Other'), medicinesNote: input.medicinesNote, babyIds: babies.map((b) => b.id),
         place: input.place, labourOnset: input.labourOnset, perineum: input.perineum, maternalCondition: input.maternalCondition, attendedBy: input.attendedBy,
       };
-      const immunizations: Immunization[] = babies
-        .filter((b) => b.outcome === 'live')
-        .flatMap((b, i) =>
-          vaccineSchedule(b.dob).map((v) => ({ id: uid('im'), babyId: b.id, ...v, givenOn: v.group === 'Birth' && input.babies[i]?.birthDoses ? input.at : undefined })),
-        );
+      // Doses count from the calendar day of birth (the server uses the hospital's day). Each baby keeps its own
+      // "birth doses given" answer — matched by index before filtering, so a stillborn twin never shifts it.
+      const birthDay = localDay(input.at);
+      const immunizations: Immunization[] = babies.flatMap((b, i) =>
+        b.outcome !== 'live'
+          ? []
+          : vaccineSchedule(birthDay).map((v) => {
+              const given = v.group === 'Birth' && !!input.babies[i]?.birthDoses;
+              return { id: uid('im'), babyId: b.id, ...v, givenOn: given ? birthDay : undefined, given: given ? { here: true } : undefined };
+            }),
+      );
       const discharges: Discharge[] = [
         { subjectId: pregnancyId, subject: 'mother', items: DISCHARGE_MOTHER.map((d) => ({ ...d })) },
         ...babies.filter((b) => b.outcome === 'live').map((b): Discharge => ({ subjectId: b.id, subject: 'baby', items: DISCHARGE_BABY.map((d) => ({ ...d })) })),
@@ -772,61 +812,85 @@ export const useDb = create<Db>()((set, get) => {
 
     setDischargeItem: (subjectId, key, state, reason) => {
       const d = get().discharges.find((x) => x.subjectId === subjectId);
+      // N/A and Defer are saved together with their reason (the server refuses them without one).
+      const why = state === 'na' || state === 'deferred' ? reason?.trim() : undefined;
+      if ((state === 'na' || state === 'deferred') && !why) return;
       if (isRemote && !d?.id) return refuse('set_discharge_item', 'The delivery is still being saved — try again in a moment.');
       set((s) => ({
-        discharges: s.discharges.map((x) => (x.subjectId === subjectId ? { ...x, items: x.items.map((i) => (i.key === key ? { ...i, state, reason } : i)) } : x)),
+        discharges: s.discharges.map((x) => (x.subjectId === subjectId ? { ...x, items: x.items.map((i) => (i.key === key ? { ...i, state, reason: why } : i)) } : x)),
       }));
-      if (d?.id) enqueue('set_discharge_item', { discharge_id: d.id, key, state: state ?? null, reason }, { entityId: d.id });
+      if (d?.id) enqueue('set_discharge_item', { discharge_id: d.id, key, state: state ?? null, reason: why }, { entityId: d.id });
     },
 
-    completeDischarge: (subjectId, by, now) => {
+    completeDischarge: (subjectId, by, at) => {
       const s = get();
       const d = s.discharges.find((x) => x.subjectId === subjectId)!;
       if (isRemote && !d.id) return refuse('complete_discharge', 'The delivery is still being saved — try again in a moment.');
       const isBaby = d.subject === 'baby';
-      const tagCodes = s.tags.filter((t) => t.subjectId === subjectId && !t.removedAt).map((t) => t.code);
-      const templates = [
-        ...POSTNATAL_STANDARD.filter((f) => f.subject === (isBaby ? 'baby' : 'mother')),
-        ...tagCodes.flatMap((c) => {
-          const tpl = TAGS.find((t) => t.code === c)?.template;
-          return tpl ? (TAG_TEMPLATES[tpl] ?? []) : [];
-        }),
-      ];
-      const origin = isBaby ? s.babies.find((b) => b.id === subjectId)!.dob : (s.deliveries.find((x) => x.pregnancyId === subjectId)?.at ?? now);
-      // A follow-up whose window has already closed by discharge cannot be planned.
-      const today = toDateOnly(now).getTime();
-      const tasks: (Task & { templateKey?: string })[] = templates
-        .filter((f) => addDays(origin, f.dayTo).getTime() >= today)
+      // Follow-ups whose window closed before the day of discharge cannot be planned; the checklist says so.
+      const tasks: (Task & { templateKey?: string })[] = dischargePlan(s, subjectId, at)
+        .filter((f) => !f.closed)
         .map((f) => ({
           id: uid('tk'),
-          kind: f.key.startsWith('tpl') ? 'template' : isBaby ? 'nb_visit' : 'pn_visit',
+          kind: f.kind,
           subjectType: isBaby ? 'baby' : 'pregnancy',
           subjectId,
-          title: f.label,
-          dueFrom: addDays(origin, f.dayFrom),
-          dueBy: addDays(origin, f.dayTo),
-          generatedBy: f.key.startsWith('tpl') ? 'template' : 'protocol',
+          title: f.title,
+          dueFrom: f.dueFrom,
+          dueBy: f.dueBy,
+          generatedBy: f.templateKey ? 'template' : 'protocol',
           contactAttempts: [],
-          templateKey: f.key.startsWith('tpl') ? f.key : undefined,
+          templateKey: f.templateKey,
         }));
       set({
-        discharges: s.discharges.map((x) => (x.subjectId === subjectId ? { ...x, completedAt: now, completedBy: by } : x)),
+        discharges: s.discharges.map((x) => (x.subjectId === subjectId ? { ...x, completedAt: at, completedBy: by } : x)),
         tasks: [...s.tasks, ...tasks.map(({ templateKey: _k, ...t }) => t)],
-        audit: audit(s, by, `complete_discharge (+${tasks.length} follow-ups)`, subjectId, now),
+        audit: audit(s, by, `complete_discharge (+${tasks.length} follow-ups)`, subjectId, at),
       });
       if (d.id) {
         enqueue(
           'complete_discharge',
-          { discharge_id: d.id, follow_up_tasks: tasks.map((t) => ({ ...taskRows([t])[0], template_key: t.templateKey })), at: now.toISOString() },
+          { discharge_id: d.id, follow_up_tasks: tasks.map((t) => ({ ...taskRows([t])[0], template_key: t.templateKey })), at: at.toISOString() },
           { entityId: d.id, withVersion: true },
         );
       }
     },
 
-    recordVaccine: (immunizationId, givenOn, by) => {
+    recordVaccine: (immunizationId, dose, by, now) => {
       const s = get();
-      set({ immunizations: s.immunizations.map((i) => (i.id === immunizationId ? { ...i, givenOn } : i)), audit: audit(s, by, 'record_vaccine', immunizationId, givenOn) });
-      enqueue('record_vaccine', { id: immunizationId, action: 'given', given_on: isoDay(givenOn), primary_source: true }, { entityId: immunizationId, withVersion: true });
+      if (dose.action === 'not_given') {
+        const reason = dose.reason.trim();
+        set({ immunizations: s.immunizations.map((i) => (i.id === immunizationId ? { ...i, notGivenReason: reason } : i)), audit: audit(s, by, 'vaccine_not_given', immunizationId, now) });
+        enqueue('record_vaccine', { id: immunizationId, action: 'not_given', reason }, { entityId: immunizationId, withVersion: true });
+        return;
+      }
+      const text = (v?: string) => v?.trim() || undefined;
+      const given = {
+        here: dose.here,
+        batch: text(dose.batch),
+        expiryOn: dose.expiryOn,
+        manufacturer: text(dose.manufacturer),
+        site: text(dose.site),
+        route: text(dose.route),
+        location: text(dose.location),
+      };
+      set({ immunizations: s.immunizations.map((i) => (i.id === immunizationId ? { ...i, givenOn: localDay(dose.givenOn), given } : i)), audit: audit(s, by, 'record_vaccine', immunizationId, now) });
+      enqueue(
+        'record_vaccine',
+        {
+          id: immunizationId,
+          action: 'given',
+          given_on: isoDay(dose.givenOn),
+          primary_source: dose.here,
+          batch: given.batch,
+          expiry_on: given.expiryOn && isoDay(given.expiryOn),
+          manufacturer: given.manufacturer,
+          site: given.site,
+          route: given.route,
+          location: given.location,
+        },
+        { entityId: immunizationId, withVersion: true },
+      );
     },
 
     addCaregiver: (c, now) => {
@@ -866,8 +930,14 @@ export const useDb = create<Db>()((set, get) => {
         obs.respRate !== undefined && { code: 'nb_resp_rate', value_num: obs.respRate },
         obs.feeding && { code: 'nb_feeding', value_text: obs.feeding },
         obs.jaundice && { code: 'nb_jaundice', value_text: obs.jaundice },
+        obs.lengthCm !== undefined && { code: 'nb_length', value_num: obs.lengthCm },
+        obs.headCircCm !== undefined && { code: 'nb_head_circ', value_num: obs.headCircCm },
       ].filter(Boolean);
-      enqueue('add_newborn_obs', { encounter_id: id, baby_id: obs.babyId, at: obs.at.toISOString(), observations: rows }, { entityId: id });
+      enqueue(
+        'add_newborn_obs',
+        { encounter_id: id, baby_id: obs.babyId, at: obs.at.toISOString(), observations: rows, note: obs.note?.trim() || undefined },
+        { entityId: id },
+      );
     },
 
     logDose: (d) => {
@@ -991,15 +1061,15 @@ export const useDb = create<Db>()((set, get) => {
       );
     },
 
-    endAdmission: (pregnancyId, by, now) => {
+    endAdmission: (pregnancyId, by, at) => {
       const p = get().pregnancies.find((x) => x.id === pregnancyId);
       if (!p) return;
       if (isRemote && !p.admissionId) return refuse('end_admission', 'The admission is still being saved — try again in a moment.');
       set((s) => ({
-        pregnancies: s.pregnancies.map((x) => (x.id === p.id ? { ...x, status: 'active', admissionId: undefined } : x)),
-        audit: audit(s, by, 'end_admission', p.mchId, now),
+        pregnancies: s.pregnancies.map((x) => (x.id === p.id ? { ...x, status: 'active', admissionId: undefined, admittedAt: undefined, admissionReason: undefined } : x)),
+        audit: audit(s, by, 'end_admission', p.mchId, at),
       }));
-      if (p.admissionId) enqueue('end_admission', { admission_id: p.admissionId, at: now.toISOString() }, { entityId: p.admissionId });
+      if (p.admissionId) enqueue('end_admission', { admission_id: p.admissionId, at: at.toISOString() }, { entityId: p.admissionId });
     },
 
     recordBabyDeath: (babyId, at, note, by) => {
@@ -1008,8 +1078,8 @@ export const useDb = create<Db>()((set, get) => {
       set({
         babies: s.babies.map((b) => (b.id === babyId ? { ...b, deceasedAt: at } : b)),
         tasks: s.tasks.map((t) => (t.subjectId === babyId && !t.completedAt && !t.cancelledAt ? { ...t, cancelledAt: at, overrideReason: why } : t)),
-        // Doses not given are withdrawn (the server marks them not given); given doses stay on record.
-        immunizations: s.immunizations.filter((i) => i.babyId !== babyId || !!i.givenOn),
+        // Doses still due are closed as not given (as the server does); given doses stay on record.
+        immunizations: s.immunizations.map((i) => (i.babyId === babyId && !i.givenOn && i.notGivenReason === undefined ? { ...i, notGivenReason: why } : i)),
         investigations: s.investigations.map((i) => (i.subjectId === babyId && (i.status === 'due' || i.status === 'ordered') ? { ...i, status: 'not_done', notDoneReason: why } : i)),
         prescriptions: s.prescriptions.filter((x) => x.babyId !== babyId),
         audit: audit(s, by, 'baby_death_recorded', babyId, at),
@@ -1037,6 +1107,17 @@ export const useDb = create<Db>()((set, get) => {
         case 'self_log':
           next.selfLogs = s.selfLogs.filter((l) => l.id !== id);
           break;
+        case 'immunization': {
+          // The dose comes back as due under a new id, named for the server so it can be recorded again at once.
+          const replacementId = uid('im');
+          const dose = s.immunizations.find((i) => i.id === id);
+          const baby = s.babies.find((b) => b.id === dose?.babyId);
+          const gone = !!baby && (baby.outcome !== 'live' || !!baby.deceasedAt);
+          next.immunizations = s.immunizations.map((i) => (i.id === id ? { ...i, id: replacementId, givenOn: undefined, given: undefined, notGivenReason: gone ? 'Baby died' : undefined } : i));
+          set(next);
+          enqueue('mark_entered_in_error', { ...eiePayload(kind, id, reason, now), replacement_id: replacementId }, { entityId: id });
+          return;
+        }
         default: {
           const fact = s.facts.find((f) => f.id === id);
           next.facts = s.facts.filter((f) => f.id !== id);

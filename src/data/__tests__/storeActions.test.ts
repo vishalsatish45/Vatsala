@@ -1,7 +1,9 @@
 /* The demo store is the backend in mock mode: the new record-keeping actions update it the way the server would. */
 import { addDays } from '@domain/gestation';
 
-import { useDb } from '../store';
+import { dischargePlan } from '../discharge';
+import { isoDay } from '../remote';
+import { useDb, type BabyInput } from '../store';
 
 // Hoisted above the imports by babel-jest.
 jest.mock('@/lib/supabase', () => ({
@@ -56,8 +58,8 @@ describe('mock-mode record keeping', () => {
 
   it('admits and ends the admission without a delivery', () => {
     const p = pregnancyOf('Lakshmi K');
-    db().admit(p.id, by, now);
-    expect(db().pregnancies.find((x) => x.id === p.id)).toMatchObject({ status: 'admitted' });
+    db().admit(p.id, { at: now, reason: 'In labour' }, by);
+    expect(db().pregnancies.find((x) => x.id === p.id)).toMatchObject({ status: 'admitted', admittedAt: now, admissionReason: 'In labour' });
     db().endAdmission(p.id, by, now);
     expect(db().pregnancies.find((x) => x.id === p.id)).toMatchObject({ status: 'active', admissionId: undefined });
   });
@@ -67,7 +69,7 @@ describe('mock-mode record keeping', () => {
     db().recordBabyDeath(b.id, now, undefined, by);
     expect(db().babies.find((x) => x.id === b.id)?.deceasedAt).toEqual(now);
     expect(db().tasks.some((t) => t.subjectId === b.id && !t.completedAt && !t.cancelledAt)).toBe(false);
-    expect(db().immunizations.some((i) => i.babyId === b.id && !i.givenOn)).toBe(false);
+    expect(db().immunizations.some((i) => i.babyId === b.id && !i.givenOn && i.notGivenReason === undefined)).toBe(false);
   });
 
   it('marks facts entered in error so they leave every view', () => {
@@ -107,5 +109,74 @@ describe('mock-mode record keeping', () => {
     expect(o.expiresAt.getTime() - now.getTime()).toBe(24 * 3_600_000);
     db().endOverride(o.id, by, now);
     expect(db().overrides).toHaveLength(0);
+  });
+});
+
+describe('delivery → discharge → newborn (mock mode)', () => {
+  const at = new Date(2026, 8, 29, 1, 30); // 01:30 where the phone is
+  const baby = (over: Partial<BabyInput>): BabyInput => ({ sex: 'F', birthWeightG: 2800, outcome: 'live', birthDoses: false, ...over });
+  const deliver = (babies: BabyInput[]) => {
+    const p = pregnancyOf('Lakshmi K');
+    const ids = db().recordDelivery(p.id, { at, mode: 'Normal vaginal', complications: [], medicines: [], place: 'this_facility', babies }, by);
+    return { p, ids };
+  };
+
+  it('birth doses follow each baby, even when an earlier twin is stillborn; doses count from the day of birth', () => {
+    const { ids } = deliver([baby({ outcome: 'stillbirth', birthWeightG: undefined, birthDoses: false }), baby({ sex: 'M', birthDoses: true })]);
+    expect(db().immunizations.some((i) => i.babyId === ids[0])).toBe(false);
+    const birthDoses = db().immunizations.filter((i) => i.babyId === ids[1] && i.group === 'Birth');
+    expect(birthDoses).toHaveLength(3);
+    expect(birthDoses.every((i) => i.givenOn?.getTime() === Date.UTC(2026, 8, 29))).toBe(true);
+    expect(db().babies.find((b) => b.id === ids[0])?.birthWeightG).toBeUndefined();
+  });
+
+  it("discharge: N/A needs its reason, the GDM template is planned, closed windows are said, and it completes at the documented time", () => {
+    const { p } = deliver([baby({})]);
+    db().setTags(p.id, ['gdm'], undefined, by, now);
+    db().setDischargeItem(p.id, 'fp', 'na', undefined);
+    expect(db().discharges.find((d) => d.subjectId === p.id)?.items.find((i) => i.key === 'fp')?.state).toBeUndefined();
+    db().setDischargeItem(p.id, 'fp', 'na', ' Other: discussed at day 7 ');
+    expect(db().discharges.find((d) => d.subjectId === p.id)?.items.find((i) => i.key === 'fp')).toMatchObject({ state: 'na', reason: 'Other: discussed at day 7' });
+
+    // a late discharge (day 6): the day-3 check's window has closed and is said so; the rest are planned
+    const late = new Date(2026, 9, 5, 0, 20);
+    const plan = dischargePlan(db(), p.id, late);
+    expect(plan.find((f) => f.key === 'pn_d3')).toMatchObject({ closed: true });
+    expect(plan.find((f) => f.key === 'tpl_glucose')).toMatchObject({ closed: false, dueFrom: new Date(Date.UTC(2026, 8, 29 + 42)), dueBy: new Date(Date.UTC(2026, 8, 29 + 84)) });
+
+    db().completeDischarge(p.id, by, late);
+    const d = db().discharges.find((x) => x.subjectId === p.id)!;
+    expect(d.completedAt).toEqual(late);
+    const fu = db().tasks.filter((t) => t.subjectId === p.id && (t.kind === 'pn_visit' || t.kind === 'template'));
+    expect(fu.map((t) => t.title)).toEqual(expect.arrayContaining(['Glucose test · weeks 6–12', 'Postnatal check · day 7']));
+    expect(fu.some((t) => t.title === 'Postnatal check · day 3')).toBe(false);
+  });
+
+  it('vaccine doses: given elsewhere, not given with a reason, and entered in error back to due', () => {
+    const { ids } = deliver([baby({})]);
+    const dose = (code: string) => db().immunizations.find((i) => i.babyId === ids[0] && i.code === code)!;
+    db().recordVaccine(dose('bcg').id, { action: 'given', givenOn: at, here: false, location: 'Sub-centre (MCP card)', batch: ' B-7 ' }, by, now);
+    expect(dose('bcg')).toMatchObject({ givenOn: new Date(Date.UTC(2026, 8, 29)), given: { here: false, location: 'Sub-centre (MCP card)', batch: 'B-7' } });
+    db().recordVaccine(dose('opv0').id, { action: 'not_given', reason: 'Vaccine out of stock' }, by, now);
+    expect(dose('opv0').notGivenReason).toBe('Vaccine out of stock');
+
+    const old = dose('bcg').id;
+    db().markEnteredInError('immunization', old, 'Recorded on the wrong baby', by, now);
+    expect(dose('bcg').id).not.toBe(old);
+    expect(dose('bcg')).toMatchObject({ givenOn: undefined, given: undefined, notGivenReason: undefined });
+  });
+
+  it('a newborn observation keeps its time, length, head circumference and note', () => {
+    const { ids } = deliver([baby({})]);
+    db().addNewbornObs({ babyId: ids[0]!, at: now, by, weightG: 2750, lengthCm: 49, headCircCm: 34, note: 'Calm' });
+    expect(db().newbornObs.find((o) => o.babyId === ids[0])).toMatchObject({ at: now, lengthCm: 49, headCircCm: 34, note: 'Calm' });
+  });
+});
+
+describe('isoDay', () => {
+  it('a domain date is its own day; any other moment is the local calendar day (never the UTC day)', () => {
+    expect(isoDay(new Date(Date.UTC(2026, 9, 3)))).toBe('2026-10-03');
+    expect(isoDay(new Date(2026, 9, 3, 0, 30))).toBe('2026-10-03');
+    expect(isoDay(new Date(2026, 9, 3, 23, 59))).toBe('2026-10-03');
   });
 });

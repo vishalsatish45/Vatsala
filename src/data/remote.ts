@@ -12,6 +12,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import { localDay } from '@domain/gestation';
 
 import { CARD_FIELDS } from './catalogue';
 import { callbackOutcomeCodes, complaintCodes, complicationCodes, contactOutcomeCodes, deliveryModeCodes, dischargeLabel, followUpCodes, labourMedicineCodes, previousLabel, previousModeCodes, previousOutcomeCodes, signLabel } from './codes';
@@ -77,8 +78,15 @@ export type Snapshot = { state: DbState; versions: Versions };
 export const day = (s: string): Date => new Date(`${s}T00:00:00Z`);
 const dayOpt = (s: string | null | undefined) => (s ? day(s) : undefined);
 const tsOpt = (s: string | null | undefined) => (s ? new Date(s) : undefined);
-/** Date → `date` column. */
-export const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+/**
+ * Date → `date` column (plain YYYY-MM-DD). A domain date (UTC midnight, from `day` / `addDays`) is that day; any other
+ * moment (now, a picked date with its time) is the phone's local calendar day — never the UTC day, which in India is
+ * a day behind between 00:00 and 05:30 and would shift follow-up dates and vaccine dates.
+ */
+export const isoDay = (d: Date) => {
+  const utcMidnight = d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0;
+  return (utcMidnight ? d : localDay(d)).toISOString().slice(0, 10);
+};
 /** Stored as 91XXXXXXXXXX; the app shows and dials the 10-digit number. */
 export const localPhone = (p: string | null | undefined) => (p && p.length === 12 && p.startsWith('91') ? p.slice(2) : (p ?? ''));
 export const e164 = (p: string) => (p.length === 10 ? `91${p}` : p);
@@ -125,7 +133,7 @@ const T = {
     status: z.enum(['active', 'delivered', 'closed']), intensity, ended_on: nstr, end_reason: endReason.nullable(), version: num,
   }),
   pregnancy_datings: z.strictObject({ id, pregnancy_id: id, method: z.enum(['lmp', 'scan', 'clinician']), lmp: nstr }),
-  admissions: z.strictObject({ id, pregnancy_id: id, mother_id: id, ip_no: str, admitted_at: str, discharged_at: nstr }),
+  admissions: z.strictObject({ id, pregnancy_id: id, mother_id: id, ip_no: str, admitted_at: str, reason: nstr, discharged_at: nstr }),
   care_assignments: z.strictObject({ id, pregnancy_id: nid, baby_id: nid, specialty: z.enum(['obstetrics', 'paediatrics']), primary_staff_id: nid }),
   documented_conditions: z.strictObject({ id, mother_id: id, label: str }),
   allergies: z.strictObject({ id, mother_id: id, substance: str }),
@@ -169,12 +177,19 @@ const T = {
   self_logs: z.strictObject({ id, mother_id: id, baby_id: nid, kind: str, value: str, at: str, by_label: str }),
   deliveries: z.strictObject({
     id, pregnancy_id: id, at: str, mode: str, indication: nstr, blood_loss_ml: nnum, complications: texts, medicines: texts,
+    place: z.enum(['this_facility', 'other_facility', 'home', 'in_transit']), labour_onset: z.enum(['spontaneous', 'induced', 'no_labour']).nullable(),
+    perineum: nstr, complications_note: nstr, medicines_note: nstr, maternal_condition: nstr, attended_by: nstr,
   }),
   babies: z.strictObject({
     id, child_id: str, mother_id: id, pregnancy_id: id, dob: str, sex: z.enum(['F', 'M', 'U']), birth_weight_g: nnum, ga_at_birth_days: nnum,
     apgar1: nnum, apgar5: nnum, outcome: z.enum(['live', 'stillbirth']), intensity, deceased_at: nstr, version: num,
+    length_cm: nnum, head_circ_cm: nnum, stillbirth_type: z.enum(['fresh', 'macerated']).nullable(), resuscitation: bool.nullable(),
+    birth_defects: nstr, breastfed_within_1h: bool.nullable(), vitamin_k: bool.nullable(),
   }),
-  immunizations: z.strictObject({ id, baby_id: nid, code: str, due_on: str, given_on: nstr, status: str, version: num }),
+  immunizations: z.strictObject({
+    id, baby_id: nid, code: str, due_on: str, given_on: nstr, status: z.enum(['due', 'given', 'not_given']), version: num,
+    primary_source: bool.nullable(), batch: nstr, expiry_on: nstr, manufacturer: nstr, site: nstr, route: nstr, location: nstr, not_given_reason: nstr,
+  }),
   vaccine_catalogue: z.strictObject({ code: str, label: str, grp: str }),
   discharges: z.strictObject({ id, pregnancy_id: nid, baby_id: nid, completed_at: nstr, completed_by: nid, version: num }),
   discharge_items: z.strictObject({ discharge_id: id, key: str, state: z.enum(['done', 'na', 'deferred']).nullable(), reason: nstr }),
@@ -338,7 +353,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
     all(db, 'self_logs', final),
     all(db, 'deliveries'),
     all(db, 'babies'),
-    all(db, 'immunizations', (q) => q.not('baby_id', 'is', null).in('status', ['due', 'given'])),
+    all(db, 'immunizations', (q) => q.not('baby_id', 'is', null).in('status', ['due', 'given', 'not_given'])),
     all(db, 'vaccine_catalogue'),
     all(db, 'discharges'),
     all(db, 'discharge_items'),
@@ -409,7 +424,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
       .sort((a, b) => b.at.localeCompare(a.at))[0];
 
   const datingOf = new Map(datings.map((d) => [d.pregnancy_id, d]));
-  const openAdm = new Map(admissions.filter((a) => !a.discharged_at).map((a) => [a.pregnancy_id, a.id]));
+  const openAdm = new Map(admissions.filter((a) => !a.discharged_at).map((a) => [a.pregnancy_id, a]));
   const obAssign = new Map(assignments.filter((a) => a.specialty === 'obstetrics' && a.pregnancy_id).map((a) => [a.pregnancy_id!, a]));
   const condByMother = groupBy(conditions, (c) => c.mother_id);
   const allergyByMother = groupBy(allergies, (a) => a.mother_id);
@@ -436,7 +451,9 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
       intensity: g.intensity,
       endReason: opt(g.end_reason),
       endedOn: dayOpt(g.ended_on),
-      admissionId: openAdm.get(g.id),
+      admissionId: openAdm.get(g.id)?.id,
+      admittedAt: tsOpt(openAdm.get(g.id)?.admitted_at),
+      admissionReason: opt(openAdm.get(g.id)?.reason),
       assignedDoctor: doctor ? { name: nameOf(doctor) } : undefined,
       history: {
         conditions: (condByMother.get(g.mother_id) ?? []).map((c) => c.label),
@@ -506,6 +523,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
       return {
         id: asEncounterId(e.id), babyId: asBabyId(e.baby_id!), at: new Date(e.at), by: nameOf(e.by_staff),
         weightG: n('nb_weight'), tempC: n('nb_temp'), respRate: n('nb_resp_rate'), feeding: t('nb_feeding'), jaundice: t('nb_jaundice'),
+        lengthCm: n('nb_length'), headCircCm: n('nb_head_circ'), note: opt(e.note),
       };
     });
 
@@ -601,20 +619,35 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
     indication: opt(d.indication),
     bloodLossMl: opt(d.blood_loss_ml),
     complications: d.complications.map(complicationCodes.label),
+    complicationsNote: opt(d.complications_note),
     medicines: d.medicines.map(labourMedicineCodes.label),
+    medicinesNote: opt(d.medicines_note),
     babyIds: (babiesByPregnancy.get(d.pregnancy_id) ?? []).map((b) => asBabyId(b.id)),
+    place: d.place,
+    labourOnset: opt(d.labour_onset),
+    perineum: opt(d.perineum),
+    maternalCondition: opt(d.maternal_condition),
+    attendedBy: opt(d.attended_by),
   }));
 
   s.babies = babies.map((b): Baby => ({
     id: asBabyId(b.id), childId: b.child_id, motherId: asMotherId(b.mother_id), pregnancyId: asPregnancyId(b.pregnancy_id), dob: new Date(b.dob), sex: babySex(b.sex),
-    birthWeightG: b.birth_weight_g ?? 0, gaAtBirthDays: b.ga_at_birth_days ?? 0, apgar1: opt(b.apgar1), apgar5: opt(b.apgar5), outcome: b.outcome, intensity: b.intensity,
+    birthWeightG: opt(b.birth_weight_g), gaAtBirthDays: b.ga_at_birth_days ?? 0, apgar1: opt(b.apgar1), apgar5: opt(b.apgar5), outcome: b.outcome, intensity: b.intensity,
     deceasedAt: tsOpt(b.deceased_at),
+    lengthCm: opt(b.length_cm), headCircCm: opt(b.head_circ_cm), stillbirthType: opt(b.stillbirth_type), resuscitation: opt(b.resuscitation),
+    birthDefects: opt(b.birth_defects), breastfedWithin1h: opt(b.breastfed_within_1h), vitaminK: opt(b.vitamin_k),
   }));
 
   const vaccine = new Map(vaccines.map((v) => [v.code, v]));
   s.immunizations = immunizations.flatMap((z): Immunization[] =>
     z.baby_id
-      ? [{ id: asImmunizationId(z.id), babyId: asBabyId(z.baby_id), code: z.code, label: vaccine.get(z.code)?.label ?? z.code, group: vaccine.get(z.code)?.grp ?? '', dueOn: day(z.due_on), givenOn: dayOpt(z.given_on) }]
+      ? [{
+          id: asImmunizationId(z.id), babyId: asBabyId(z.baby_id), code: z.code, label: vaccine.get(z.code)?.label ?? z.code, group: vaccine.get(z.code)?.grp ?? '',
+          dueOn: day(z.due_on), givenOn: dayOpt(z.given_on), notGivenReason: z.status === 'not_given' ? (z.not_given_reason ?? '') : undefined,
+          given: z.status === 'given'
+            ? { here: z.primary_source !== false, batch: opt(z.batch), expiryOn: dayOpt(z.expiry_on), manufacturer: opt(z.manufacturer), site: opt(z.site), route: opt(z.route), location: opt(z.location) }
+            : undefined,
+        }]
       : [],
   );
 
@@ -775,7 +808,7 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
 
   s.babies = babies.map((b): Baby => ({
     id: asBabyId(b.id), childId: b.child_id, motherId, pregnancyId: pregId, dob: new Date(b.dob), sex: babySex(b.sex),
-    birthWeightG: b.birth_weight_g ?? 0, gaAtBirthDays: 0, outcome: b.live ? 'live' : 'stillbirth', intensity: 'routine',
+    birthWeightG: opt(b.birth_weight_g), gaAtBirthDays: 0, outcome: b.live ? 'live' : 'stillbirth', intensity: 'routine',
   }));
 
   // The journey's "birth" moment for the family timeline: the date only — delivery details are the clinicians'.

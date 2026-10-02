@@ -118,7 +118,7 @@ export function familyItems(db: DbState, ctx: FamilyContext, now: Date): FamilyI
   }
 
   if (ctx.scopes.baby) {
-    for (const im of db.immunizations.filter((x) => babyIds.has(x.babyId) && !x.givenOn)) {
+    for (const im of db.immunizations.filter((x) => babyIds.has(x.babyId) && !x.givenOn && x.notGivenReason === undefined)) {
       if (daysBetween(now, im.dueOn) > 45) continue;
       const st = taskStatus({ dueFrom: im.dueOn, dueBy: im.dueOn, completed: false }, now, 7);
       out.push({ id: im.id, kind: 'vaccine', subject: 'baby', titleKey: 'family.task.vaccine', titleParams: { name: im.label }, date: im.dueOn, place: 'Immunization clinic', status: st === 'missed' ? 'overdue' : st, bring: ['family.prep.bringBaby'], prep: [] });

@@ -1,11 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, Switch, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Controller, useWatch, type Control } from 'react-hook-form';
 import { gestationalAge, formatGA } from '@domain/gestation';
 
 import { asPregnancyId } from '@/data/ids';
-import { motherOf } from '@/data/selectors';
+import { fmtDay, fmtTime, motherOf } from '@/data/selectors';
 import { useDb, type DeliveryInput } from '@/data/store';
 import type { PregnancyId } from '@/data/types';
 import {
@@ -20,6 +20,7 @@ import {
   timeText,
   type DeliveryForm,
 } from '@/features/care/forms';
+import { AdmitSheet } from '@/features/care/AdmissionSheets';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
 import { firstError, useZodForm } from '@/lib/forms';
@@ -54,6 +55,7 @@ function DeliveryFormScreen({ id }: { id: PregnancyId }) {
       indication: '',
       loss: '',
       perineum: undefined,
+      perineumOther: '',
       complications: [],
       complicationsNote: '',
       medicines: ['Oxytocin'],
@@ -65,7 +67,7 @@ function DeliveryFormScreen({ id }: { id: PregnancyId }) {
     },
   });
   const { busy, once } = useSubmitOnce();
-  const admit = useSubmitOnce(p.status);
+  const [admitting, setAdmitting] = useState(false);
   const values = useWatch({ control }) as DeliveryForm;
 
   const at = birthTime(values.date, values.time);
@@ -93,7 +95,13 @@ function DeliveryFormScreen({ id }: { id: PregnancyId }) {
         </AppText>
       </View>
 
-      {p.status === 'active' && <Button variant="secondary" label="Mark admitted (labour room)" disabled={admit.busy} onPress={admit.once(() => db.admit(p.id, by, now))} />}
+      {p.status === 'active' && <Button variant="secondary" label="Admit to the labour room…" onPress={() => setAdmitting(true)} />}
+      {p.status === 'admitted' && (
+        <AppText variant="caption" tone="secondary">
+          Admitted{p.admittedAt ? ` ${fmtDay(p.admittedAt)} ${fmtTime(p.admittedAt)}` : ''}{m.ipNo ? ` · IP ${m.ipNo}` : ''}{p.admissionReason ? ` · ${p.admissionReason}` : ''}
+        </AppText>
+      )}
+      <AdmitSheet pregnancy={p} visible={admitting} onClose={() => setAdmitting(false)} />
 
       <Card style={{ gap: space.md }}>
         <AppText variant="title">Time and place of birth</AppText>
@@ -117,6 +125,9 @@ function DeliveryFormScreen({ id }: { id: PregnancyId }) {
         )}
         <Controller control={control} name="loss" render={({ field }) => <Field label="Estimated blood loss" unit="ml" keyboardType="number-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
         <Controller control={control} name="perineum" render={({ field }) => <OptionChips label="Perineum (as documented)" options={[...PERINEUM]} value={field.value} onChange={field.onChange} />} />
+        {values.perineum === 'Other' && (
+          <Controller control={control} name="perineumOther" render={({ field }) => <Field label="Perineum (as documented)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+        )}
         <Controller control={control} name="complications" render={({ field }) => <OptionChips multi label="Complications (documented)" options={COMPLICATIONS} value={field.value} onChange={field.onChange} />} />
         {values.complications?.includes('Other') && (
           <Controller control={control} name="complicationsNote" render={({ field }) => <Field label="Other complication (as documented)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
@@ -162,7 +173,7 @@ function DeliveryFormScreen({ id }: { id: PregnancyId }) {
               />
             )}
           />
-          <Controller control={control} name={`babies.${i}.weight`} render={({ field }) => <Field label="Birth weight" unit="g" keyboardType="number-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+          <Controller control={control} name={`babies.${i}.weight`} render={({ field }) => <Field label={b.outcome === 'stillbirth' ? 'Birth weight (if recorded)' : 'Birth weight'} unit="g" keyboardType="number-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
           <View style={{ flexDirection: 'row', gap: space.sm }}>
             <Controller control={control} name={`babies.${i}.length`} render={({ field }) => <Field flex label="Length" unit="cm" keyboardType="decimal-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
             <Controller control={control} name={`babies.${i}.head`} render={({ field }) => <Field flex label="Head circ." unit="cm" keyboardType="decimal-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />

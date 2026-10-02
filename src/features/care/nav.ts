@@ -18,6 +18,8 @@ export function openTarget(t: WorkItem['target']) {
       return router.push({ pathname: '/care/p/[id]', params: { id: t.id } });
     case 'baby':
       return router.push({ pathname: '/care/b/[id]', params: { id: t.id } });
+    case 'discharge':
+      return router.push({ pathname: '/care/discharge/[id]', params: { id: t.id } });
   }
 }
 

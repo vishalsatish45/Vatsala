@@ -5,38 +5,47 @@ import { Controller } from 'react-hook-form';
 import { asBabyId } from '@/data/ids';
 import { babyAgeLabel } from '@/data/selectors';
 import { useDb } from '@/data/store';
-import type { BabyId } from '@/data/types';
-import { observeSchema } from '@/features/care/forms';
+import type { Baby } from '@/data/types';
+import { NOTHING_RECORDED, makeObserveSchema, whenDefaults, type ObserveForm } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
+import { WhenFields } from '@/features/care/WhenFields';
 import { useNow } from '@/lib/clock';
-import { useZodForm } from '@/lib/forms';
+import { firstError, useZodForm } from '@/lib/forms';
 import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Field, OptionChips, Screen, TopBar, space } from '@/ui';
 
-/** CT-92 Newborn observation (PRD F-20) — stored exactly as recorded; never interpreted. */
+/** CT-92 Newborn observation (PRD F-20) — at its documented time, stored exactly as recorded; never interpreted. */
 export default function ObserveNewborn() {
   const id = asBabyId(useLocalSearchParams<{ id: string }>().id);
-  return <ObserveForm key={id} id={id} />;
+  const b = useDb((s) => s.babies.find((x) => x.id === id));
+  if (!b) return <Screen header={<TopBar back title="Newborn observation" />}><AppText>Not found.</AppText></Screen>;
+  return <ObserveFormScreen key={b.id} baby={b} />;
 }
 
-function ObserveForm({ id }: { id: BabyId }) {
+type NumberName = 'weight' | 'length' | 'head' | 'temp' | 'rr';
+
+function ObserveFormScreen({ baby: b }: { baby: Baby }) {
   const db = useDb();
   const now = useNow();
   const by = useActor();
-  const b = db.babies.find((x) => x.id === id)!;
-  const { control, handleSubmit } = useZodForm(observeSchema, { defaultValues: { weight: '', temp: '', rr: '', feeding: undefined, jaundice: undefined } });
+  const { control, handleSubmit, setValue, formState } = useZodForm(makeObserveSchema(now, b.dob), {
+    defaultValues: { ...whenDefaults(now), weight: '', length: '', head: '', temp: '', rr: '', feeding: undefined, jaundice: undefined, note: '' } satisfies ObserveForm,
+  });
   const { busy, once } = useSubmitOnce();
 
   const save = handleSubmit(
-    once((obs) => {
-      db.addNewbornObs({ babyId: b.id, at: now, by, ...obs });
+    once(({ at, ...obs }) => {
+      db.addNewbornObs({ babyId: b.id, at, by, ...obs });
       router.back();
     }),
-    // An impossible number is flagged; an empty form simply is not saved.
-    (errors) => (errors.weight || errors.temp || errors.rr) && Alert.alert('Check values', 'Some numbers look impossible — please re-check.'),
+    // An impossible number or time is flagged; an empty form simply is not saved.
+    (errors) => {
+      const msg = firstError(errors);
+      if (msg && msg !== NOTHING_RECORDED) Alert.alert('Check values', msg);
+    },
   );
 
-  const reading = (name: 'weight' | 'temp' | 'rr', label: string, unit: string, keyboardType: 'number-pad' | 'decimal-pad', flex?: boolean) => (
+  const reading = (name: NumberName, label: string, unit: string, keyboardType: 'number-pad' | 'decimal-pad', flex?: boolean) => (
     <Controller
       control={control}
       name={name}
@@ -51,7 +60,12 @@ function ObserveForm({ id }: { id: BabyId }) {
         <AppText tone="secondary">{babyAgeLabel(b, now)}</AppText>
       </View>
       <Card style={{ gap: space.md }}>
+        <WhenFields control={control} setValue={setValue} label="Time of observation" error={formState.errors.time?.message} />
         {reading('weight', 'Weight', 'g', 'number-pad')}
+        <View style={{ flexDirection: 'row', gap: space.sm }}>
+          {reading('length', 'Length', 'cm', 'decimal-pad', true)}
+          {reading('head', 'Head circumference', 'cm', 'decimal-pad', true)}
+        </View>
         <View style={{ flexDirection: 'row', gap: space.sm }}>
           {reading('temp', 'Temperature', '°C', 'decimal-pad', true)}
           {reading('rr', 'Respiratory rate', '/min', 'number-pad', true)}
@@ -66,6 +80,7 @@ function ObserveForm({ id }: { id: BabyId }) {
           name="jaundice"
           render={({ field }) => <OptionChips label="Jaundice assessment (as recorded)" options={['None seen', 'Face', 'Chest', 'Abdomen', 'Palms/soles']} value={field.value} onChange={field.onChange} />}
         />
+        <Controller control={control} name="note" render={({ field }) => <Field label="Note (optional)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} multiline />} />
         <AppText variant="caption" tone="faint">
           Values are stored exactly as entered. The app does not interpret them.
         </AppText>
