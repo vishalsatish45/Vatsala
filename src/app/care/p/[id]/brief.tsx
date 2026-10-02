@@ -4,12 +4,17 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { tagLabel } from '@/data/catalogue';
 import { activeTags, fmtDay, motherOf, patientIds } from '@/data/selectors';
 import { useDb } from '@/data/store';
+import { AiDraftPanel } from '@/features/ai/AiDraftPanel';
+import { isRemote } from '@/lib/supabase';
 import { AppText, Button, Card, Chip, InfoRow, ListRow, Screen, Section, TopBar } from '@/ui';
 
 /**
  * Case File: the patient's complete documented record in one place —
  * history, previous consultations, diagnoses, medications, reports,
- * pregnancy history and observations. No AI, no interpretation.
+ * pregnancy history and observations. No interpretation.
+ *
+ * Supabase mode adds the server AI consultation brief (PRD F-27): a cited, de-identified draft that is saved
+ * only when the clinician verifies it. Mock mode shows the case file alone, unchanged.
  */
 export default function CaseFile() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -35,6 +40,8 @@ export default function CaseFile() {
         <AppText tone="secondary">{ids.ageObs}</AppText>
         {!!ids.ip && <AppText tone="secondary">{ids.ip} · {p.mchId}</AppText>}
       </View>
+
+      {isRemote && <AiDraftPanel key={p.id} db={db} subject={{ pregnancyId: p.id }} kind="brief" />}
 
       <Section title="Patient history">
         <Card>
