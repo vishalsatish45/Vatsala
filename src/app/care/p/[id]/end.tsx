@@ -6,6 +6,7 @@ import { daysBetween } from '@domain/gestation';
 import { END_REASONS, endReasonCodes } from '@/data/codes';
 import { fmtDay, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
+import { EndAdmissionSheet } from '@/features/care/AdmissionSheets';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
 import { AppText, Button, Card, DatePicker, Field, GlassSurface, OptionChips, Screen, TopBar, palette, space } from '@/ui';
@@ -26,6 +27,7 @@ export default function EndPregnancy() {
   const [on, setOn] = useState(now);
   const [note, setNote] = useState('');
   const [confirming, setConfirming] = useState(false);
+  const [endingAdmission, setEndingAdmission] = useState(false);
 
   const p = db.pregnancies.find((x) => x.id === id);
   if (!p) return <Screen header={<TopBar back title="End of care" />}><AppText>Not found.</AppText></Screen>;
@@ -33,7 +35,10 @@ export default function EndPregnancy() {
   const delivered = p.status === 'delivered';
   const reason = delivered ? 'delivered' : outcome && endReasonCodes.code(outcome);
   const future = daysBetween(now, on) > 0;
-  const ready = !!reason && !future && p.status !== 'admitted' && p.status !== 'closed';
+  // A delivered episode closes once the mother's discharge is complete (the server refuses it before).
+  const motherDischarge = db.discharges.find((x) => x.subjectId === p.id && x.subject === 'mother');
+  const dischargeOpen = delivered && !!motherDischarge && !motherDischarge.completedAt;
+  const ready = !!reason && !future && p.status !== 'admitted' && p.status !== 'closed' && !dischargeOpen;
 
   function confirm() {
     if (!ready || !reason) return;
@@ -55,7 +60,18 @@ export default function EndPregnancy() {
         <Card style={{ gap: space.sm }}>
           <AppText variant="headline">She is admitted</AppText>
           <AppText tone="secondary">End the admission first, then record how this pregnancy ended.</AppText>
-          <Button variant="secondary" label="End admission (no delivery)" onPress={() => db.endAdmission(p.id, by, now)} />
+          <Button variant="secondary" label="End admission (no delivery)…" onPress={() => setEndingAdmission(true)} />
+        </Card>
+      )}
+      <EndAdmissionSheet pregnancy={p} ipNo={m.ipNo} visible={endingAdmission} onClose={() => setEndingAdmission(false)} />
+
+      {dischargeOpen && (
+        <Card style={{ gap: space.sm }}>
+          <AppText variant="headline">Discharge first</AppText>
+          <AppText tone="secondary">
+            The mother’s discharge checklist is still open ({motherDischarge?.items.filter((i) => !i.state).length ?? 0} item(s) unresolved). Completing it ends her admission and schedules her postnatal follow-up; the episode can be closed after that.
+          </AppText>
+          <Button variant="secondary" label="Open the discharge checklist" onPress={() => router.push({ pathname: '/care/discharge/[id]', params: { id: p.id } })} />
         </Card>
       )}
 

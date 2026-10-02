@@ -124,7 +124,8 @@ export type WorkItem = {
   /** Patient identifiers for the Name / Age+OBS / IP rows. */
   motherId: string;
   pregnancyId?: string;
-  target: { type: 'pregnancy' | 'baby' | 'callback' | 'task' | 'investigation' | 'referral'; id: string };
+  /** `discharge`: the checklist of a mother (pregnancy id) or a baby (baby id). */
+  target: { type: 'pregnancy' | 'baby' | 'callback' | 'task' | 'investigation' | 'referral' | 'discharge'; id: string };
   audience: 'ob' | 'paed' | 'both';
 };
 
@@ -231,13 +232,19 @@ export function worklist(db: DbState, now: Date): WorkItem[] {
     const p = isBaby ? pById.get(b!.pregnancyId) : pById.get(d.subjectId);
     if (!p) continue;
     const m = motherOf(db, p.motherId);
+    if (isBaby && (b!.outcome !== 'live' || b!.deceasedAt)) continue;
     const openItems = d.items.filter((i) => !i.state).length;
     const since = db.deliveries.find((x) => x.pregnancyId === p.id)?.at ?? now;
-    out.push({ id: `dc_${d.subjectId}`, group: 'week', name: isBaby ? `Baby of ${m.name}` : m.name, what: `Discharge checklist · ${openItems} items open`, context: isBaby ? babyAgeLabel(b!, now) : 'Postnatal', status: 'due', statusLabel: `Open ${ago(since, now)}`, motherId: m.id, pregnancyId: p.id, target: { type: isBaby ? 'baby' : 'pregnancy', id: d.subjectId }, audience: isBaby ? 'paed' : 'ob' });
+    out.push({
+      id: `dc_${d.subjectId}`, group: 'week', name: isBaby ? `Baby of ${m.name}` : m.name,
+      what: openItems ? `Discharge checklist · ${openItems} open` : 'Discharge checklist · ready to complete',
+      context: isBaby ? babyAgeLabel(b!, now) : 'Postnatal', status: 'due', statusLabel: `Open ${ago(since, now)}`, motherId: m.id, pregnancyId: p.id,
+      target: { type: 'discharge', id: d.subjectId }, audience: isBaby ? 'paed' : 'ob',
+    });
   }
 
   for (const b of db.babies) {
-    const overdue = db.immunizations.filter((i) => i.babyId === b.id && !i.givenOn && daysBetween(i.dueOn, now) > 7);
+    const overdue = db.immunizations.filter((i) => i.babyId === b.id && !i.givenOn && i.notGivenReason === undefined && daysBetween(i.dueOn, now) > 7);
     if (!overdue.length) continue;
     const first = overdue.sort((a, z) => a.dueOn.getTime() - z.dueOn.getTime())[0]!;
     out.push({ id: `vx_${b.id}`, group: 'week', name: `Baby of ${motherOf(db, b.motherId).name}`, what: `Vaccines overdue · ${first.label}${overdue.length > 1 ? ` +${overdue.length - 1}` : ''}`, context: babyAgeLabel(b, now), status: 'overdue', statusLabel: `${daysBetween(first.dueOn, now)} days`, intensity: b.intensity, motherId: b.motherId, pregnancyId: b.pregnancyId, target: { type: 'baby', id: b.id }, audience: 'paed' });
@@ -297,7 +304,7 @@ export function kpi(db: DbState, now: Date, weeks = 8): KpiReport {
     return first && first.at.getTime() - addDays(t.dueBy, graceOf(t)).getTime() <= 48 * 3_600_000;
   });
 
-  const decidedVax = db.immunizations.filter((i) => i.givenOn || daysBetween(i.dueOn, now) > 7);
+  const decidedVax = db.immunizations.filter((i) => i.notGivenReason === undefined && (i.givenOn || daysBetween(i.dueOn, now) > 7));
   const vaxOnTime = decidedVax.filter((i) => i.givenOn && daysBetween(i.dueOn, i.givenOn) <= 7);
 
   const closedRefs = db.referrals
@@ -355,7 +362,7 @@ export function continuityEvents(db: DbState, pregnancyId: string, now: Date, au
     ev.push({ id: delivery.id, at: delivery.at, lane: 'shared', kind: 'delivery', state: 'past', label: 'Delivery', sub: delivery.mode });
     for (const b of babies) {
       for (const im of db.immunizations.filter((x) => x.babyId === b.id)) {
-        if (!im.givenOn && daysBetween(now, im.dueOn) > 60) continue;
+        if (im.notGivenReason !== undefined || (!im.givenOn && daysBetween(now, im.dueOn) > 60)) continue;
         const missed = !im.givenOn && daysBetween(im.dueOn, now) > 7;
         ev.push({ id: im.id, at: im.givenOn ?? im.dueOn, lane: 'baby', kind: 'vaccine', state: im.givenOn ? 'past' : missed ? 'missed' : 'planned', label: im.label, sub: im.group, babyIndex: babyIdx.get(b.id) });
       }

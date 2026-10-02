@@ -6,10 +6,10 @@
  * possible" typing guards ("Check value"); nothing here grades, colours or interprets a reading.
  */
 import { z } from 'zod';
-import { addDays, eddFromLmp } from '@domain/gestation';
+import { addDays, eddFromLmp, localDay } from '@domain/gestation';
 import { expectedComponents, type ComponentState } from '@domain/schedules';
 
-import type { DeliveryInput, RegisterInput, VisitInput } from '@/data/store';
+import type { DeliveryInput, RegisterInput, VaccineDoseInput, VisitInput } from '@/data/store';
 import type { CaptureField, ChecklistState, Referral } from '@/data/types';
 
 // ── shared pieces ─────────────────────────────────────────────────────────────────
@@ -230,7 +230,7 @@ export const referSchema = z
 /** Pick-list labels → server codes (deliveries.place, deliveries.labour_onset). */
 export const BIRTH_PLACES = { 'This facility': 'this_facility', 'Other facility': 'other_facility', Home: 'home', 'In transit': 'in_transit' } as const;
 export const LABOUR_ONSETS = { Spontaneous: 'spontaneous', Induced: 'induced', 'No labour (elective LSCS)': 'no_labour' } as const;
-export const PERINEUM = ['Intact', '1st degree tear', '2nd degree tear', '3rd degree tear', '4th degree tear', 'Episiotomy', 'Not applicable (LSCS)'] as const;
+export const PERINEUM = ['Intact', '1st degree tear', '2nd degree tear', '3rd degree tear', '4th degree tear', 'Episiotomy', 'Not applicable (LSCS)', 'Other'] as const;
 export const MAX_BABIES = 4;
 
 const babyFields = z.object({
@@ -287,6 +287,7 @@ export function makeDeliverySchema(now: Date, edd: Date) {
       indication: text,
       loss: text,
       perineum: choice,
+      perineumOther: text,
       complications: list,
       complicationsNote: text,
       medicines: list,
@@ -306,6 +307,7 @@ export function makeDeliverySchema(now: Date, edd: Date) {
       }
       if (!v.mode) ctx.addIssue({ code: 'custom', path: ['mode'], message: 'Please choose the mode of delivery.' });
       if (!inRange(v.loss, 0, 10000)) ctx.addIssue({ code: 'custom', path: ['loss'], message: 'Check value: blood loss 0–10000 ml.' });
+      if (v.perineum === 'Other' && !v.perineumOther.trim()) ctx.addIssue({ code: 'custom', path: ['perineumOther'], message: 'Describe the perineum as documented.' });
       if (v.complications.includes('Other') && !v.complicationsNote.trim()) {
         ctx.addIssue({ code: 'custom', path: ['complicationsNote'], message: 'Describe the other complication as documented.' });
       }
@@ -313,7 +315,8 @@ export function makeDeliverySchema(now: Date, edd: Date) {
       v.babies.slice(0, Number(v.count)).forEach((b, i) => {
         const at = (field: string, message: string) => ctx.addIssue({ code: 'custom', path: ['babies', i, field], message: `Baby ${i + 1}: ${message}` });
         if (!b.sex) at('sex', 'choose the sex (or Undetermined).');
-        if (!(Number(b.weight) >= 200 && Number(b.weight) <= 7000)) at('weight', 'birth weight 200–7000 g.');
+        // A stillborn baby's weight may not have been recorded; a liveborn baby's always is.
+        if (b.outcome === 'live' ? !(Number(b.weight) >= 200 && Number(b.weight) <= 7000) : !inRange(b.weight, 200, 7000)) at('weight', 'birth weight 200–7000 g.');
         if (!inRange(b.length, 20, 70)) at('length', 'check value: length 20–70 cm.');
         if (!inRange(b.head, 15, 50)) at('head', 'check value: head circumference 15–50 cm.');
         if (!inRange(b.apgar1, 0, 10) || !inRange(b.apgar5, 0, 10)) at('apgar1', 'Apgar scores are 0–10.');
@@ -327,7 +330,7 @@ export function makeDeliverySchema(now: Date, edd: Date) {
         mode: v.mode ?? '',
         indication: trimmedOrUndefined(v.indication),
         bloodLossMl: num(v.loss),
-        perineum: v.perineum,
+        perineum: v.perineum === 'Other' ? trimmedOrUndefined(v.perineumOther) : v.perineum,
         complications: v.complications,
         complicationsNote: v.complications.includes('Other') ? trimmedOrUndefined(v.complicationsNote) : undefined,
         medicines: v.medicines,
@@ -336,7 +339,7 @@ export function makeDeliverySchema(now: Date, edd: Date) {
         attendedBy: trimmedOrUndefined(v.attendedBy),
         babies: v.babies.slice(0, Number(v.count)).map((b) => ({
           sex: b.sex ?? 'U',
-          birthWeightG: Number(b.weight),
+          birthWeightG: num(b.weight),
           lengthCm: num(b.length),
           headCircCm: num(b.head),
           apgar1: num(b.apgar1),
@@ -353,6 +356,61 @@ export function makeDeliverySchema(now: Date, edd: Date) {
     );
 }
 export type DeliveryForm = z.input<ReturnType<typeof makeDeliverySchema>>;
+
+// ── Exact date and time (admission, end of admission, discharge, observation, death) ──
+
+/** A date + time pair typed as "DD-MM-YYYY" and "HH:MM" (24-hour, the phone's local time). */
+const whenFields = { date: text, time: text };
+/** Form defaults for a moment (usually now). */
+export const whenDefaults = (d: Date) => ({ date: dateText(d), time: timeText(d) });
+
+/** Readable, not in the future, and not before `notBefore` (e.g. the time of birth) — with the screen's own words. */
+function checkWhen(v: { date: string; time: string }, ctx: z.RefinementCtx, now: Date, notBefore?: { at: Date; message: string }) {
+  const at = birthTime(v.date, v.time);
+  if (!at) ctx.addIssue({ code: 'custom', path: ['time'], message: 'Enter the date as DD-MM-YYYY and the time as HH:MM (24-hour).' });
+  else if (at.getTime() > now.getTime() + 10 * 60_000) ctx.addIssue({ code: 'custom', path: ['time'], message: 'The time cannot be in the future.' });
+  else if (notBefore && at.getTime() < notBefore.at.getTime()) ctx.addIssue({ code: 'custom', path: ['time'], message: notBefore.message });
+}
+
+// ── CT-55/56 Admission ───────────────────────────────────────────────────────────
+
+export const ADMIT_REASONS = ['In labour', 'Induction of labour', 'Planned caesarean', 'Antenatal observation', 'Referred in'] as const;
+
+/** Admission at its documented time with its reason (server `admit` takes `at` and `reason`; it issues the IP number). */
+export function makeAdmitSchema(now: Date) {
+  return z
+    .object({ ...whenFields, reason: text })
+    .superRefine((v, ctx) => checkWhen(v, ctx, now))
+    .transform((v) => ({ at: birthTime(v.date, v.time)!, reason: trimmedOrUndefined(v.reason) }));
+}
+
+/** End of an admission without a delivery, at its documented time (not before the admission). */
+export function makeEndAdmissionSchema(now: Date, admittedAt?: Date) {
+  return z
+    .object(whenFields)
+    .superRefine((v, ctx) => checkWhen(v, ctx, now, admittedAt && { at: admittedAt, message: 'The admission cannot end before it began.' }))
+    .transform((v) => ({ at: birthTime(v.date, v.time)! }));
+}
+
+// ── CT-95 Discharge: completion time ────────────────────────────────────────────
+
+/** When the discharge happened: not in the future, not before the birth (or the admission). */
+export function makeDischargeTimeSchema(now: Date, notBefore?: Date) {
+  return z
+    .object(whenFields)
+    .superRefine((v, ctx) => checkWhen(v, ctx, now, notBefore && { at: notBefore, message: 'The discharge cannot be before the delivery or the admission.' }))
+    .transform((v) => ({ at: birthTime(v.date, v.time)! }));
+}
+
+// ── Baby's death ─────────────────────────────────────────────────────────────────
+
+/** Date and time of death: not in the future, not before the time of birth (the server refuses that too). */
+export function makeDeathSchema(now: Date, dob: Date) {
+  return z
+    .object({ ...whenFields, note: text })
+    .superRefine((v, ctx) => checkWhen(v, ctx, now, { at: dob, message: 'The time of death cannot be before the time of birth.' }))
+    .transform((v) => ({ at: birthTime(v.date, v.time)!, note: trimmedOrUndefined(v.note) }));
+}
 
 // ── CT-23/24 Investigation ───────────────────────────────────────────────────────
 
@@ -383,10 +441,103 @@ export const referralStepSchema = z.object({ inDays: z.enum(['1', '2', '3', '5',
 
 export const NOTHING_RECORDED = 'Record at least one observation';
 
-export const observeSchema = z
-  .object({ weight: reading(300, 8000), temp: reading(30, 43), rr: reading(5, 150), feeding: choice, jaundice: choice })
-  .refine((v) => !!(v.weight || v.temp || v.rr || v.feeding || v.jaundice), { path: ['feeding'], message: NOTHING_RECORDED })
-  .transform((v) => ({ weightG: numText(v.weight), tempC: numText(v.temp), respRate: numText(v.rr), feeding: v.feeding, jaundice: v.jaundice }));
+/**
+ * A newborn observation at its time (default now, not before birth). Typing guards match the server's
+ * observation_codes (nb_weight 200–20000 g, nb_length 20–110 cm, nb_head_circ 15–60 cm, nb_temp 25–45 °C,
+ * nb_resp_rate 5–150 /min): impossible entries only, never a judgement about the value.
+ */
+export function makeObserveSchema(now: Date, dob: Date) {
+  return z
+    .object({
+      ...whenFields,
+      weight: reading(200, 20000),
+      length: reading(20, 110),
+      head: reading(15, 60),
+      temp: reading(25, 45),
+      rr: reading(5, 150),
+      feeding: choice,
+      jaundice: choice,
+      note: text,
+    })
+    .superRefine((v, ctx) => {
+      checkWhen(v, ctx, now, { at: dob, message: 'An observation cannot be before the time of birth.' });
+      if (!(v.weight || v.length || v.head || v.temp || v.rr || v.feeding || v.jaundice)) ctx.addIssue({ code: 'custom', path: ['feeding'], message: NOTHING_RECORDED });
+    })
+    .transform((v) => ({
+      at: birthTime(v.date, v.time)!,
+      weightG: numText(v.weight),
+      lengthCm: numText(v.length),
+      headCircCm: numText(v.head),
+      tempC: numText(v.temp),
+      respRate: numText(v.rr),
+      feeding: v.feeding,
+      jaundice: v.jaundice,
+      note: trimmedOrUndefined(v.note),
+    }));
+}
+export type ObserveForm = z.input<ReturnType<typeof makeObserveSchema>>;
+
+// ── CT-91 Vaccine dose ───────────────────────────────────────────────────────────
+
+export const VACCINE_NOT_GIVEN_REASONS = ['Vaccine out of stock', 'Parent declined', 'Baby admitted / in NICU', 'Postponed by the doctor', 'Other'] as const;
+export const VACCINE_SITES = ['Left upper arm', 'Right upper arm', 'Left thigh', 'Right thigh', 'Oral'] as const;
+export const VACCINE_ROUTES = ['IM', 'ID', 'SC', 'Oral'] as const;
+
+/**
+ * A dose as documented: given (here, or reported from a card / another facility) on a date between birth and today —
+ * a dose may be recorded before its due date — or not given with a reason. Matches server `record_vaccine`.
+ */
+export function makeVaccineDoseSchema(now: Date, dob: Date) {
+  const born = localDay(dob).getTime();
+  const today = localDay(now).getTime();
+  return z
+    .object({
+      outcome: z.enum(['given', 'not_given']),
+      givenOn: text,
+      where: z.enum(['here', 'elsewhere']),
+      location: text,
+      batch: text,
+      expiry: text,
+      manufacturer: text,
+      site: choice,
+      route: choice,
+      reason: choice,
+      reasonOther: text,
+    })
+    .superRefine((v, ctx) => {
+      if (v.outcome === 'not_given') {
+        if (!v.reason) ctx.addIssue({ code: 'custom', path: ['reason'], message: 'Choose why the dose was not given.' });
+        else if (v.reason === 'Other' && !v.reasonOther.trim()) ctx.addIssue({ code: 'custom', path: ['reasonOther'], message: 'Write the reason.' });
+        return;
+      }
+      const on = parseDayMonthYear(v.givenOn);
+      if (!on) ctx.addIssue({ code: 'custom', path: ['givenOn'], message: 'Enter the date given as DD-MM-YYYY.' });
+      else if (on.getTime() > today) ctx.addIssue({ code: 'custom', path: ['givenOn'], message: 'The date given cannot be in the future.' });
+      else if (on.getTime() < born) ctx.addIssue({ code: 'custom', path: ['givenOn'], message: 'The date given cannot be before the birth.' });
+      if (v.expiry.trim()) {
+        const exp = parseDayMonthYear(v.expiry);
+        if (!exp) ctx.addIssue({ code: 'custom', path: ['expiry'], message: 'Enter the expiry as DD-MM-YYYY (or leave it empty).' });
+        else if (on && exp.getTime() < on.getTime()) ctx.addIssue({ code: 'custom', path: ['expiry'], message: 'The expiry date is before the date given — check it.' });
+      }
+      if (v.where === 'elsewhere' && !v.location.trim()) ctx.addIssue({ code: 'custom', path: ['location'], message: 'Say where it was given (e.g. sub-centre, from the MCP card).' });
+    })
+    .transform((v): VaccineDoseInput =>
+      v.outcome === 'not_given'
+        ? { action: 'not_given', reason: v.reason === 'Other' ? v.reasonOther.trim() : (v.reason ?? '') }
+        : {
+            action: 'given',
+            givenOn: parseDayMonthYear(v.givenOn)!,
+            here: v.where === 'here',
+            location: trimmedOrUndefined(v.location),
+            batch: trimmedOrUndefined(v.batch),
+            expiryOn: v.expiry.trim() ? parseDayMonthYear(v.expiry) : undefined,
+            manufacturer: trimmedOrUndefined(v.manufacturer),
+            site: v.site,
+            route: v.route,
+          },
+    );
+}
+export type VaccineDoseForm = z.input<ReturnType<typeof makeVaccineDoseSchema>>;
 
 // ── CT-95 Discharge checklist ────────────────────────────────────────────────────
 
@@ -395,6 +546,20 @@ export const dischargeItemResolved = z.union([
   z.object({ state: z.literal('done') }),
   z.object({ state: z.enum(['na', 'deferred']), reason: z.string().min(1) }),
 ]);
+
+/** Why a discharge item is N/A or deferred — discharge words, not the ANC "not done" list. "Other" takes free text. */
+export const DISCHARGE_REASONS = {
+  na: ['Not applicable for her / the baby', 'Baby in NICU', 'Declined by the family', 'Done at another facility', 'Other'],
+  deferred: ['At the first follow-up visit', 'Mother resting / not available', 'Interpreter not available', 'Staff not available', 'Other'],
+} as const;
+
+export const dischargeReasonSchema = z
+  .object({ reason: choice, other: text })
+  .superRefine((v, ctx) => {
+    if (!v.reason) ctx.addIssue({ code: 'custom', path: ['reason'], message: 'Choose a reason.' });
+    else if (v.reason === 'Other' && !v.other.trim()) ctx.addIssue({ code: 'custom', path: ['other'], message: 'Write the reason.' });
+  })
+  .transform((v) => ({ reason: v.reason === 'Other' ? `Other: ${v.other.trim()}` : (v.reason ?? '') }));
 
 // ── CT-74/75 Paper record capture ────────────────────────────────────────────────
 

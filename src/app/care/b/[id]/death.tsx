@@ -1,69 +1,87 @@
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Alert, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { daysBetween } from '@domain/gestation';
+import { Controller } from 'react-hook-form';
 
-import { fmtDay, motherOf } from '@/data/selectors';
+import { asBabyId } from '@/data/ids';
+import { fmtDay, fmtTime, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
+import type { Baby } from '@/data/types';
+import { makeDeathSchema, whenDefaults } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
+import { WhenFields } from '@/features/care/WhenFields';
 import { useNow } from '@/lib/clock';
-import { AppText, Button, Card, DatePicker, Field, GlassSurface, Screen, TopBar, palette, space } from '@/ui';
+import { firstError, useZodForm } from '@/lib/forms';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
+import { AppText, Button, Card, Field, GlassSurface, Screen, TopBar, palette, space } from '@/ui';
 
 /**
- * Record a baby's death (server `record_baby_death`, paediatric team). Gentle and deliberate: a confirmation step,
- * then every visit, vaccine reminder and baby message for the family stops.
+ * Record a baby's death (server `record_baby_death`, paediatric team). Gentle and deliberate: the date and time as
+ * documented (never before the time of birth), a confirmation step, then every visit, vaccine reminder and baby
+ * message for the family stops.
  */
 export default function RecordBabyDeath() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asBabyId(useLocalSearchParams<{ id: string }>().id);
+  const b = useDb((s) => s.babies.find((x) => x.id === id));
+  if (!b) return <Screen header={<TopBar back title="Baby" />}><AppText>Not found.</AppText></Screen>;
+  return <DeathForm key={b.id} baby={b} />;
+}
+
+function DeathForm({ baby: b }: { baby: Baby }) {
   const db = useDb();
   const now = useNow();
   const by = useActor();
-  const [on, setOn] = useState(now);
-  const [note, setNote] = useState('');
-  const [confirming, setConfirming] = useState(false);
-
-  const b = db.babies.find((x) => x.id === id);
-  if (!b) return <Screen header={<TopBar back title="Baby" />}><AppText>Not found.</AppText></Screen>;
+  const [confirming, setConfirming] = useState<{ at: Date; note?: string }>();
+  const { control, handleSubmit, setValue, formState } = useZodForm(makeDeathSchema(now, b.dob), { defaultValues: { ...whenDefaults(now), note: '' } });
+  const { busy, once } = useSubmitOnce();
   const m = motherOf(db, b.motherId);
-  const invalid = daysBetween(now, on) > 0 || daysBetween(b.dob, on) < 0;
   const done = !!b.deceasedAt || b.outcome !== 'live';
-  // A date in the past keeps the time it was picked at; today means now.
-  const at = daysBetween(on, now) === 0 ? now : on;
+
+  const next = handleSubmit(
+    (v) => setConfirming(v),
+    (errors) => Alert.alert('Check the date and time', firstError(errors) ?? ''),
+  );
 
   return (
     <Screen blob="none" header={<TopBar back title="Record a baby’s death" />}>
       <View style={{ gap: 4 }}>
         <AppText variant="display">{b.childId}</AppText>
-        <AppText tone="secondary">Baby of {m.name}</AppText>
+        <AppText tone="secondary">
+          Baby of {m.name} · born {fmtDay(b.dob)} {fmtTime(b.dob)}
+        </AppText>
       </View>
 
       {done ? (
         <AppText tone="secondary">This has already been recorded.</AppText>
       ) : (
         <>
-          <Card style={{ gap: space.md }}>
-            <AppText tone="secondary">Recording this stops every planned visit, vaccine reminder and baby message for the family. The baby’s record is kept.</AppText>
-            <AppText variant="label" tone="secondary">Date</AppText>
-            <DatePicker value={on} onChange={(d) => (setOn(d), setConfirming(false))} minDate={b.dob} />
-            {invalid && <AppText tone="overdue">Choose a date between birth and today.</AppText>}
-            <Field label="Note (optional)" value={note} onChangeText={setNote} multiline placeholder="For the care team" />
-          </Card>
+          {/* While confirming, the form is hidden: "Go back" returns to it, so what is confirmed is what was typed. */}
+          {!confirming && (
+            <Card style={{ gap: space.md }}>
+              <AppText tone="secondary">Recording this stops every planned visit, vaccine reminder and baby message for the family. The baby’s record is kept.</AppText>
+              <WhenFields control={control} setValue={setValue} label="Date and time (as documented)" error={formState.errors.time?.message} />
+              <Controller control={control} name="note" render={({ field }) => <Field label="Note (optional)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} multiline placeholder="For the care team" />} />
+            </Card>
+          )}
 
           {confirming ? (
             <GlassSurface strong radius={20} style={{ padding: space.lg, gap: space.sm, borderWidth: 1.5, borderColor: palette.lav400 }}>
               <AppText variant="headline">Please confirm</AppText>
-              <AppText tone="secondary">Record the death of {b.childId} on {fmtDay(at)}. This cannot be undone from the app. Please make sure the family is supported.</AppText>
+              <AppText tone="secondary">
+                Record the death of {b.childId} on {fmtDay(confirming.at)} at {fmtTime(confirming.at)}. This cannot be undone from the app. Please make sure the family is supported.
+              </AppText>
               <Button
                 label="Confirm"
-                onPress={() => {
-                  db.recordBabyDeath(b.id, at, note, by);
+                disabled={busy}
+                onPress={once(() => {
+                  db.recordBabyDeath(b.id, confirming.at, confirming.note, by);
                   router.back();
-                }}
+                })}
               />
-              <Button variant="secondary" label="Go back" onPress={() => setConfirming(false)} />
+              <Button variant="secondary" label="Go back" onPress={() => setConfirming(undefined)} />
             </GlassSurface>
           ) : (
-            <Button label="Continue" disabled={invalid} onPress={() => setConfirming(true)} />
+            <Button label="Continue" onPress={next} />
           )}
         </>
       )}

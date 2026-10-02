@@ -30,7 +30,8 @@ export function MyBaby() {
   }
 
   const age = daysBetween(baby.dob, now);
-  const vax = db.immunizations.filter((i) => i.babyId === baby.id);
+  // Doses recorded as not given are the care team's record; the family schedule never lists them (as family_schedule).
+  const vax = db.immunizations.filter((i) => i.babyId === baby.id && i.notGivenReason === undefined);
   const groups = [...new Set(vax.map((v) => v.group))];
   const visits = familyItems(db, ctx, now).filter((i) => i.subject === 'baby' && i.kind !== 'vaccine');
 
@@ -57,7 +58,7 @@ export function MyBaby() {
             suffix={` ${age < 14 ? (age === 1 ? t('family.dayOld') : t('family.daysOld')) : t('family.weeksOld')}`}
           />
           <View style={styles.tiles}>
-            <StatTile icon={Scale} label={t('family.baby.birthWeight')} value={(baby.birthWeightG / 1000).toFixed(2)} unit="kg" />
+            <StatTile icon={Scale} label={t('family.baby.birthWeight')} value={baby.birthWeightG != null ? (baby.birthWeightG / 1000).toFixed(2) : '—'} unit="kg" />
             <StatTile icon={CalendarHeart} label={t('family.baby.born')} value={String(baby.dob.getDate())} unit={baby.dob.toLocaleDateString(lang === 'en' ? 'en-IN' : `${lang}-IN`, { month: 'short' })} />
           </View>
 

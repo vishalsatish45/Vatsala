@@ -11,6 +11,8 @@ import { asPregnancyId } from '@/data/ids';
 import { activeTags, ago, continuityEvents, fmtDate, fmtDay, fmtTime, invState, motherOf, nextVisit, patientIds, sexLabel, stillDue, type DueItem } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { REFERRAL_STEPS, type Pregnancy, type StaffMember } from '@/data/types';
+import { EndAdmissionSheet } from '@/features/care/AdmissionSheets';
+import { DeliverySummaryCard } from '@/features/care/DeliverySummaryCard';
 import { EnteredInErrorSheet, type EieTarget } from '@/features/care/EnteredInErrorSheet';
 import { assignDoctorSchema, noteSchema } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
@@ -91,6 +93,8 @@ export default function PatientView() {
   const cbs = db.callbacks.filter((c) => c.motherId === m.id);
   const nv = nextVisit(db, p.id, now);
   const babies = db.babies.filter((b) => b.pregnancyId === p.id);
+  const delivery = db.deliveries.find((x) => x.pregnancyId === p.id);
+  const motherDischarge = db.discharges.find((x) => x.subjectId === p.id && x.subject === 'mother');
   const delivered = p.status === 'delivered';
   const closed = p.status === 'closed';
   const ongoing = p.status === 'active' || p.status === 'admitted';
@@ -119,6 +123,11 @@ export default function PatientView() {
             <View style={{ flex: 1 }}>
               <Button label="Record visit" icon={ClipboardPlus} onPress={() => router.push({ pathname: '/care/p/[id]/visit', params: { id: p.id } })} />
             </View>
+            {p.status === 'admitted' && (
+              <View style={{ flex: 1 }}>
+                <Button label="Record delivery" icon={Baby} onPress={() => router.push({ pathname: '/care/p/[id]/deliver', params: { id: p.id } })} />
+              </View>
+            )}
           </View>
         )
       }
@@ -189,9 +198,30 @@ export default function PatientView() {
           {babies.length > 0 && (
             <Section title="Baby">
               {babies.map((b) => (
-                <ListRow key={b.id} leading={<Baby size={22} color={palette.lav600} />} title={b.childId} subtitle={`${sexLabel(b.sex)} · ${b.birthWeightG} g at birth · born ${fmtDay(b.dob)}`} onPress={() => router.push({ pathname: '/care/b/[id]', params: { id: b.id } })} />
+                <ListRow
+                  key={b.id}
+                  leading={<Baby size={22} color={palette.lav600} />}
+                  title={b.childId}
+                  subtitle={[sexLabel(b.sex), b.outcome === 'stillbirth' ? 'stillborn' : undefined, b.birthWeightG != null ? `${b.birthWeightG} g at birth` : undefined, `born ${fmtDay(b.dob)} ${fmtTime(b.dob)}`].filter(Boolean).join(' · ')}
+                  onPress={() => router.push({ pathname: '/care/b/[id]', params: { id: b.id } })}
+                />
               ))}
             </Section>
+          )}
+
+          {p.status === 'admitted' && (
+            <Card style={{ gap: 4 }}>
+              <AppText variant="title">Admitted</AppText>
+              <AppText tone="secondary">
+                {[p.admittedAt && `${fmtDay(p.admittedAt)} ${fmtTime(p.admittedAt)}`, m.ipNo && `IP ${m.ipNo}`, p.admissionReason].filter(Boolean).join(' · ') || 'In the labour room'}
+              </AppText>
+            </Card>
+          )}
+
+          {delivery && <DeliverySummaryCard delivery={delivery} babies={babies} />}
+
+          {delivered && motherDischarge && !motherDischarge.completedAt && (
+            <Button variant="secondary" label={`Mother's discharge checklist · ${motherDischarge.items.filter((i) => !i.state).length} open`} onPress={() => router.push({ pathname: '/care/discharge/[id]', params: { id: p.id } })} />
           )}
 
           <PressableScale onPress={() => router.push({ pathname: '/care/p/[id]/brief', params: { id: p.id } })} accessibilityRole="button" accessibilityLabel="Case file">
@@ -296,7 +326,10 @@ export default function PatientView() {
               {treating && ongoing && <Chip label="Re-date (EDD)" icon={CalendarClock} onPress={() => router.push({ pathname: '/care/p/[id]/redate', params: { id: p.id } })} />}
               {treating && p.status === 'admitted' && <Chip label="End admission (no delivery)" icon={DoorOpen} onPress={() => setEndingAdmission(true)} />}
               {treating && (p.status === 'active' || delivered) && (
-                <Chip label={delivered ? 'Close episode' : 'End of pregnancy care'} onPress={() => router.push({ pathname: '/care/p/[id]/end', params: { id: p.id } })} />
+                <Chip
+                  label={delivered ? (motherDischarge && !motherDischarge.completedAt ? 'Close episode (after discharge)' : 'Close episode') : 'End of pregnancy care'}
+                  onPress={() => router.push({ pathname: '/care/p/[id]/end', params: { id: p.id } })}
+                />
               )}
             </View>
           </Section>
@@ -419,26 +452,7 @@ export default function PatientView() {
       )}
 
       <EnteredInErrorSheet target={eie} onClose={() => setEie(undefined)} />
-      <Sheet
-        visible={endingAdmission}
-        onClose={() => setEndingAdmission(false)}
-        title="End admission without delivery?"
-        subtitle={m.ipNo ? `IP ${m.ipNo}` : undefined}
-        footer={
-          <>
-            <Button
-              label="End admission"
-              onPress={() => {
-                db.endAdmission(p.id, by, now);
-                setEndingAdmission(false);
-              }}
-            />
-            <Button variant="secondary" label="Keep admitted" onPress={() => setEndingAdmission(false)} />
-          </>
-        }
-      >
-        <AppText tone="secondary">For an antenatal admission that ends without a delivery (for example after observation). After a delivery, the discharge checklist closes the admission instead. Her ANC plan continues.</AppText>
-      </Sheet>
+      <EndAdmissionSheet pregnancy={p} ipNo={m.ipNo} visible={endingAdmission} onClose={() => setEndingAdmission(false)} />
     </Screen>
   );
 }

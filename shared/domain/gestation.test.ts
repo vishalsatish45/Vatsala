@@ -6,6 +6,7 @@ import {
   formatGA,
   gestationalAge,
   lmpFromEdd,
+  localDay,
   pregnancyProgress,
   trimester,
 } from './gestation';
@@ -90,5 +91,10 @@ describe('date helpers', () => {
   });
   it('addDays crosses months', () => {
     expect(addDays(d('2026-01-30'), 3).toISOString().slice(0, 10)).toBe('2026-02-02');
+  });
+  it('localDay is the calendar day of a moment where the phone is, as a UTC-midnight date', () => {
+    // 00:30 on 3 Oct where the phone is — the UTC day may still be 2 Oct (India, 00:00–05:30)
+    expect(localDay(new Date(2026, 9, 3, 0, 30))).toEqual(d('2026-10-03'));
+    expect(localDay(new Date(2026, 9, 3, 23, 59))).toEqual(d('2026-10-03'));
   });
 });

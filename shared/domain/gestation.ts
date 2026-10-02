@@ -22,6 +22,15 @@ export function toDateOnly(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
 
+/**
+ * The calendar day a moment falls on where the phone is (its local date), as the UTC-midnight date the arithmetic
+ * here uses. Use it for "today" and for the day of a timestamp (a birth, a discharge): `toDateOnly` would take the
+ * UTC day, which in India is the previous day between 00:00 and 05:30.
+ */
+export function localDay(d: Date): Date {
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+}
+
 export function addDays(d: Date, days: number): Date {
   return new Date(toDateOnly(d).getTime() + days * DAY_MS);
 }

@@ -76,6 +76,9 @@ export type Pregnancy = {
   endedOn?: Date;
   /** The open admission (status 'admitted'), so it can be ended without a delivery. */
   admissionId?: Id;
+  /** When the open admission began, and its reason as documented. */
+  admittedAt?: Date;
+  admissionReason?: string;
   assignedDoctor?: { name: string; phone?: string };
   history: { conditions: string[]; allergies: string[]; medicines: string[]; bloodGroup?: string; heightCm?: number };
   previous: PrevPregnancy[];
@@ -218,12 +221,21 @@ export type Baby = {
   dob: Date;
   /** 'U': sex undetermined at birth (as documented). */
   sex: 'F' | 'M' | 'U';
-  birthWeightG: number;
+  /** Not always recorded for a stillborn baby. */
+  birthWeightG?: number;
   gaAtBirthDays: number;
   apgar1?: number;
   apgar5?: number;
   outcome: 'live' | 'stillbirth';
   intensity: Intensity;
+  /** Birth record as documented (Care Team only). */
+  lengthCm?: number;
+  headCircCm?: number;
+  stillbirthType?: 'fresh' | 'macerated';
+  resuscitation?: boolean;
+  birthDefects?: string;
+  breastfedWithin1h?: boolean;
+  vitaminK?: boolean;
   /** A liveborn baby who later died: no reminders and no cheerful content from then on. */
   deceasedAt?: Date;
 };
@@ -236,7 +248,10 @@ export type Delivery = {
   indication?: string;
   bloodLossMl?: number;
   complications: string[];
+  /** Free text for "Other" complications / medicines, as documented. */
+  complicationsNote?: string;
   medicines: string[];
+  medicinesNote?: string;
   babyIds: BabyId[];
   /** As documented (server pick-list codes for place and onset). */
   place?: DeliveryPlace;
@@ -249,7 +264,31 @@ export type Delivery = {
 export type DeliveryPlace = 'this_facility' | 'other_facility' | 'home' | 'in_transit';
 export type LabourOnset = 'spontaneous' | 'induced' | 'no_labour';
 
-export type Immunization = { id: ImmunizationId; babyId: BabyId; code: string; label: string; group: string; dueOn: Date; givenOn?: Date };
+export type Immunization = {
+  id: ImmunizationId;
+  babyId: BabyId;
+  code: string;
+  label: string;
+  group: string;
+  dueOn: Date;
+  givenOn?: Date;
+  /** Recorded as not given, with the reason (Care Team only). */
+  notGivenReason?: string;
+  /** How the dose was recorded (Care Team only): given here, or reported from a card / another facility. */
+  given?: VaccineDoseDetails;
+};
+
+/** What was documented with a dose (server `record_vaccine`). */
+export type VaccineDoseDetails = {
+  /** true: given at this facility · false: reported from a card or another facility. */
+  here: boolean;
+  batch?: string;
+  expiryOn?: Date;
+  manufacturer?: string;
+  site?: string;
+  route?: string;
+  location?: string;
+};
 
 export type DischargeItem = { key: string; label: string; state?: 'done' | 'na' | 'deferred'; reason?: string };
 /** `id` is the server's discharge id (Supabase mode); the demo store keys discharges by subject. */
@@ -303,6 +342,9 @@ export type NewbornObs = {
   respRate?: number;
   feeding?: string;
   jaundice?: string;
+  lengthCm?: number;
+  headCircCm?: number;
+  note?: string;
 };
 
 export type MedDose = { id: MedDoseId; motherId: MotherId; med: string; medicationId?: PrescriptionId; date: string; slot: 'morning' | 'afternoon' | 'night'; status: 'taken' | 'skipped'; at: Date };
@@ -342,4 +384,4 @@ export type AppNotification = {
 export type SharedResult = { referralId: ReferralId; investigationId: InvestigationId };
 
 /** Kinds of recorded facts that can be marked entered in error (server `mark_entered_in_error`). */
-export type EieKind = 'encounter' | 'investigation_result' | 'care_note' | 'self_log' | 'condition' | 'allergy' | 'previous_pregnancy';
+export type EieKind = 'encounter' | 'investigation_result' | 'care_note' | 'self_log' | 'condition' | 'allergy' | 'previous_pregnancy' | 'immunization';

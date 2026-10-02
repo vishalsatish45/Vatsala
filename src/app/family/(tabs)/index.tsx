@@ -180,7 +180,7 @@ export default function FamilyHome() {
           caption={isCaregiver ? `${mother.name} · ${t('family.babyAge')}` : t('family.babyAge')}
           value={String(babyAge.value)}
           suffix={` ${t(babyAge.suffixKey)}`}
-          chips={[baby.sex === 'F' ? t('family.baby.girl') : baby.sex === 'M' ? t('family.baby.boy') : t('family.baby.undetermined'), `${(baby.birthWeightG / 1000).toFixed(2)} kg`, fmtShort(baby.dob, lang)]}
+          chips={[baby.sex === 'F' ? t('family.baby.girl') : baby.sex === 'M' ? t('family.baby.boy') : t('family.baby.undetermined'), ...(baby.birthWeightG != null ? [`${(baby.birthWeightG / 1000).toFixed(2)} kg`] : []), fmtShort(baby.dob, lang)]}
         />
       ) : delivered && baby && babyAge ? (
         <HeroNumber

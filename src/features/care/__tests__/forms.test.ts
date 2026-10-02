@@ -5,13 +5,19 @@ import {
   captureSchema,
   closeCallbackSchema,
   dischargeItemResolved,
+  dischargeReasonSchema,
   eddOptions,
+  makeAdmitSchema,
+  makeDeathSchema,
   makeDeliverySchema,
+  makeDischargeTimeSchema,
+  makeEndAdmissionSchema,
+  makeObserveSchema,
   makeRegisterSchema,
   makeTagsSchema,
+  makeVaccineDoseSchema,
   makeVisitSchema,
   noteSchema,
-  observeSchema,
   referSchema,
   resultSchema,
   reviewSchema,
@@ -149,7 +155,7 @@ describe('delivery schema', () => {
   };
   const base = {
     date: '01-10-2026', time: '22:15', place: 'This facility' as const, onset: 'Induced', mode: 'LSCS (emergency)', indication: ' Fetal distress ',
-    loss: '600', perineum: 'Not applicable (LSCS)', complications: [], complicationsNote: '', medicines: ['Oxytocin'], medicinesNote: '',
+    loss: '600', perineum: 'Not applicable (LSCS)', perineumOther: '', complications: [], complicationsNote: '', medicines: ['Oxytocin'], medicinesNote: '',
     maternalCondition: ' Stable ', attendedBy: 'Dr. Priya', count: '1' as const, babies: [baby, { ...baby, sex: undefined, weight: '' }],
   };
 
@@ -188,6 +194,18 @@ describe('delivery schema', () => {
     const out = schema.parse({ ...base, babies: [{ ...baby, sex: 'U' as const, outcome: 'stillbirth' as const, stillbirthType: 'macerated' as const }] });
     expect(out.babies[0]).toMatchObject({ sex: 'U', outcome: 'stillbirth', stillbirthType: 'macerated', breastfedWithin1h: undefined, vitaminK: undefined, birthDoses: false });
   });
+
+  it('a stillborn baby may have no birth weight; a liveborn baby must', () => {
+    const still = { ...baby, outcome: 'stillbirth' as const, weight: '' };
+    expect(schema.parse({ ...base, babies: [still] }).babies[0]!.birthWeightG).toBeUndefined();
+    expect(schema.safeParse({ ...base, babies: [{ ...still, weight: '90' }] }).success).toBe(false);
+    expect(schema.safeParse({ ...base, babies: [{ ...baby, weight: '' }] }).success).toBe(false);
+  });
+
+  it('perineum "Other" is stored as the text written', () => {
+    expect(messages(schema.safeParse({ ...base, perineum: 'Other' }))).toEqual(['perineumOther: Describe the perineum as documented.']);
+    expect(schema.parse({ ...base, perineum: 'Other', perineumOther: ' Labial tear ' }).perineum).toBe('Labial tear');
+  });
 });
 
 describe('small care forms', () => {
@@ -203,10 +221,58 @@ describe('small care forms', () => {
     expect(closeCallbackSchema.parse({ outcome: 'Information given', note: ' ok ' })).toEqual({ outcome: 'Information given', note: 'ok' });
   });
 
-  it('newborn observation: impossible numbers flagged, at least one value, stored as entered', () => {
-    expect(messages(observeSchema.safeParse({ weight: '50', temp: '', rr: '', feeding: undefined, jaundice: undefined }))).toEqual(['weight: Check value']);
-    expect(messages(observeSchema.safeParse({ weight: '', temp: '', rr: '', feeding: undefined, jaundice: undefined }))).toEqual(['feeding: Record at least one observation']);
-    expect(observeSchema.parse({ weight: '3100', temp: '36,8', rr: '', feeding: 'Breastfeeding', jaundice: undefined })).toEqual({ weightG: 3100, tempC: 36.8, respRate: undefined, feeding: 'Breastfeeding', jaundice: undefined });
+  it('newborn observation: at its time, impossible numbers flagged (server limits), at least one value, stored as entered', () => {
+    const dob = new Date(2026, 9, 1, 22, 15);
+    const observe = makeObserveSchema(new Date(2026, 9, 2, 14, 0), dob);
+    const empty = { date: '02-10-2026', time: '09:30', weight: '', length: '', head: '', temp: '', rr: '', feeding: undefined, jaundice: undefined, note: '' };
+    expect(messages(observe.safeParse({ ...empty, weight: '150' }))).toEqual(['weight: Check value']);
+    expect(observe.safeParse({ ...empty, weight: '15000' }).success).toBe(true); // a toddler's weight is possible (server: 200–20000 g)
+    expect(messages(observe.safeParse(empty))).toEqual(['feeding: Record at least one observation']);
+    expect(messages(observe.safeParse({ ...empty, weight: '3100', date: '01-10-2026', time: '21:00' }))).toEqual(['time: An observation cannot be before the time of birth.']);
+    expect(observe.parse({ ...empty, weight: '3100', length: '50,5', head: '34', temp: '36,8', feeding: 'Breastfeeding', note: ' calm ' })).toEqual({
+      at: new Date(2026, 9, 2, 9, 30), weightG: 3100, lengthCm: 50.5, headCircCm: 34, tempC: 36.8, respRate: undefined, feeding: 'Breastfeeding', jaundice: undefined, note: 'calm',
+    });
+  });
+
+  it('admission and its end: exact time, not in the future, not ending before it began', () => {
+    const now = new Date(2026, 9, 2, 14, 0);
+    expect(makeAdmitSchema(now).parse({ date: '02-10-2026', time: '06:40', reason: ' In labour ' })).toEqual({ at: new Date(2026, 9, 2, 6, 40), reason: 'In labour' });
+    expect(messages(makeAdmitSchema(now).safeParse({ date: '02-10-2026', time: '16:00', reason: '' }))).toEqual(['time: The time cannot be in the future.']);
+    const end = makeEndAdmissionSchema(now, new Date(2026, 9, 2, 6, 40));
+    expect(messages(end.safeParse({ date: '02-10-2026', time: '05:00' }))).toEqual(['time: The admission cannot end before it began.']);
+    expect(end.parse({ date: '02-10-2026', time: '12:00' })).toEqual({ at: new Date(2026, 9, 2, 12, 0) });
+  });
+
+  it("a baby's death on the day of birth: never before the time of birth", () => {
+    const dob = new Date(2026, 9, 2, 3, 10);
+    const death = makeDeathSchema(new Date(2026, 9, 2, 14, 0), dob);
+    expect(messages(death.safeParse({ date: '02-10-2026', time: '02:00', note: '' }))).toEqual(['time: The time of death cannot be before the time of birth.']);
+    expect(death.parse({ date: '02-10-2026', time: '03:40', note: ' ' })).toEqual({ at: new Date(2026, 9, 2, 3, 40), note: undefined });
+  });
+
+  it('discharge: completion time after the birth; N/A / Defer need a discharge reason, "Other" its text', () => {
+    const t = makeDischargeTimeSchema(new Date(2026, 9, 4, 10, 0), new Date(2026, 9, 2, 3, 10));
+    expect(t.safeParse({ date: '01-10-2026', time: '10:00' }).success).toBe(false);
+    expect(t.parse({ date: '04-10-2026', time: '09:15' })).toEqual({ at: new Date(2026, 9, 4, 9, 15) });
+    expect(messages(dischargeReasonSchema.safeParse({ reason: undefined, other: '' }))).toEqual(['reason: Choose a reason.']);
+    expect(messages(dischargeReasonSchema.safeParse({ reason: 'Other', other: ' ' }))).toEqual(['other: Write the reason.']);
+    expect(dischargeReasonSchema.parse({ reason: 'Other', other: ' Family travelling ' })).toEqual({ reason: 'Other: Family travelling' });
+    expect(dischargeReasonSchema.parse({ reason: 'Baby in NICU', other: '' })).toEqual({ reason: 'Baby in NICU' });
+  });
+
+  it('vaccine dose: given between birth and today (early allowed), here or elsewhere, or not given with a reason', () => {
+    const dose = makeVaccineDoseSchema(new Date(2026, 9, 20, 10, 0), new Date(2026, 9, 2, 3, 10));
+    const given = { outcome: 'given' as const, givenOn: '20-10-2026', where: 'here' as const, location: '', batch: ' B-1 ', expiry: '', manufacturer: '', site: 'Left thigh', route: undefined, reason: undefined, reasonOther: '' };
+    expect(dose.parse(given)).toEqual({
+      action: 'given', givenOn: new Date(Date.UTC(2026, 9, 20)), here: true, location: undefined, batch: 'B-1', expiryOn: undefined, manufacturer: undefined, site: 'Left thigh', route: undefined,
+    });
+    expect(messages(dose.safeParse({ ...given, givenOn: '21-10-2026' }))).toEqual(['givenOn: The date given cannot be in the future.']);
+    expect(messages(dose.safeParse({ ...given, givenOn: '01-10-2026' }))).toEqual(['givenOn: The date given cannot be before the birth.']);
+    expect(messages(dose.safeParse({ ...given, expiry: '01-10-2026' }))).toEqual(['expiry: The expiry date is before the date given — check it.']);
+    expect(messages(dose.safeParse({ ...given, where: 'elsewhere' }))).toEqual(['location: Say where it was given (e.g. sub-centre, from the MCP card).']);
+    expect(dose.parse({ ...given, where: 'elsewhere', location: 'Sub-centre' })).toMatchObject({ here: false, location: 'Sub-centre' });
+    expect(messages(dose.safeParse({ ...given, outcome: 'not_given' }))).toEqual(['reason: Choose why the dose was not given.']);
+    expect(dose.parse({ ...given, outcome: 'not_given', reason: 'Other', reasonOther: ' Fever documented ' })).toEqual({ action: 'not_given', reason: 'Fever documented' });
   });
 
   it('discharge items resolve only when done, or N/A / deferred with a reason', () => {
