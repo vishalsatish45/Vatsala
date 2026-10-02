@@ -64,7 +64,8 @@ function parse<S extends z.ZodType>(schema: S, data: unknown, what: string): z.i
   return r.data;
 }
 
-async function invoke<S extends z.ZodType>(fn: string, body: Record<string, unknown>, schema: S): Promise<z.infer<S>> {
+/** Calls an Edge Function and parses its reply strictly; a refusal becomes an AiError with the server's PT code. */
+export async function invoke<S extends z.ZodType>(fn: string, body: Record<string, unknown>, schema: S): Promise<z.infer<S>> {
   const { data, error } = await supabase().functions.invoke(fn, { body });
   if (error) {
     if (error instanceof FunctionsHttpError) {
