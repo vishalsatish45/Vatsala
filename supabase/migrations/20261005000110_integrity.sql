@@ -40,6 +40,10 @@ declare
   k text;
 begin
   if app.demo_reset_active() then return new; end if;
+  -- a row already marked entered in error is final: its reason, author and time can never be rewritten
+  if o ->> 'status' = 'entered_in_error' and o is distinct from n then
+    raise exception '% entered in error is final', tg_table_name;
+  end if;
   for k in select jsonb_object_keys(n) loop
     -- TG_ARGV is NULL when no column may change; NULL would make this test silently pass
     if not (k = any(coalesce(tg_argv, '{}'::text[]))) and (o -> k) is distinct from (n -> k) then

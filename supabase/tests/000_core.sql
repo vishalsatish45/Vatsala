@@ -157,7 +157,9 @@ call pg_temp.fails($$update public.observations set status = 'entered_in_error' 
 update public.observations set status = 'entered_in_error', eie_reason = 'Wrong patient', eie_by = :'ob', eie_at = now()
   where id = '00000000-0000-4000-8006-000000000001';
 call pg_temp.fails($$update public.observations set status = 'final' where id = '00000000-0000-4000-8006-000000000001'$$,
-  'entered in error cannot be reinstated', '%cannot be reinstated%');
+  'entered in error cannot be reinstated', '%is final%');
+call pg_temp.fails($$update public.observations set eie_reason = 'Different story' where id = '00000000-0000-4000-8006-000000000001'$$,
+  'the reason for withdrawing an entry cannot be rewritten', '%is final%');
 call pg_temp.fails($$delete from public.observations$$, 'clinical rows are never deleted', '%never deleted%');
 call pg_temp.fails($$delete from public.mothers$$, 'mothers are never deleted', '%never deleted%');
 call pg_temp.fails(format($$insert into public.encounter_checklist (encounter_id, mother_id, component, state)
