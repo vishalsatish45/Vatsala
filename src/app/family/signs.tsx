@@ -19,6 +19,7 @@ import {
 } from 'lucide-react-native';
 
 import { WARNING_SIGNS, type SignStage } from '@/data/catalogue';
+import { infoSignStages } from '@/features/family/stage';
 import { useFamily } from '@/features/family/useFamily';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { AppText, Button, EmergencyButtons, GlassSurface, Screen, SegmentedPills, TopBar, palette, space } from '@/ui';
@@ -56,7 +57,10 @@ const ICONS: Record<string, LucideIcon> = {
 export default function WarningSigns() {
   const { t } = useTranslation();
   const ctx = useFamily();
-  const [stage, setStage] = useState<SignStage>(ctx.pregnancy?.status === 'delivered' ? 'postnatal' : 'pregnancy');
+  // After a birth (also once the episode is closed) her own signs come first; after a loss only hers (stage.ts).
+  const stages = infoSignStages(ctx.stage);
+  const [picked, setStage] = useState<SignStage>();
+  const stage = picked && stages.includes(picked) ? picked : ctx.stage === 'pregnant' || ctx.stage === 'none' ? 'pregnancy' : 'postnatal';
 
   return (
     <Screen
@@ -71,11 +75,7 @@ export default function WarningSigns() {
         </AppText>
       </GlassSurface>
 
-      <SegmentedPills
-        value={stage}
-        onChange={setStage}
-        options={(['pregnancy', 'postnatal', 'baby'] as const).map((s) => ({ value: s, label: t(`family.signs.${s}`) }))}
-      />
+      {stages.length > 1 && <SegmentedPills value={stage} onChange={setStage} options={stages.map((s) => ({ value: s, label: t(`family.signs.${s}`) }))} />}
 
       <View style={styles.grid}>
         {Object.keys(WARNING_SIGNS[stage]).map((k) => {

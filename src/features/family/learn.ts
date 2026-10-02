@@ -8,6 +8,8 @@ import { LEARN_TX } from './learnI18n';
 export type LearnCard = {
   slug: string;
   stage: 'pregnancy' | 'afterBirth' | 'newborn';
+  /** About caring for the baby (feeding …): never pushed when no living baby is shared with this account. */
+  aboutBaby?: boolean;
   weeks?: [number, number];
   tone: 'rose' | 'peach' | 'lavender';
   icon: 'apple' | 'calendar' | 'bag' | 'milk' | 'baby' | 'shield' | 'bed' | 'heart' | 'sun';
@@ -70,6 +72,7 @@ export const LEARN: LearnCard[] = [
   {
     slug: 'breastfeeding',
     stage: 'afterBirth',
+    aboutBaby: true,
     tone: 'peach',
     icon: 'milk',
     title: 'Breastfeeding in the first days',

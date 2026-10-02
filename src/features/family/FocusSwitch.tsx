@@ -11,14 +11,14 @@ import { AppText, GlassSurface, PressableScale, palette, radius } from '@/ui';
 import { useFamily } from './useFamily';
 
 /**
- * Mother / baby focus for the shared Family screens. Only meaningful once a live baby is
- * recorded; before that (or after a loss) the focus is always the mother.
+ * Mother / baby focus for the shared Family screens. Only meaningful after a birth with a living baby this account may
+ * see — also once the hospital has closed the delivered episode; before that (or after a loss) the focus is the mother.
  */
 export function useFamilyFocus() {
-  const { pregnancy, babies } = useFamily();
+  const { stage } = useFamily();
   const stored = useFamilyFocusStore((s) => s.focus);
   const setFocus = useFamilyFocusStore((s) => s.setFocus);
-  const canSwitch = pregnancy?.status === 'delivered' && babies.length > 0;
+  const canSwitch = stage === 'baby';
   return { focus: (canSwitch ? stored : 'mother') as FamilyFocus, setFocus, canSwitch };
 }
 

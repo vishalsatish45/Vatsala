@@ -2,9 +2,8 @@ import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { daysBetween } from '@domain/gestation';
-
 import { NEWBORN_DAYS } from '@/features/family/learnI18n';
+import { localDaysBetween } from '@/features/family/stage';
 import { useFamily } from '@/features/family/useFamily';
 import { useNow } from '@/lib/clock';
 import { AppText, Button, GlassSurface, PressableScale, Screen, TopBar, palette, space } from '@/ui';
@@ -14,15 +13,17 @@ export default function NewbornGuide() {
   const { t, i18n } = useTranslation();
   const lang = (['kn', 'hi'].includes(i18n.language) ? i18n.language : 'en') as 'en' | 'kn' | 'hi';
   const now = useNow();
-  const { babies } = useFamily();
-  const age = babies[0] ? Math.max(1, daysBetween(babies[0].dob, now)) : 1;
+  const { babies, stage } = useFamily();
+  // Only a living baby this account may see sets "today" (by the phone's calendar day of the birth).
+  const baby = stage === 'baby' ? babies[0] : undefined;
+  const age = baby ? Math.max(1, localDaysBetween(baby.dob, now)) : 1;
   const current = [...NEWBORN_DAYS].reverse().find((d) => d.day <= age) ?? NEWBORN_DAYS[0]!;
   const [sel, setSel] = useState(current.day);
   const day = NEWBORN_DAYS.find((d) => d.day === sel)!;
 
   return (
     <Screen blobCenterY={150} header={<TopBar back title={t('family.guide.title')} />}>
-      {babies[0] && (
+      {baby && (
         <AppText variant="bodyMedium" tone="secondary" align="center">
           {t('family.guide.today', { n: age })}
         </AppText>

@@ -6,7 +6,7 @@ import { Bell, HeartHandshake, MessageSquareText, ShieldCheck, Stethoscope, type
 import { withdrawConsent } from '@/data/sync';
 import { useFamily } from '@/features/family/useFamily';
 import { fmtShort } from '@/features/family/itemText';
-import { cancelAllReminders } from '@/lib/device';
+import { cancelReminders } from '@/features/family/reminders';
 import { useSession } from '@/state/session';
 import { AppText, Button, Card, GlassSurface, Screen, TopBar, palette, space } from '@/ui';
 
@@ -28,11 +28,7 @@ export default function Consent() {
   const [confirming, setConfirming] = useState(false);
 
   async function confirmWithdraw() {
-    try {
-      await cancelAllReminders();
-    } catch {
-      /* nothing scheduled or module unavailable */
-    }
+    await cancelReminders(); // never throws
     try {
       await withdrawConsent(); // reaches the server before this phone signs out
     } catch {

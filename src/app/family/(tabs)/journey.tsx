@@ -3,21 +3,21 @@ import { StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { HeartPulse, Pill, Scale } from 'lucide-react-native';
-import { gestationalAge } from '@domain/gestation';
+import { gestationalAge, localDay } from '@domain/gestation';
 
 import { useDb } from '@/data/store';
 import { FocusSwitch, useFamilyFocus } from '@/features/family/FocusSwitch';
 import { MyBaby } from '@/features/family/MyBaby';
 import { RecordForm } from '@/features/family/RecordForm';
 import { fmtDay, fmtShort, fmtTime } from '@/features/family/itemText';
+import { isPregnant } from '@/features/family/stage';
+import { TEST_KEYS, familyTestStatus, familyTests } from '@/features/family/tests';
 import { familyTimeline } from '@/features/family/timeline';
 import { useFamily } from '@/features/family/useFamily';
 import { useNow } from '@/lib/clock';
 import { AppText, Button, Card, ContinuityTimeline, ListRow, Screen, StatTile, StatusBadge, TopBar, UnderlineTabs, WeekScrubber, palette, space } from '@/ui';
 
 type Tab = 'journey' | 'tests' | 'readings' | 'record' | 'meds';
-
-const TEST_KEYS = ['ogtt', 'hb1', 'hb2', 'hb3', 'anomaly', 'dating', 'bg', 'urine', 'rbs', 'tsh', 'ict'];
 
 /**
  * FH-20…24 My pregnancy (Journey · Tests · Readings · Medicines) — becomes FH-30 My Baby
@@ -42,13 +42,14 @@ export default function Journey() {
     );
   }
 
-  const ga = gestationalAge(p.edd, now);
+  const ga = gestationalAge(p.edd, localDay(now));
   // Week counters only while the pregnancy is ongoing (not after a birth or an ended pregnancy).
-  const pregnant = p.status === 'active' || p.status === 'admitted';
+  const pregnant = isPregnant(p);
   const visits = db.visits.filter((v) => v.pregnancyId === p.id).sort((a, b) => b.at.getTime() - a.at.getTime());
   const last = visits[0];
   const logs = ctx.scopes.logs ? db.selfLogs.filter((l) => l.motherId === ctx.mother!.id).sort((a, b) => b.at.getTime() - a.at.getTime()) : [];
-  const tests = db.investigations.filter((i) => i.subjectId === p.id && !i.sensitive);
+  // The same list (and guards) as the test detail screen.
+  const tests = familyTests(db.investigations, ctx);
 
   return (
     <Screen withNav blob="none" header={<TopBar large title={canSwitch ? t('family.tabs.myHealth') : t('family.tabs.journey')} below={<FocusSwitch />} />}>
@@ -84,13 +85,14 @@ export default function Journey() {
         (ctx.scopes.tests ? (
           <View style={{ gap: space.sm }}>
             {tests.map((i) => {
-              const status = i.status === 'reviewed' || i.status === 'not_done' ? 'done' : i.status === 'resulted' ? 'due' : now.getTime() < i.dueFrom.getTime() ? 'upcoming' : 'due';
-              const label = i.status === 'resulted' ? t('family.status.discuss') : t(`family.status.${status}`);
+              const { status, labelKey } = familyTestStatus(i, now, ctx.isCaregiver);
+              const label = t(labelKey);
+              const finished = i.status === 'reviewed' || i.status === 'resulted';
               return (
                 <ListRow
                   key={i.id}
                   title={TEST_KEYS.includes(i.code) ? t(`family.tests.${i.code}`) : i.label}
-                  subtitle={status === 'done' && i.result ? `${fmtShort(i.result.at, lang)} · ${i.result.value}${i.result.unit ? ` ${i.result.unit}` : ''}` : status === 'done' ? fmtShort(i.dueBy, lang) : t('family.before', { date: fmtShort(i.dueBy, lang) })}
+                  subtitle={finished && i.result ? `${fmtShort(i.result.at, lang)} · ${i.result.value}${i.result.unit ? ` ${i.result.unit}` : ''}` : finished || i.status === 'not_done' ? fmtShort(i.dueBy, lang) : t('family.before', { date: fmtShort(i.dueBy, lang) })}
                   meta={<StatusBadge status={status} label={label} />}
                   onPress={() => router.push({ pathname: '/family/test/[id]' as any, params: { id: i.id } })}
                 />
@@ -124,7 +126,8 @@ export default function Journey() {
           <AppText tone="secondary">{t('family.me.limited', { name: ctx.mother.name })}</AppText>
         ))}
 
-      {tab === 'meds' && (
+      {tab === 'meds' && !ctx.scopes.logs && <AppText tone="secondary">{t('family.me.limited', { name: ctx.mother.name })}</AppText>}
+      {tab === 'meds' && ctx.scopes.logs && (
         <Card style={{ gap: space.sm }}>
           <AppText variant="caption" tone="secondary">
             {t('family.journey.medsSub')}

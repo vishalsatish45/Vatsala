@@ -5,28 +5,36 @@ import { CalendarClock, FlaskConical, MapPin, Package } from 'lucide-react-nativ
 
 import { asInvestigationId } from '@/data/ids';
 import { useDb } from '@/data/store';
-import { useFamily } from '@/features/family/useFamily';
+import { TEST_KEYS, familyTestStatus, familyTests } from '@/features/family/tests';
+import { testPlaceKey, useFamily } from '@/features/family/useFamily';
 import { fmtShort } from '@/features/family/itemText';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { useNow } from '@/lib/clock';
 import { AppText, Card, EmergencyButtons, Screen, StatusBadge, TopBar, palette, space } from '@/ui';
 
-const TEST_KEYS = ['ogtt', 'hb1', 'hb2', 'hb3', 'anomaly', 'dating', 'bg', 'urine', 'rbs', 'tsh', 'ict'];
-
-/** Family test detail: what the test is, when/where, result status. No clinical interpretation. */
+/**
+ * Family test detail: what the test is, when/where, result status. No clinical interpretation. Only a test the Journey
+ * tests tab lists (her pregnancy, not sensitive, `tests` scope) opens; any other id is simply not found.
+ */
 export default function FamilyTestDetail() {
   const id = asInvestigationId(useLocalSearchParams<{ id: string }>().id);
   const { t, i18n } = useTranslation();
   const now = useNow();
   const db = useDb();
-  useFamily();
-  const inv = db.investigations.find((x) => x.id === id);
-  if (!inv) return <Screen header={<TopBar back />}><AppText>—</AppText></Screen>;
+  const ctx = useFamily();
+  const inv = familyTests(db.investigations, ctx).find((x) => x.id === id);
+  if (!inv) {
+    return (
+      <Screen header={<TopBar back />}>
+        <AppText tone="secondary">{t('family.notFound')}</AppText>
+      </Screen>
+    );
+  }
 
   const title = TEST_KEYS.includes(inv.code) ? t(`family.tests.${inv.code}`) : inv.label;
-  const status = inv.status === 'reviewed' || inv.status === 'not_done' ? 'done' : inv.status === 'resulted' ? 'due' : now.getTime() < inv.dueFrom.getTime() ? 'upcoming' : 'due';
-  const label = inv.status === 'resulted' ? t('family.status.discuss') : t(`family.status.${status}`);
-  const place = inv.kind === 'scan' ? 'Radiology · Block A' : 'Lab · Block A';
+  const { status, labelKey } = familyTestStatus(inv, now, ctx.isCaregiver);
+  const label = t(labelKey);
+  const place = t(testPlaceKey(inv.kind));
 
   return (
     <Screen
@@ -87,7 +95,7 @@ export default function FamilyTestDetail() {
             </View>
           </View>
         )}
-        {!!inv.result && (
+        {!!inv.result && !ctx.isCaregiver && (
           <AppText variant="bodyMedium" tone="secondary">
             {t('family.status.discuss')} · {fmtShort(inv.result.at, i18n.language)}
           </AppText>

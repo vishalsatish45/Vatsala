@@ -6,6 +6,9 @@ import type { FamilyItem } from './useFamily';
 
 export const itemTitle = (t: TFunction, i: FamilyItem) => t(i.titleKey, i.titleParams);
 
+/** Where: the hospital's own words, else the default place in her language ('' when neither). */
+export const itemPlace = (t: TFunction, i: Pick<FamilyItem, 'place' | 'placeKey'>) => i.place ?? (i.placeKey ? t(i.placeKey) : '');
+
 export function itemStatus(t: TFunction, i: FamilyItem) {
   return t(`family.status.${i.status}`);
 }
