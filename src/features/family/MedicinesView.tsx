@@ -2,21 +2,25 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { BellRing, Pill } from 'lucide-react-native';
-import { addDays, toDateOnly } from '@domain/gestation';
+import { addDays, localDay } from '@domain/gestation';
 
-import { medSlots } from '@/data/catalogue';
-import { useDb } from '@/data/store';
-import type { PrescriptionId } from '@/data/types';
-import { useFamily } from '@/features/family/useFamily';
-import { scheduleDaily } from '@/lib/device';
+import { useDb, type DbState } from '@/data/store';
+import { dosesToday, familyMedsFrom } from '@/features/family/meds';
+import { replaceReminders, reminderSet } from '@/features/family/reminders';
+import { todayIso } from '@/features/family/stage';
+import { useFamily, type FamilyContext } from '@/features/family/useFamily';
 import { useNow } from '@/lib/clock';
 import { isRemote } from '@/lib/supabase';
 import { localeFor } from '@/lib/i18n';
 import { AppText, Button, Card, Chip, GlassSurface, palette, space } from '@/ui';
 
 const SLOT_HOUR = { morning: 8, afternoon: 14, night: 20 } as const;
-type Med = { name: string; id?: PrescriptionId; slots: ('morning' | 'afternoon' | 'night')[]; note: string };
-const iso = (d: Date) => toDateOnly(d).toISOString().slice(0, 10);
+/** A domain date (UTC midnight) as its `YYYY-MM-DD`. */
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+/** Her prescribed medicines as Home, My Profile and this view list them (meds.ts), in this app's mode. */
+export const familyMeds = (db: Pick<DbState, 'prescriptions'>, ctx: Pick<FamilyContext, 'mother' | 'pregnancy' | 'scopes'>) => familyMedsFrom(db, ctx, isRemote);
+export { dosesToday };
 
 /**
  * Medicines body shared by /family/medicines and My Profile —
@@ -30,23 +34,22 @@ export function MedicinesView() {
   const [reminders, setReminders] = useState(false);
   const mother = ctx.mother;
   if (!mother) return <AppText>—</AppText>;
-  // Supabase mode: the prescriptions the clinician entered, with their times of day. Demo: documented medicines.
-  const meds: Med[] = isRemote
-    ? db.prescriptions.filter((p) => p.motherId === mother.id).map((p) => ({ name: p.name, id: p.id, slots: p.slots, note: p.instructions ?? '' }))
-    : (ctx.pregnancy?.history.medicines ?? []).map((name) => ({ name, ...medSlots(name) }));
+  if (!ctx.scopes.logs) return <AppText tone="secondary">{t('family.me.limited', { name: mother.name })}</AppText>;
+  const meds = familyMeds(db, ctx);
 
-  const today = iso(now);
+  // The phone's calendar day: a dose marked at 00:30 IST belongs to today, not to yesterday (the UTC day).
+  const today = todayIso(now);
   const doseFor = (med: string, date: string, slot: string) => db.medDoses.find((d) => d.motherId === mother.id && d.med === med && d.date === date && d.slot === slot);
-  const days = Array.from({ length: 7 }, (_, i) => addDays(toDateOnly(now), i - 6));
+  const days = Array.from({ length: 7 }, (_, i) => addDays(localDay(now), i - 6));
 
   async function remind() {
-    try {
-      const slots = new Set(meds.flatMap((m) => m.slots));
-      for (const s of slots) await scheduleDaily(t('family.meds.notifTitle'), t('family.meds.notifBody'), SLOT_HOUR[s], 0);
-      setReminders(true);
-    } catch {
-      /* alert already shown */
-    }
+    // One reminder per time of day, replacing any set before (no duplicates on a second tap).
+    const slots = [...new Set(meds.flatMap((m) => m.slots))];
+    const result = await replaceReminders(
+      'meds',
+      slots.map((s) => ({ key: s, title: t('family.meds.notifTitle'), body: t('family.meds.notifBody'), hour: SLOT_HOUR[s], minute: 0 })),
+    );
+    if (reminderSet(t, result)) setReminders(true);
   }
 
   return (

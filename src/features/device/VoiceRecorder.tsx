@@ -6,10 +6,16 @@ import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, 
 
 import { AppText, PressableScale, palette, radius, space } from '@/ui';
 
-type Props = { labels: { record: string; stop: string; saved: string }; onRecorded: (uri: string | undefined, seconds: number) => void };
+type Props = {
+  /** All words come from the screen (i18n): the pill states, the microphone-blocked note and the delete button's label. */
+  labels: { record: string; stop: string; saved: string; blocked: string; remove: string };
+  onRecorded: (uri: string | undefined, seconds: number) => void;
+  /** Recording started / stopped — the screen holds its Send button while a note is being recorded. */
+  onRecording?: (recording: boolean) => void;
+};
 
 /** Voice-note pill (inspiration A "Start Talking"). Loaded lazily — needs expo-audio in the build. */
-export default function VoiceRecorder({ labels, onRecorded }: Props) {
+export default function VoiceRecorder({ labels, onRecorded, onRecording }: Props) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const state = useAudioRecorderState(recorder, 200);
   const [saved, setSaved] = useState<number>();
@@ -22,6 +28,7 @@ export default function VoiceRecorder({ labels, onRecorded }: Props) {
   async function toggle() {
     if (state.isRecording) {
       await recorder.stop();
+      onRecording?.(false);
       const uri = recorder.uri ?? undefined;
       const secs = Math.round(state.durationMillis / 1000);
       // If nothing was captured, treat as no recording so the user retries.
@@ -42,6 +49,7 @@ export default function VoiceRecorder({ labels, onRecorded }: Props) {
     }
     await recorder.prepareToRecordAsync();
     recorder.record();
+    onRecording?.(true);
     setSaved(undefined);
   }
 
@@ -64,13 +72,13 @@ export default function VoiceRecorder({ labels, onRecorded }: Props) {
         </LinearGradient>
       </PressableScale>
       {saved != null && !state.isRecording && (
-        <PressableScale onPress={() => { setSaved(undefined); onRecorded(undefined, 0); }} accessibilityRole="button" accessibilityLabel="Delete voice note">
+        <PressableScale onPress={() => { setSaved(undefined); onRecorded(undefined, 0); }} accessibilityRole="button" accessibilityLabel={labels.remove}>
           <Trash2 size={20} color={palette.inkSoft} />
         </PressableScale>
       )}
       {denied && (
         <AppText variant="caption" tone="overdue">
-          Microphone blocked — allow it in phone Settings, then try again.
+          {labels.blocked}
         </AppText>
       )}
     </View>

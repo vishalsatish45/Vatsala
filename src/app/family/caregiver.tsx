@@ -68,7 +68,7 @@ export default function AddCaregiver() {
             render={({ field }) => (
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <AppText variant="bodyMedium">{t(`family.me.scope.${k}`)}</AppText>
-                <Switch value={field.value} onValueChange={field.onChange} trackColor={{ true: palette.rose300, false: palette.divider }} thumbColor={field.value ? palette.rose500 : palette.white} />
+                <Switch value={field.value} onValueChange={field.onChange} accessibilityLabel={t(`family.me.scope.${k}`)} trackColor={{ true: palette.rose300, false: palette.divider }} thumbColor={field.value ? palette.rose500 : palette.white} />
               </View>
             )}
           />

@@ -3,8 +3,10 @@ import { Alert, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Bell, HeartHandshake, MessageCircle, MessageSquareText, ShieldCheck, Stethoscope, type LucideIcon } from 'lucide-react-native';
 
+import { RemoteError } from '@/data/remote';
 import { recordConsent } from '@/data/sync';
 import { useDb } from '@/data/store';
+import { NoAccess } from '@/features/family/NoAccess';
 import { useFamily } from '@/features/family/useFamily';
 import { LANGUAGES } from '@/lib/i18n';
 import { useSession } from '@/state/session';
@@ -32,6 +34,7 @@ export default function Onboarding() {
   const setLang = useSession((s) => s.setLang);
   const complete = useSession((s) => s.completeOnboarding);
   const signOut = useSession((s) => s.signOut);
+  const account = useSession((s) => s.account);
   const { mother, pregnancy, accountId, accountName, isCaregiver } = useFamily();
   const hospitalName = useDb((s) => s.hospital?.name);
   const [step, setStep] = useState(0);
@@ -39,6 +42,8 @@ export default function Onboarding() {
 
   const toggle = (c: string) => setChannels((x) => (x.includes(c) ? x.filter((y) => y !== c) : [...x, c]));
   const [saving, setSaving] = useState(false);
+  // The server no longer lets this account see her record (a caregiver the mother removed): no retry loop.
+  const [noAccess, setNoAccess] = useState(false);
   // The app opens only once the server has her consent (Supabase mode); the demo records it on the phone.
   async function next() {
     if (step < TOTAL - 1) return setStep(step + 1);
@@ -46,16 +51,21 @@ export default function Onboarding() {
     try {
       await recordConsent(channels, lang);
       complete(accountId, channels);
-    } catch {
-      Alert.alert(t('common.errorTitle'), t('auth.network'));
+    } catch (e) {
+      // PT404 is "not visible": not a network problem, and trying again will not help.
+      if (e instanceof RemoteError && e.code === 'PT404') setNoAccess(true);
+      else Alert.alert(t('common.errorTitle'), t('auth.network'));
     } finally {
       setSaving(false);
     }
   }
 
+  if (noAccess) return <NoAccess caregiver={isCaregiver} motherName={mother?.name ?? account?.family?.motherName} />;
+
   const footer = (
     <View style={{ gap: 8 }}>
       <Button label={step === 1 ? t('on.agree') : step === TOTAL - 1 ? t('on.finish') : t('common.continue')} onPress={next} loading={saving} disabled={step === 3 && channels.length === 0} />
+      {/* TODO(merge): confirmSignOut(signOut) from src/features/auth/confirmSignOut.ts (data/sync branch). */}
       {step === 1 && <Button variant="secondary" label={t('common.signOut')} onPress={signOut} />}
     </View>
   );
@@ -98,10 +108,13 @@ export default function Onboarding() {
           <Card>
             <InfoRow label={t('family.me.name')} value={isCaregiver ? accountName : mother?.name} />
             {isCaregiver && <InfoRow label="↳" value={mother?.name} />}
-            <InfoRow label={t('family.me.phone')} value={mother?.phone} />
+            {/* Her number, MCH ID and emergency contact are hers: a caregiver is not sent them. */}
+            {!isCaregiver && <InfoRow label={t('family.me.phone')} value={mother?.phone || undefined} />}
             <InfoRow label={t('family.card.f.hospital')} value={hospitalName} />
-            <InfoRow label="MCH ID" value={pregnancy?.mchId} />
-            <InfoRow label={t('family.card.f.emergency')} value={mother ? `${mother.emergencyContact.name} · ${mother.emergencyContact.phone}` : undefined} />
+            {!isCaregiver && <InfoRow label={t('on.mchId')} value={pregnancy?.mchId || undefined} />}
+            {!isCaregiver && (
+              <InfoRow label={t('family.card.f.emergency')} value={mother?.emergencyContact.name ? `${mother.emergencyContact.name} · ${mother.emergencyContact.phone}` : undefined} />
+            )}
           </Card>
         </>
       )}

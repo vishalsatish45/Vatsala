@@ -840,7 +840,8 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
     birthWeightG: opt(b.birth_weight_g), gaAtBirthDays: 0, outcome: b.live ? 'live' : 'stillbirth', intensity: 'routine',
   }));
 
-  // The journey's "birth" moment for the family timeline: the date only — delivery details are the clinicians'.
+  // The journey's "birth" moment for the family timeline: the date only — delivery details are the clinicians'. Built
+  // from every baby (a stillbirth too); the family timeline words it neutrally when no baby is living (timeline.ts).
   if (g && s.babies.length) {
     const first = s.babies.reduce((a, b) => (a.dob.getTime() <= b.dob.getTime() ? a : b));
     s.deliveries = [{ id: asDeliveryId(`birth_${g.id}`), pregnancyId: pregId, at: first.dob, mode: '', complications: [], medicines: [], babyIds: s.babies.map((b) => b.id) }];
@@ -866,7 +867,8 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
     dueFrom: day(i.due_from),
     dueBy: day(i.due_by),
     late: false,
-    status: i.status === 'due' ? 'due' : i.status === 'not_done' ? 'not_done' : i.result ? 'reviewed' : 'resulted',
+    // A caregiver never receives values: a finished test is simply done for them (no "result ready" prompt).
+    status: i.status === 'due' ? 'due' : i.status === 'not_done' ? 'not_done' : i.result || !isMother ? 'reviewed' : 'resulted',
     result: i.result ? { value: i.result.value_text ?? String(i.result.value_num), unit: opt(i.result.unit), at: new Date(i.result.recorded_on) } : undefined,
   }));
 

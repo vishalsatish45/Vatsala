@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import type { SelfLogId } from '@/data/types';
 import { fmtDay, fmtTime } from '@/features/family/itemText';
 import { SelfLogFields, useSelfLogForm } from '@/features/family/RecordForm';
+import { useFamily } from '@/features/family/useFamily';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { AppText, Button, GlassSurface, Screen, SyncBadge, TopBar, space } from '@/ui';
 
@@ -16,7 +17,17 @@ import { AppText, Button, GlassSurface, Screen, SyncBadge, TopBar, space } from 
 export default function LogReading() {
   const { t, i18n } = useTranslation();
   const [saved, setSaved] = useState<{ id: SelfLogId; at: Date }>();
+  const ctx = useFamily();
   const form = useSelfLogForm(setSaved);
+
+  // Nothing this account may record (a caregiver without the readings or baby scope).
+  if (!saved && form.kinds.length === 0) {
+    return (
+      <Screen header={<TopBar back />}>
+        <AppText tone="secondary">{t('family.me.limited', { name: ctx.mother?.name ?? '' })}</AppText>
+      </Screen>
+    );
+  }
 
   if (saved) {
     return (

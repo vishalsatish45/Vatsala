@@ -5,6 +5,7 @@ import { Controller, useWatch } from 'react-hook-form';
 import { useDb } from '@/data/store';
 import type { SelfLogId } from '@/data/types';
 import { FEEDING_CHOICES, MOVEMENT_CHOICES, blankSelfLog, selfLogSchema, selfLogValue, type SelfLogForm, type SelfLogKind } from '@/features/family/forms';
+import { readingKinds } from '@/features/family/stage';
 import { useFamily } from '@/features/family/useFamily';
 import { VoiceField } from '@/features/voice/VoiceField';
 import { useClock } from '@/lib/clock';
@@ -23,18 +24,22 @@ export function useSelfLogForm(onSaved: (saved: { id: SelfLogId; at: Date }) => 
   const { t } = useTranslation();
   const db = useDb();
   const ctx = useFamily();
-  const { control, handleSubmit, setValue } = useZodForm(selfLogSchema, { defaultValues: blankSelfLog });
+  // Only what this account may record (the server refuses the rest): her readings need `logs`, feeding needs `baby`
+  // and a living baby; pregnancy-only kinds while pregnant (stage.ts).
+  const kinds: SelfLogKind[] = readingKinds(ctx.stage, ctx.scopes);
+  const { control, handleSubmit, setValue } = useZodForm(selfLogSchema, { defaultValues: { ...blankSelfLog, kind: kinds[0] ?? blankSelfLog.kind } });
   const { busy, once } = useSubmitOnce();
   const values = useWatch({ control }) as SelfLogForm;
-  const kinds: SelfLogKind[] = ctx.pregnancy?.status === 'delivered' ? ['bp', 'weight', 'feeding'] : ['bp', 'weight', 'movements', 'contractions'];
 
   const save = handleSubmit(
     once((r) => {
-      if (!ctx.mother) return;
+      if (!ctx.mother || !kinds.includes(r.kind)) return;
       // Chip readings are stored as their English label; numbers exactly as typed.
       const value = r.isChoice ? t(r.value, { lng: 'en' }) : r.value;
       const at = savedAt();
-      onSaved({ id: db.addSelfLog({ motherId: ctx.mother.id, subject: r.subject, kind: r.kind, value, at, by: ctx.accountName }), at });
+      // A feeding note is for the living baby (never a stillborn baby or one who has died).
+      const babyId = r.subject === 'baby' ? ctx.babies[0]?.id : undefined;
+      onSaved({ id: db.addSelfLog({ motherId: ctx.mother.id, subject: r.subject, babyId, kind: r.kind, value, at, by: ctx.accountName }), at });
     }),
   );
 
@@ -43,7 +48,9 @@ export function useSelfLogForm(onSaved: (saved: { id: SelfLogId; at: Date }) => 
     setValue('choice', undefined, { shouldValidate: true });
   };
 
-  return { control, kinds, kind: values.kind, chooseKind, ready: !!selfLogValue(values), busy, save };
+  // A kind this account may not record (her record loaded after the form opened) is never offered or saved.
+  const allowed = kinds.includes(values.kind);
+  return { control, kinds, kind: allowed ? values.kind : undefined, chooseKind, ready: allowed && !!selfLogValue(values), busy, save };
 }
 
 /** Kind picker + the inputs for the chosen kind. `minHeight` keeps each screen's original row height. */

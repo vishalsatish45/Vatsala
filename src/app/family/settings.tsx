@@ -9,8 +9,9 @@ import { telUrl } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import type { CaregiverScopes } from '@/data/types';
 import { changeChannels } from '@/data/sync';
+import { replaceReminders, reminderSet } from '@/features/family/reminders';
 import { familyItems, useFamily } from '@/features/family/useFamily';
-import { canUseDeviceLock, scheduleAt } from '@/lib/device';
+import { canUseDeviceLock } from '@/lib/device';
 import { fmtShort } from '@/features/family/itemText';
 import { useNow } from '@/lib/clock';
 import { useSubmitOnce } from '@/lib/useSubmitOnce';
@@ -41,30 +42,21 @@ export default function FamilySettings() {
   const revoke = useSubmitOnce(caregivers.map((c) => c.id).join(','));
 
   async function setVisitReminders() {
-    try {
-      const upcoming = familyItems(db, ctx, now).filter((i) => i.status === 'upcoming' || i.status === 'due');
-      let n = 0;
-      for (const i of upcoming) {
+    // The day before each upcoming item at 09:00, replacing every visit reminder set before (no duplicates).
+    const list = familyItems(db, ctx, now)
+      .filter((i) => i.status === 'upcoming' || i.status === 'due')
+      .map((i) => {
         const at = addDays(i.date, -1);
         at.setHours(9, 0, 0, 0);
-        if (at.getTime() > Date.now()) {
-          await scheduleAt(t('family.rem.notifTitle'), t('family.rem.notifBody'), at);
-          n++;
-        }
-      }
-      setRemMsg(t('family.rem.done', { n }));
-    } catch {
-      /* alert already shown */
-    }
+        return { key: i.id, title: t('family.rem.notifTitle'), body: t('family.rem.notifBody'), at };
+      })
+      .filter((r) => r.at.getTime() > Date.now());
+    if (reminderSet(t, await replaceReminders('visits', list))) setRemMsg(t('family.rem.done', { n: list.length }));
   }
 
   async function testReminder() {
-    try {
-      await scheduleAt(t('family.rem.notifTitle'), t('family.rem.notifBody'), new Date(Date.now() + 10_000));
-      setRemMsg(t('family.rem.testDone'));
-    } catch {
-      /* alert already shown */
-    }
+    const at = new Date(Date.now() + 10_000);
+    if (reminderSet(t, await replaceReminders('test', [{ key: 'test', title: t('family.rem.notifTitle'), body: t('family.rem.notifBody'), at }]))) setRemMsg(t('family.rem.testDone'));
   }
 
   async function toggleLock(on: boolean) {
@@ -145,7 +137,7 @@ export default function FamilySettings() {
       <Card style={{ gap: 6 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm }}>
           <AppText variant="headline">{t('family.lock.title')}</AppText>
-          <Switch value={!!prefs?.lock} onValueChange={toggleLock} trackColor={{ true: palette.rose300, false: palette.divider }} thumbColor={prefs?.lock ? palette.rose500 : palette.white} />
+          <Switch value={!!prefs?.lock} onValueChange={toggleLock} accessibilityLabel={t('family.lock.title')} trackColor={{ true: palette.rose300, false: palette.divider }} thumbColor={prefs?.lock ? palette.rose500 : palette.white} />
         </View>
         <AppText variant="caption" tone="secondary">
           {t('family.lock.sub')}
@@ -174,7 +166,8 @@ export default function FamilySettings() {
 
       <ListRow title={t('family.me.consent')} subtitle={prefs ? t('family.me.consentGiven', { date: fmtShort(new Date(prefs.consentAt), i18n.language) }) : '—'} onPress={() => router.push('/family/consent')} />
 
-      {account?.faces.includes('care') && <Button variant="secondary" label="Switch to Care Team" onPress={() => chooseFace('care')} />}
+      {account?.faces.includes('care') && <Button variant="secondary" label={t('family.switchToCare')} onPress={() => chooseFace('care')} />}
+      {/* TODO(merge): confirmSignOut(signOut) from src/features/auth/confirmSignOut.ts (data/sync branch) — asks before dropping unsent writes. */}
       <Button variant="secondary" label={t('common.signOut')} onPress={signOut} />
     </Screen>
   );

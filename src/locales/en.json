@@ -106,7 +106,8 @@
       "overdue": "Overdue",
       "missed": "Missed",
       "upcoming": "Upcoming",
-      "discuss": "Result ready — discuss at your visit"
+      "discuss": "Result ready — discuss at your visit",
+      "notDone": "Not done"
     },
     "task": {
       "anc": "ANC · Hospital visit",
@@ -145,7 +146,9 @@
     "range": {
       "week": "This week",
       "month": "This month",
-      "all": "All"
+      "all": "All",
+      "previous": "Previous",
+      "next": "Next"
     },
     "journey": {
       "journey": "Journey",
@@ -161,7 +164,8 @@
       "addReading": "Add a reading",
       "medsSub": "As prescribed by your doctor",
       "weekShort": "wk",
-      "delivery": "Your baby was born"
+      "delivery": "Your baby was born",
+      "deliveryNeutral": "Delivery"
     },
     "cb": {
       "title": "Ask the hospital to call you",
@@ -176,7 +180,10 @@
       "cantCome": "Can't come — wants a new date",
       "done": "Done",
       "stop": "Stop",
-      "recorded": "Voice note"
+      "recorded": "Voice note",
+      "stopFirst": "Stop the recording to send",
+      "micBlocked": "Microphone blocked — allow it in phone Settings, then try again.",
+      "deleteVoice": "Delete voice note"
     },
     "log": {
       "title": "Record a reading",
@@ -222,7 +229,9 @@
         "hospital": "Hospital",
         "emergency": "Emergency contact"
       },
-      "none": "None"
+      "none": "None",
+      "notShared": "The emergency card is on {{name}}'s phone.",
+      "edd": "EDD"
     },
     "test": {
       "tested": "Tested",
@@ -234,7 +243,8 @@
       "afterBirth": "After birth",
       "newborn": "Newborn",
       "reviewed": "Content pending clinical review",
-      "englishOnly": "Article text is in English for now."
+      "englishOnly": "Article text is in English for now.",
+      "nothingNow": "Nothing to read here right now. Your care team is here whenever you want to talk."
     },
     "me": {
       "caregivers": "Family members who can see",
@@ -310,7 +320,12 @@
       "remindSet": "Daily reminders are set",
       "notifTitle": "Medicine reminder",
       "notifBody": "It's time for your medicine.",
-      "note": "Only medicines your doctor prescribed are shown. Your care team can see what you mark here."
+      "note": "Only medicines your doctor prescribed are shown. Your care team can see what you mark here.",
+      "subEmpty": "Today's schedule & tracking",
+      "subAll": "All doses taken today ✓",
+      "subCount": "{{taken}}/{{total}} taken today",
+      "chipDue": "{{n}} due",
+      "subPrescribed": "{{n}} prescribed · Today's schedule"
     },
     "rem": {
       "title": "Visit reminders on this phone",
@@ -320,7 +335,10 @@
       "testDone": "A test reminder will arrive in 10 seconds.",
       "notifTitle": "Reminder",
       "notifBody": "You have a hospital visit tomorrow.",
-      "privacy": "Reminders never show health details on your lock screen."
+      "privacy": "Reminders never show health details on your lock screen.",
+      "deniedTitle": "Reminders not set",
+      "denied": "Notifications are off for this app. Allow them in phone Settings, then try again.",
+      "unavailable": "Reminders need the latest build of the app."
     },
     "lock": {
       "title": "App lock",
@@ -353,6 +371,24 @@
       "day": "Day {{n}}",
       "today": "Your baby is on day {{n}}",
       "signs": "When to go to the hospital"
+    },
+    "notFound": "This isn't available.",
+    "more": "+{{n}} more",
+    "cardSub": "QR code & contacts",
+    "switchToCare": "Switch to Care Team",
+    "notShared": {
+      "title": "The baby's details are not shared with you"
+    },
+    "place": {
+      "opdB": "OPD Block B",
+      "opd": "OPD",
+      "lab": "Lab · Block A",
+      "radiology": "Radiology · Block A",
+      "immunization": "Immunization clinic"
+    },
+    "noAccess": {
+      "title": "No longer shared",
+      "caregiver": "{{name}} no longer shares her information with you. Please ask her if you think this is a mistake."
     }
   },
   "on": {
@@ -372,7 +408,8 @@
     "app": "App notifications",
     "whatsapp": "WhatsApp",
     "sms": "SMS",
-    "finish": "Start"
+    "finish": "Start",
+    "mchId": "MCH ID"
   },
   "signs": {
     "bleeding": "Bleeding",
@@ -409,5 +446,12 @@
     "listening": "Listening… speak now",
     "noPermission": "Allow the microphone to speak instead of typing.",
     "noLanguage": "Voice typing isn't available in this language on this phone yet."
+  },
+  "signOutUnsent": {
+    "title": "Unsent changes",
+    "body_one": "1 change hasn't reached the hospital yet. Signing out deletes it.",
+    "body_other": "{{count}} changes haven't reached the hospital yet. Signing out deletes them.",
+    "stay": "Stay signed in",
+    "signOut": "Sign out and delete"
   }
 }

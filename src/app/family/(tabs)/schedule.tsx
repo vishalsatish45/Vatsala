@@ -3,12 +3,12 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
-import { addDays, daysBetween, toDateOnly } from '@domain/gestation';
+import { addDays, daysBetween, localDay, toDateOnly } from '@domain/gestation';
 
 import { useDb } from '@/data/store';
 import { FocusSwitch, useFamilyFocus } from '@/features/family/FocusSwitch';
 import { familyItems, useFamily } from '@/features/family/useFamily';
-import { itemStatus, itemTitle, itemWhen } from '@/features/family/itemText';
+import { itemPlace, itemStatus, itemTitle, itemWhen } from '@/features/family/itemText';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { useNow } from '@/lib/clock';
 import { localeFor } from '@/lib/i18n';
@@ -30,7 +30,9 @@ export default function Schedule() {
   const db = useDb();
   const ctx = useFamily();
   const [range, setRange] = useState<Range>('week');
-  const [anchor, setAnchor] = useState(() => toDateOnly(now));
+  // Today by the phone's calendar (the UTC day is a day behind between 00:00 and 05:30 IST).
+  const today = localDay(now);
+  const [anchor, setAnchor] = useState(() => today);
   const { focus, canSwitch } = useFamilyFocus();
   const all = familyItems(db, ctx, now);
   const items = canSwitch ? all.filter((i) => i.subject === focus) : all;
@@ -45,7 +47,7 @@ export default function Schedule() {
     if (visits.some((v) => same(d, v.at))) state = 'done';
     else if (items.some((it) => same(d, it.date) && it.status === 'missed')) state = 'missed';
     else if (items.some((it) => same(d, it.date))) state = 'planned';
-    return { date: d, state, label: d.toLocaleDateString(localeFor(lang), { weekday: 'narrow', timeZone: 'UTC' }), isToday: same(d, now) };
+    return { date: d, state, label: d.toLocaleDateString(localeFor(lang), { weekday: 'narrow', timeZone: 'UTC' }), isToday: same(d, today) };
   });
 
   const cells = useMemo(() => monthCells(anchor), [anchor]);
@@ -67,6 +69,15 @@ export default function Schedule() {
     else setAnchor((a) => new Date(Date.UTC(a.getUTCFullYear(), a.getUTCMonth() + dir, 1)));
   };
 
+  // The speaker reads what is listed: the period, then each item with its day and status.
+  const readAloud = [
+    t('family.scheduleTitle'),
+    shown.length ? '' : t('family.noUpcoming'),
+    ...shown.map((i) => `${itemTitle(t, i)}, ${itemWhen(t, i, lang)}, ${itemStatus(t, i)}`),
+  ]
+    .filter(Boolean)
+    .join('. ');
+
   const title = range === 'week'
     ? `${monday.toLocaleDateString(localeFor(lang), { day: 'numeric', month: 'short', timeZone: 'UTC' })} – ${addDays(monday, 6).toLocaleDateString(localeFor(lang), { day: 'numeric', month: 'short', timeZone: 'UTC' })}`
     : anchor.toLocaleDateString(localeFor(lang), { month: 'long', year: 'numeric', timeZone: 'UTC' });
@@ -75,7 +86,7 @@ export default function Schedule() {
     <Screen
       withNav
       blob="none"
-      header={<TopBar large title={t('family.tabs.schedule')} below={<FocusSwitch />} right={<ReadAloudButton text={t('family.scheduleTitle')} />} />}
+      header={<TopBar large title={t('family.tabs.schedule')} below={<FocusSwitch />} right={<ReadAloudButton text={readAloud} />} />}
     >
       <SegmentedPills
         value={range}
@@ -87,11 +98,11 @@ export default function Schedule() {
         ]}
       />
       <View style={styles.navRow}>
-        <Pressable onPress={() => shift(-1)} accessibilityRole="button" accessibilityLabel="Previous" style={styles.navBtn}>
+        <Pressable onPress={() => shift(-1)} accessibilityRole="button" accessibilityLabel={t('family.range.previous')} style={styles.navBtn}>
           <ChevronLeft size={20} color={palette.rose600} />
         </Pressable>
         <AppText variant="headline">{title}</AppText>
-        <Pressable onPress={() => shift(1)} accessibilityRole="button" accessibilityLabel="Next" style={styles.navBtn}>
+        <Pressable onPress={() => shift(1)} accessibilityRole="button" accessibilityLabel={t('family.range.next')} style={styles.navBtn}>
           <ChevronRight size={20} color={palette.rose600} />
         </Pressable>
       </View>
@@ -103,9 +114,10 @@ export default function Schedule() {
       ) : (
         <GlassSurface strong style={{ padding: space.sm, gap: 4 }} key={monthKey}>
           <View style={styles.weekHead}>
-            {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((w, i) => (
+            {/* Weekday initials in her language, Monday first (the dates of the first row). */}
+            {cells.slice(0, 7).map((d, i) => (
               <AppText key={i} variant="caption" tone="faint" style={styles.cell}>
-                {w}
+                {d.toLocaleDateString(localeFor(lang), { weekday: 'narrow', timeZone: 'UTC' })}
               </AppText>
             ))}
           </View>
@@ -114,7 +126,7 @@ export default function Schedule() {
               {cells.slice(r * 7, r * 7 + 7).map((d, i) => {
                 const inMonth = d.getUTCMonth() === anchor.getUTCMonth();
                 const has = items.some((it) => same(d, it.date));
-                const isToday = same(d, now);
+                const isToday = same(d, today);
                 return (
                   <View key={i} style={styles.cell}>
                     <View style={[styles.dot, isToday && styles.today, has && styles.has]}>
@@ -135,7 +147,7 @@ export default function Schedule() {
           <ListRow
             key={i.id}
             title={itemTitle(t, i)}
-            subtitle={`${itemWhen(t, i, lang)}${i.place ? ` · ${i.place}` : ''}`}
+            subtitle={`${itemWhen(t, i, lang)}${itemPlace(t, i) ? ` · ${itemPlace(t, i)}` : ''}`}
             meta={
               <>
                 {i.kind === 'visit' && <AncBadge />}

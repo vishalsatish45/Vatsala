@@ -3,13 +3,14 @@ import { StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { CalendarHeart, Scale } from 'lucide-react-native';
-import { daysBetween } from '@domain/gestation';
+import { daysBetween, localDay } from '@domain/gestation';
 
 import { useDb } from '@/data/store';
 import { useNow } from '@/lib/clock';
 import { AppText, Button, Card, ContinuityTimeline, HeroNumber, ListRow, SegmentedPills, StatTile, StatusBadge, UnderlineTabs, space } from '@/ui';
 
 import { fmtDay, fmtShort, itemStatus, itemTitle, itemWhen } from './itemText';
+import { localDaysBetween } from './stage';
 import { familyTimeline } from './timeline';
 import { familyItems, useFamily } from './useFamily';
 
@@ -29,7 +30,9 @@ export function MyBaby() {
     return <AppText tone="secondary">{t('family.me.limited', { name: ctx.mother?.name ?? '' })}</AppText>;
   }
 
-  const age = daysBetween(baby.dob, now);
+  // By the phone's calendar: the birth's day and today (never the UTC day, a day behind 00:00–05:30 IST).
+  const age = localDaysBetween(baby.dob, now);
+  const today = localDay(now);
   // Doses recorded as not given are the care team's record; the family schedule never lists them (as family_schedule).
   const vax = db.immunizations.filter((i) => i.babyId === baby.id && i.notGivenReason === undefined);
   const groups = [...new Set(vax.map((v) => v.group))];
@@ -84,8 +87,8 @@ export function MyBaby() {
               {vax
                 .filter((v) => v.group === g)
                 .map((v) => {
-                  const overdue = !v.givenOn && daysBetween(v.dueOn, now) > 7;
-                  const due = !v.givenOn && daysBetween(v.dueOn, now) >= 0;
+                  const overdue = !v.givenOn && daysBetween(v.dueOn, today) > 7;
+                  const due = !v.givenOn && daysBetween(v.dueOn, today) >= 0;
                   return (
                     <View key={v.id} style={styles.dose}>
                       <AppText variant="bodyMedium" style={{ flex: 1 }}>

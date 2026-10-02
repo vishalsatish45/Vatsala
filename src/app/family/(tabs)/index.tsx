@@ -1,16 +1,18 @@
+import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Bell, Pill } from 'lucide-react-native';
-import { daysBetween, gestationalAge, toDateOnly, trimester } from '@domain/gestation';
+import { daysBetween, gestationalAge, localDay, trimester } from '@domain/gestation';
 
-import { medSlots } from '@/data/catalogue';
 import { useDb } from '@/data/store';
 import { FocusSwitch, useFamilyFocus } from '@/features/family/FocusSwitch';
-import { MedicinesView } from '@/features/family/MedicinesView';
+import { MedicinesView, dosesToday, familyMeds } from '@/features/family/MedicinesView';
+import { cancelReminders } from '@/features/family/reminders';
 import { familyNotificationRows } from '@/features/family/serverNotifications';
+import { localDaysBetween } from '@/features/family/stage';
 import { familyItems, useFamily, type FamilyItem } from '@/features/family/useFamily';
-import { fmtShort, itemTitle, itemWhen } from '@/features/family/itemText';
+import { fmtShort, itemPlace, itemTitle, itemWhen } from '@/features/family/itemText';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { useNow } from '@/lib/clock';
 import {
@@ -38,28 +40,38 @@ export default function FamilyHome() {
   const now = useNow();
   const db = useDb();
   const ctx = useFamily();
-  const { mother, pregnancy: p, babies, isCaregiver, accountName } = ctx;
+  const { mother, pregnancy: p, babies, isCaregiver, accountName, stage } = ctx;
   const { focus } = useFamilyFocus();
   const items = familyItems(db, ctx, now);
-  // A delivered episode stays "delivered" for the family after the hospital closes it at the end of postnatal care.
-  const birthHappened = p?.status === 'delivered' || p?.endReason === 'delivered';
-  const delivered = birthHappened && babies.length > 0;
+  // Today by the phone's calendar (the UTC day is a day behind between 00:00 and 05:30 IST).
+  const today = localDay(now);
+  // A living baby this account may see — also after the hospital closes the delivered episode (stage.ts).
+  const delivered = stage === 'baby';
+  // No living baby after a birth, or a pregnancy that ended without one: no week counter, no cheerful content.
+  const loss = stage === 'loss';
+  // A birth, but the mother has not shared the baby with this caregiver: nothing assumed either way.
+  const notShared = stage === 'notShared';
   // After delivery Home follows the Me / Baby switch; before it, everything is the mother's.
   const focusItems = delivered ? items.filter((i) => i.subject === focus) : items;
   const next = focusItems[0];
   const baby = babies[0];
-  const weekNow = p ? gestationalAge(p.edd, now).weeks : undefined;
-  const babyAge = baby ? age(daysBetween(baby.dob, now)) : undefined;
+  const weekNow = p && stage === 'pregnant' ? gestationalAge(p.edd, today).weeks : undefined;
+  const babyAge = baby && delivered ? age(localDaysBetween(baby.dob, now)) : undefined;
+
+  // After a loss, visit reminders set earlier on this phone are cancelled (her own check-ups stay on Home).
+  useEffect(() => {
+    if (loss) void cancelReminders('visits');
+  }, [loss]);
   // What the speaker button on Home says: where she (or the baby) is, then the next step.
   const readAloud = [
-    weekNow !== undefined && !delivered
+    weekNow !== undefined
       ? `${t('family.pregnancyWeek')}: ${weekNow}`
       : babyAge
         ? focus === 'baby'
           ? `${t('family.babyAge')}: ${babyAge.value} ${t(babyAge.suffixKey)}`
           : `${t('family.sinceBirth')}: ${babyAge.value} ${t(babyAge.unitKey)}`
         : '',
-    next ? `${t('family.nextStep')}: ${itemTitle(t, next)}, ${itemWhen(t, next, lang)}${next.place ? `, ${next.place}` : ''}` : t('family.noUpcoming'),
+    next ? `${t('family.nextStep')}: ${itemTitle(t, next)}, ${itemWhen(t, next, lang)}${itemPlace(t, next) ? `, ${itemPlace(t, next)}` : ''}` : t('family.noUpcoming'),
   ]
     .filter(Boolean)
     .join('. ');
@@ -71,7 +83,7 @@ export default function FamilyHome() {
       right={
         <>
           <ReadAloudButton text={readAloud} />
-          <GlassIconButton icon={Bell} accessibilityLabel="Notifications" badge={items.filter((i) => i.status === 'missed' || i.status === 'due').length + familyNotificationRows(db.notifications, babies).filter((n) => n.unread).length} onPress={() => router.push('/family/notifications')} />
+          <GlassIconButton icon={Bell} accessibilityLabel={t('family.notif.title')} badge={items.filter((i) => i.status === 'missed' || i.status === 'due').length + familyNotificationRows(db.notifications, babies).filter((n) => n.unread).length} onPress={() => router.push('/family/notifications')} />
         </>
       }
     />
@@ -85,9 +97,7 @@ export default function FamilyHome() {
     );
   }
 
-  const ga = gestationalAge(p.edd, now);
-  // No live baby after a birth, or a pregnancy that ended without one: no week counter, no cheerful content.
-  const loss = (birthHappened || p.status === 'closed') && babies.length === 0;
+  const ga = gestationalAge(p.edd, today);
   const doctorName = p.assignedDoctor?.name;
   const doctorLabel = doctorName ?? t('family.noDoctor');
   const nextMother = items.find((i) => i.subject === 'mother');
@@ -99,10 +109,10 @@ export default function FamilyHome() {
       key={babyDay.map((i) => i.id).join('+')}
       bigFirstLine
       eyebrow={nextBaby.status === 'missed' ? t('family.missedUs') : t('family.forBaby')}
-      title={babyDay.length > 1 ? `${itemTitle(t, nextBaby)} +${babyDay.length - 1} more` : itemTitle(t, nextBaby)}
+      title={babyDay.length > 1 ? `${itemTitle(t, nextBaby)} ${t('family.more', { n: babyDay.length - 1 })}` : itemTitle(t, nextBaby)}
       lines={[
         itemWhen(t, nextBaby, lang),
-        [...new Set(babyDay.map((x) => x.place ?? '').filter(Boolean))].join(' · '),
+        [...new Set(babyDay.map((x) => itemPlace(t, x)).filter(Boolean))].join(' · '),
         ...[...new Set(babyDay.flatMap((x) => [...x.bring.map((b) => t(b)), ...x.prep.map((x) => t(x))]))],
       ].filter(Boolean)}
       actionLabel={t('family.seeDetails')}
@@ -114,34 +124,24 @@ export default function FamilyHome() {
       key={i.id}
       eyebrow={i.status === 'missed' ? t('family.missedUs') : eyebrow}
       title={itemTitle(t, i)}
-      lines={[itemWhen(t, i, lang), i.place ?? '', ...i.bring.map((b) => t(b)), ...i.prep.map((x) => t(x))].filter(Boolean)}
+      lines={[itemWhen(t, i, lang), itemPlace(t, i), ...i.bring.map((b) => t(b)), ...i.prep.map((x) => t(x))].filter(Boolean)}
       actionLabel={t('family.seeDetails')}
       onAction={() => openItem(i)}
     />
   );
-  const meds = p.history.medicines ?? [];
-  const todayIso = toDateOnly(now).toISOString().slice(0, 10);
-  const totalSlots = meds.flatMap((m) => medSlots(m).slots).length;
-  const takenSlots = meds.flatMap((m) =>
-    medSlots(m).slots.filter((s) => {
-      const d = db.medDoses.find((dose) => dose.motherId === mother.id && dose.med === m && dose.date === todayIso && dose.slot === s);
-      return d?.status === 'taken';
-    }),
-  ).length;
+  // The same prescriptions (and times of day) as the medicines screen, so the two never disagree.
+  const { taken: takenSlots, total: totalSlots } = dosesToday(db, mother.id, familyMeds(db, ctx), now);
 
   const medsSubtitle =
-    totalSlots === 0
-      ? "Today's schedule & tracking"
-      : takenSlots === totalSlots
-        ? 'All doses taken today ✓'
-        : `${takenSlots}/${totalSlots} taken today`;
+    totalSlots === 0 ? t('family.meds.subEmpty') : takenSlots === totalSlots ? t('family.meds.subAll') : t('family.meds.subCount', { taken: takenSlots, total: totalSlots });
 
   const medsBadge =
     totalSlots > 0 ? (
-      <Chip label={takenSlots === totalSlots ? 'Done' : `${totalSlots - takenSlots} due`} variant="soft" />
+      <Chip label={takenSlots === totalSlots ? t('family.status.done') : t('family.meds.chipDue', { n: totalSlots - takenSlots })} variant="soft" />
     ) : undefined;
 
-  const medicinesDropdown = (
+  // A caregiver sees her medicines only with the readings scope (as `family_medicines`).
+  const medicinesDropdown = ctx.scopes.logs && (
     <DropdownSection
       title={t('family.meds.title')}
       subtitle={medsSubtitle}
@@ -158,7 +158,7 @@ export default function FamilyHome() {
     <NextStepCard
       eyebrow={next.status === 'missed' ? t('family.missedUs') : t('family.nextStep')}
       title={itemTitle(t, next)}
-      lines={[itemWhen(t, next, lang), next.place ?? '', ...next.bring.map((b) => t(b)), ...next.prep.map((x) => t(x))].filter(Boolean)}
+      lines={[itemWhen(t, next, lang), itemPlace(t, next), ...next.bring.map((b) => t(b)), ...next.prep.map((x) => t(x))].filter(Boolean)}
       actionLabel={t('family.seeDetails')}
       onAction={() => openItem(next)}
     />
@@ -174,6 +174,11 @@ export default function FamilyHome() {
             {t('family.loss.support')}
             {db.hospital?.phoneOpd ? ` · ${db.hospital.phoneOpd}` : ''}
           </AppText>
+        </GlassSurface>
+      ) : notShared ? (
+        <GlassSurface strong style={{ padding: space.lg, gap: space.sm, marginTop: space.xl }}>
+          <AppText variant="title">{t('family.notShared.title')}</AppText>
+          <AppText tone="secondary">{t('family.me.limited', { name: mother.name })}</AppText>
         </GlassSurface>
       ) : delivered && baby && babyAge && focus === 'baby' ? (
         <HeroNumber
@@ -194,18 +199,18 @@ export default function FamilyHome() {
           <HeroNumber
             caption={isCaregiver ? `${mother.name} · ${t('family.pregnancyWeek')}` : t('family.pregnancyWeek')}
             value={String(ga.weeks)}
-            suffix={` weeks`}
+            suffix={` ${t('family.weeksUnit')}`}
             subtitle={t('family.weeksDays', { w: ga.weeks, d: ga.days })}
             chips={[t('family.trimester', { n: trimester(ga) }), `🩺 ${doctorLabel}`]}
           />
           <View style={styles.tiles}>
-            <StatTile label={t('family.weeksToGo')} value={String(Math.max(0, Math.ceil(daysBetween(now, p.edd) / 7)))} unit={t('family.wks')} />
+            <StatTile label={t('family.weeksToGo')} value={String(Math.max(0, Math.ceil(daysBetween(today, p.edd) / 7)))} unit={t('family.wks')} />
             <StatTile label={t('family.dueDate')} value={String(p.edd.getUTCDate())} unit={p.edd.toLocaleDateString(lang === 'en' ? 'en-IN' : `${lang}-IN`, { month: 'short', timeZone: 'UTC' })} />
           </View>
         </>
       )}
 
-      {p.intensity !== 'routine' && !delivered && (
+      {p.intensity !== 'routine' && stage === 'pregnant' && (
         <GlassSurface strong radius={20} style={styles.note}>
           <AppText variant="bodyMedium">{t('family.seeMoreOften')}</AppText>
         </GlassSurface>

@@ -9,6 +9,7 @@ import { WARNING_SIGNS, type SignStage } from '@/data/catalogue';
 import { useDb } from '@/data/store';
 import type { CallbackId } from '@/data/types';
 import { callbackRequestSchema } from '@/features/family/forms';
+import { infoSignStages, requestSignStages } from '@/features/family/stage';
 import { useFamily } from '@/features/family/useFamily';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { VoiceField } from '@/features/voice/VoiceField';
@@ -30,13 +31,19 @@ export default function AskForCall() {
   const now = useNow();
   const db = useDb();
   const ctx = useFamily();
-  const stages: SignStage[] = ctx.pregnancy?.status === 'delivered' ? ['postnatal', 'baby'] : ['pregnancy'];
+  // Baby signs only with a living baby the family may see; after a loss only her own (stage.ts).
+  const stages = requestSignStages(ctx.stage);
+  const infoStages = infoSignStages(ctx.stage);
   const { control, handleSubmit, setValue } = useZodForm(callbackRequestSchema, { defaultValues: { signs: [], note: '', voice: undefined } });
   const { busy, once } = useSubmitOnce();
   const voice = useWatch({ control, name: 'voice' });
   const [sentId, setSentId] = useState<CallbackId>();
-  // Which warning-sign cards are shown below (reading only, not part of the request).
-  const [infoStage, setInfoStage] = useState<SignStage>(ctx.pregnancy?.status === 'delivered' ? 'postnatal' : 'pregnancy');
+  // While a voice note is being recorded, Send waits: tapping it would drop the recording (stop first, then send).
+  const [recording, setRecording] = useState(false);
+  // Which warning-sign cards are shown below (reading only, not part of the request). Follows her stage until she picks
+  // one, and never a group her stage does not offer (her record may load after this screen opens).
+  const [picked, setInfoStage] = useState<SignStage>();
+  const infoStage = picked && infoStages.includes(picked) ? picked : stages[0]!;
 
   const send = handleSubmit(
     once((r) => {
@@ -71,7 +78,7 @@ export default function AskForCall() {
     <Screen
       blob="none"
       header={<TopBar back title={t('family.emergencyCall')} right={<ReadAloudButton text={[t('family.cb.title'), t('family.cb.sub')].join('. ')} />} />}
-      footer={<Button label={t('family.cb.send')} disabled={busy} onPress={send} />}
+      footer={<Button label={recording ? t('family.cb.stopFirst') : t('family.cb.send')} disabled={busy || recording} onPress={send} />}
     >
       <View style={{ gap: 4 }}>
         <AppText variant="display">{t('family.emergencyCall')}</AppText>
@@ -108,7 +115,11 @@ export default function AskForCall() {
       <Controller control={control} name="note" render={({ field }) => <VoiceField label={t('family.cb.note')} value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} multiline />} />
 
       <Suspense fallback={null}>
-        <VoiceRecorder labels={{ record: t('family.cb.voice'), stop: t('family.cb.stop'), saved: t('family.cb.recorded') }} onRecorded={(uri, seconds) => setValue('voice', uri ? { uri, seconds } : undefined)} />
+        <VoiceRecorder
+          labels={{ record: t('family.cb.voice'), stop: t('family.cb.stop'), saved: t('family.cb.recorded'), blocked: t('family.cb.micBlocked'), remove: t('family.cb.deleteVoice') }}
+          onRecording={setRecording}
+          onRecorded={(uri, seconds) => setValue('voice', uri ? { uri, seconds } : undefined)}
+        />
       </Suspense>
       {!!voice && <VoicePlayer uri={voice.uri} seconds={voice.seconds} />}
 
@@ -119,11 +130,9 @@ export default function AskForCall() {
         </AppText>
       </GlassSurface>
 
-      <SegmentedPills
-        value={infoStage}
-        onChange={setInfoStage}
-        options={(['pregnancy', 'postnatal', 'baby'] as const).map((s) => ({ value: s, label: t(`family.signs.${s}`) }))}
-      />
+      {infoStages.length > 1 && (
+        <SegmentedPills value={infoStage} onChange={setInfoStage} options={infoStages.map((s) => ({ value: s, label: t(`family.signs.${s}`) }))} />
+      )}
 
       <View style={styles.grid}>
         {Object.keys(WARNING_SIGNS[infoStage]).map((k) => (

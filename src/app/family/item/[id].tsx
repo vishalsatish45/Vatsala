@@ -6,7 +6,7 @@ import { CalendarClock, Info, MapPin, Package } from 'lucide-react-native';
 
 import { useDb } from '@/data/store';
 import { familyItems, useFamily } from '@/features/family/useFamily';
-import { itemStatus, itemTitle, itemWhen } from '@/features/family/itemText';
+import { itemPlace, itemStatus, itemTitle, itemWhen } from '@/features/family/itemText';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { useNow } from '@/lib/clock';
 import { useSubmitOnce } from '@/lib/useSubmitOnce';
@@ -52,7 +52,7 @@ export default function FamilyItemDetail() {
                 itemTitle(t, item),
                 itemStatus(t, item),
                 `${t('family.when')}: ${itemWhen(t, item, i18n.language)}`,
-                item.place ? `${t('family.where')}: ${item.place}` : '',
+                itemPlace(t, item) ? `${t('family.where')}: ${itemPlace(t, item)}` : '',
                 ...item.bring.map((b) => t(b)),
                 ...item.prep.map((p) => t(p)),
               ]
@@ -70,7 +70,7 @@ export default function FamilyItemDetail() {
 
       <Card style={{ gap: space.md }}>
         <Line icon={CalendarClock} label={t('family.when')} value={itemWhen(t, item, i18n.language)} />
-        {!!item.place && <Line icon={MapPin} label={t('family.where')} value={item.place} />}
+        {!!itemPlace(t, item) && <Line icon={MapPin} label={t('family.where')} value={itemPlace(t, item)} />}
         {item.bring.length > 0 && <Line icon={Package} label={t('family.whatToBring')} value={item.bring.map((b) => t(b)).join(' · ')} />}
         {item.prep.length > 0 && <Line icon={Info} label={t('family.howToPrepare')} value={item.prep.map((p) => t(p)).join(' · ')} />}
       </Card>

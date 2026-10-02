@@ -6,6 +6,7 @@ import { daysBetween } from '@domain/gestation';
 
 import { useDb } from '@/data/store';
 import { familyNotificationRows } from '@/features/family/serverNotifications';
+import { familyTests } from '@/features/family/tests';
 import { familyItems, useFamily } from '@/features/family/useFamily';
 import { fmtShort, itemTitle, itemWhen } from '@/features/family/itemText';
 import { useNow } from '@/lib/clock';
@@ -39,8 +40,9 @@ export default function FamilyNotifications() {
     if (i.status === 'missed') rows.push({ id: i.id, icon: CalendarClock, title: t('family.missedUs'), body: itemTitle(t, i), href: { pathname: '/family/item/[id]', params: { id: i.id } } });
     else if (soon) rows.push({ id: i.id, icon: i.kind === 'vaccine' ? Syringe : CalendarClock, title: t('family.rem.notifTitle'), body: `${itemTitle(t, i)} · ${itemWhen(t, i, i18n.language)}`, href: { pathname: '/family/item/[id]', params: { id: i.id } } });
   }
-  if (ctx.pregnancy && ctx.scopes.tests) {
-    for (const inv of db.investigations.filter((x) => x.subjectId === ctx.pregnancy!.id && !x.sensitive && x.status === 'resulted')) {
+  // "Result ready — discuss at your visit" is the mother's prompt; a caregiver never gets it.
+  if (!ctx.isCaregiver) {
+    for (const inv of familyTests(db.investigations, ctx).filter((x) => x.status === 'resulted')) {
       rows.push({ id: inv.id, icon: FileCheck2, title: t('family.status.discuss'), body: inv.label, href: '/family/journey' });
     }
   }

@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 
 import type { Account, Face } from '@/features/auth/types';
+import { cancelReminders } from '@/features/family/reminders';
 import i18n, { deviceLang, type Lang } from '@/lib/i18n';
 
 const secureStorage: StateStorage = {
@@ -48,11 +49,13 @@ export const useSession = create<SessionState>()(
         set((s) => (s.familyPrefs[accountId] ? { familyPrefs: { ...s.familyPrefs, [accountId]: { ...s.familyPrefs[accountId]!, channels } } } : s)),
       setLock: (accountId, on) =>
         set((s) => (s.familyPrefs[accountId] ? { familyPrefs: { ...s.familyPrefs, [accountId]: { ...s.familyPrefs[accountId]!, lock: on } } } : s)),
-      withdrawConsent: (accountId) =>
+      withdrawConsent: (accountId) => {
+        void cancelReminders();
         set((s) => {
           const { [accountId]: _removed, ...rest } = s.familyPrefs;
           return { familyPrefs: rest, account: null, face: null };
-        }),
+        });
+      },
       adoptServerConsent: (accountId, purposes) =>
         set((s) => ({
           familyPrefs: {
@@ -72,7 +75,11 @@ export const useSession = create<SessionState>()(
         }),
       signIn: (account) => set({ account, face: account.faces.length === 1 ? account.faces[0]! : null }),
       chooseFace: (face) => set((s) => (s.account?.faces.includes(face) ? { face } : s)),
-      signOut: () => set({ account: null, face: null }),
+      // Reminders scheduled on this phone belong to the person signing out (shared phones): cancel them all.
+      signOut: () => {
+        void cancelReminders();
+        set({ account: null, face: null });
+      },
       setLang: (lang) => {
         void i18n.changeLanguage(lang);
         set({ lang });

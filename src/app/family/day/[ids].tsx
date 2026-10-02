@@ -5,7 +5,7 @@ import { CalendarClock, Info, MapPin, Package } from 'lucide-react-native';
 
 import { useDb } from '@/data/store';
 import { familyItems, useFamily } from '@/features/family/useFamily';
-import { fmtDay, itemStatus, itemTitle, itemWhen } from '@/features/family/itemText';
+import { fmtDay, itemPlace, itemStatus, itemTitle, itemWhen } from '@/features/family/itemText';
 import { useNow } from '@/lib/clock';
 import { AppText, Card, GlassSurface, PressableScale, Screen, StatusBadge, TopBar, palette, space } from '@/ui';
 
@@ -37,10 +37,10 @@ export default function FamilyDayDetail() {
               <StatusBadge status={item.status} label={itemStatus(t, item)} />
             </View>
             <Card style={{ gap: space.sm }}>
-              {!!item.place && (
+              {!!itemPlace(t, item) && (
                 <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'center' }}>
                   <MapPin size={16} color={palette.rose600} />
-                  <AppText variant="bodyMedium">{item.place}</AppText>
+                  <AppText variant="bodyMedium">{itemPlace(t, item)}</AppText>
                 </View>
               )}
               {item.bring.length > 0 && (
