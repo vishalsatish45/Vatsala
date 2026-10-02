@@ -140,7 +140,10 @@ export type Callback = {
   channel: 'app' | 'whatsapp';
   signs: string[];
   note?: string;
+  /** A recording still on this phone (the family's own request, or mock mode). */
   voiceUri?: string;
+  /** Internal storage key of the uploaded voice note — used only to ask for a short-lived signed URL, never shown. */
+  voicePath?: string;
   voiceSeconds?: number;
   at: Date;
   closedAt?: Date;
@@ -238,4 +241,15 @@ export type MedDose = { id: Id; motherId: Id; med: string; medicationId?: Id; da
 
 export type CaptureField = { key: string; label: string; value: string; confidence: number; confirmed: boolean };
 
-export type CaptureDoc = { id: Id; subjectId: Id; uri?: string; fields: CaptureField[]; at: Date; by: string; visitId?: Id };
+export type CaptureDoc = {
+  id: Id;
+  subjectId: Id;
+  /** The photo on this phone (just captured). */
+  uri?: string;
+  /** Internal storage key of the uploaded photo — only for a signed URL, never shown. */
+  storagePath?: string;
+  fields: CaptureField[];
+  at: Date;
+  by: string;
+  visitId?: Id;
+};

@@ -131,7 +131,7 @@ const T = {
   }),
   referral_events: z.strictObject({ id, referral_id: id, status: referralStatus, at: str, by_staff: id, note: nstr }),
   callbacks: z.strictObject({
-    id, mother_id: id, requested_by_label: str, channel: z.enum(['app', 'whatsapp', 'sms']), signs: texts, note: nstr, voice_seconds: nnum,
+    id, mother_id: id, requested_by_label: str, channel: z.enum(['app', 'whatsapp', 'sms']), signs: texts, note: nstr, voice_path: nstr, voice_seconds: nnum,
     at: str, closed_at: nstr, outcome: nstr, outcome_note: nstr, closed_by: nid, version: num,
   }),
   self_logs: z.strictObject({ id, mother_id: id, baby_id: nid, kind: str, value: str, at: str, by_label: str }),
@@ -153,7 +153,9 @@ const T = {
   care_notes: z.strictObject({ id, pregnancy_id: nid, baby_id: nid, author: id, body: str, kind: z.enum(['note', 'ai_verified']), at: str }),
   med_doses: z.strictObject({ id, medication_id: id, mother_id: id, date: str, slot, status: z.enum(['taken', 'skipped']), at: str }),
   audit_log: z.strictObject({ id: num, at: str, actor_label: nstr, role: nstr, action: str, entity_type: str }),
-  documents: z.strictObject({ id, pregnancy_id: nid, baby_id: nid, fields: z.array(captureField).nullable(), captured_at: str, captured_by: id }),
+  documents: z.strictObject({
+    id, pregnancy_id: nid, baby_id: nid, storage_path: nstr, fields: z.array(captureField).nullable(), captured_at: str, captured_by: id,
+  }),
 };
 type TableName = keyof typeof T;
 type RowOf<K extends TableName> = z.infer<(typeof T)[K]>;
@@ -520,6 +522,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
     channel: c.channel === 'app' ? 'app' : 'whatsapp',
     signs: c.signs.map(signLabel),
     note: opt(c.note),
+    voicePath: opt(c.voice_path),
     voiceSeconds: opt(c.voice_seconds),
     at: new Date(c.at),
     closedAt: tsOpt(c.closed_at),
@@ -582,7 +585,9 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
 
   const encByDoc = new Map(encounters.filter((e) => e.document_id).map((e) => [e.document_id!, e.id]));
   s.captures = documents.flatMap((d): CaptureDoc[] =>
-    d.fields ? [{ id: d.id, subjectId: subjectOf(d), fields: d.fields, at: new Date(d.captured_at), by: nameOf(d.captured_by), visitId: encByDoc.get(d.id) }] : [],
+    d.fields
+      ? [{ id: d.id, subjectId: subjectOf(d), storagePath: opt(d.storage_path), fields: d.fields, at: new Date(d.captured_at), by: nameOf(d.captured_by), visitId: encByDoc.get(d.id) }]
+      : [],
   );
 
   return { state: s, versions };

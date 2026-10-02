@@ -7,6 +7,7 @@ import { CALLBACK_OUTCOMES } from '@/data/catalogue';
 import { ago, gaLabel, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { useActor } from '@/features/care/nav';
+import { RemoteVoiceNote } from '@/features/storage/RemoteVoiceNote';
 import { useNow } from '@/lib/clock';
 import { AppText, Button, Card, Chip, Field, InfoRow, OptionChips, Screen, StatusBadge, TopBar, space } from '@/ui';
 
@@ -55,11 +56,13 @@ export default function CallbackDetail() {
           </View>
         )}
         <InfoRow label="Message" value={c.note} />
-        {c.voiceUri && (
+        {c.voiceUri ? (
           <Suspense fallback={null}>
             <VoicePlayer uri={c.voiceUri} seconds={c.voiceSeconds} />
           </Suspense>
-        )}
+        ) : c.voicePath ? (
+          <RemoteVoiceNote storageKey={c.voicePath} seconds={c.voiceSeconds} />
+        ) : null}
         {logs.map((l) => (
           <InfoRow key={l.id} label={`Home ${l.kind.toUpperCase()} (${ago(l.at, now)} ago)`} value={l.value} />
         ))}
