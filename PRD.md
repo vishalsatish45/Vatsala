@@ -1,8 +1,8 @@
-# [App Name TBD] — Product Requirements Document
+# Vatsala — Product Requirements Document
 
 **Mother–Baby Continuity-of-Care Assistant**
 
-> **App name: to be decided.** `[App Name TBD]` is a placeholder used throughout this document and in [DESIGN.md](DESIGN.md) until the team picks a name.
+> **App name: to be decided.** `Vatsala` is a placeholder used throughout this document and in [DESIGN.md](DESIGN.md) until the team picks a name.
 
 | | |
 |---|---|
@@ -51,16 +51,16 @@
 
 ## 1. Executive Summary
 
-[App Name TBD] is an **assistive, operational** mobile platform that makes sure nothing planned for a mother and her baby gets lost. It covers pregnancy registration and antenatal care, delivery, postnatal care, newborn follow-up and immunization, and keeps it all as **one continuous, linked record** shared by the hospital care team and the family.
+Vatsala is an **assistive, operational** mobile platform that makes sure nothing planned for a mother and her baby gets lost. It covers pregnancy registration and antenatal care, delivery, postnatal care, newborn follow-up and immunization, and keeps it all as **one continuous, linked record** shared by the hospital care team and the family.
 
 The clinical problem in maternal and child health is often not a lack of knowledge. It's a lack of **follow-through**. ANC visits miss routine checks because records are fragmented. High-risk pregnancies need closer follow-up, but the risk lives in paper notes. Referrals and investigations stall silently. Postnatal and newborn plans don't travel with the family. Mothers don't know when to come next or which warning signs matter. Every one of these is an **operational gap**, not a diagnostic one.
 
-[App Name TBD] has **two login faces in one app**:
+Vatsala has **two login faces in one app**:
 
 - **Care Team** (obstetricians, paediatricians): a prioritised worklist of care gaps, a one-screen "consultation-ready" patient view, ANC visit completeness checklists, clinician-set risk tags that drive follow-up intensity, investigation and referral tracking, a delivery record that automatically creates a linked newborn record, gated discharge checklists, and a follow-up engine that detects and helps recover missed visits.
 - **Family** (the mother, plus caregivers she chooses to add): her next step, her visit schedule and what to prepare, her baby's vaccination schedule, simple self-logging and a **call-back request**, clinically reviewed warning-sign education, an emergency card, all in her language. Families without smartphones get the same reminders by **WhatsApp or SMS**.
 
-**Core value proposition:** *"The clinician decides. [App Name TBD] makes sure it happens, from the first ANC visit to the baby's last vaccine."*
+**Core value proposition:** *"The clinician decides. Vatsala makes sure it happens, from the first ANC visit to the baby's last vaccine."*
 
 **Primary KPI:** the **on-time completion rate of scheduled maternal and newborn visits** (ANC, postnatal, newborn follow-up). In the hackathon it's computed live on the synthetic demo data; after the hackathon it would be measured against a paper-register baseline in a pilot.
 
@@ -79,7 +79,7 @@ The clinical problem in maternal and child health is often not a lack of knowled
 
 ### 2.1 Track & use cases covered
 
-Track: **Maternal & Child Health**. [App Name TBD] is an end-to-end connected solution; the rules allow this. It covers all six published use cases for the track:
+Track: **Maternal & Child Health**. Vatsala is an end-to-end connected solution; the rules allow this. It covers all six published use cases for the track:
 
 | Hackathon use case | Facing | Covered by |
 |---|---|---|
@@ -92,9 +92,9 @@ Track: **Maternal & Child Health**. [App Name TBD] is an end-to-end connected so
 
 **Primary user:** Doctor / Care Team. The Family app is the companion that closes the loop.
 
-### 2.2 Out of scope (hackathon rule) and how [App Name TBD] stays clear
+### 2.2 Out of scope (hackathon rule) and how Vatsala stays clear
 
-| Prohibited | [App Name TBD]'s design |
+| Prohibited | Vatsala's design |
 |---|---|
 | Diagnosis | Never. The app records what clinicians document and never labels a condition itself. |
 | Treatment recommendations | Never. Medication reminders only reflect prescriptions a clinician entered. |
@@ -201,7 +201,7 @@ None of these need the software to make a clinical judgement. They need the soft
 
 ```
                           ┌───────────────────────────┐
-                          │  [App Name TBD] (one app) │
+                          │  Vatsala (one app) │
                           │  Phone number + OTP login │
                           └─────────────┬─────────────┘
                                         │ role resolved server-side
@@ -925,7 +925,7 @@ create table tasks (
 ### 12.3 Directory structure
 
 ```
-<app-name-tbd>/
+vatsala/
 ├── app/                                # expo-router routes (thin)
 │   ├── _layout.tsx                     # providers, auth gate, role redirect
 │   ├── (auth)/ welcome · phone · otp · choose-face
@@ -1168,7 +1168,7 @@ The app reads through RLS-protected tables and views, and writes through **RPCs*
 on_time_rate = visits completed within window / visits due in period
 ```
 
-- **Why this KPI:** it directly measures follow-through, the problem [App Name TBD] exists to solve, and it's countable from paper registers for a baseline.
+- **Why this KPI:** it directly measures follow-through, the problem Vatsala exists to solve, and it's countable from paper registers for a baseline.
 - **In the hackathon:** computed automatically from `kpi_events` on the synthetic demo data and shown on a KPI screen, which proves the measurement is built in.
 - **After the hackathon (pilot):** baseline from 4 weeks of a site's existing ANC/PNC registers (a manual count of due vs attended, same window definitions), then automatic weekly measurement by visit kind and intensity.
 
@@ -1273,7 +1273,7 @@ The hackathon asks strong entries to show *a credible path* to early evidence in
 ### Phase 5: Finale preparation (9–27 Nov)
 - ✅ Hardening from mentor/jury feedback; pilot proposal slide
 - ✅ Demo rehearsals on two phones + backup video + offline fallback; hotspot backup
-- ✅ Pitch: "The clinician decides. [App Name TBD] makes sure it happens."
+- ✅ Pitch: "The clinician decides. Vatsala makes sure it happens."
 
 ---
 
@@ -1345,11 +1345,11 @@ The hackathon asks strong entries to show *a credible path* to early evidence in
 9. **Discharge** is blocked until "warning signs explained" is ticked. Completing it generates the postnatal, newborn and vaccine plan. The Family app now shows **Me + My Baby**.
 10. Time travel +10 days. The **Day-7 baby visit is missed**. It goes to the recovery list → WhatsApp reminder → rescheduled.
 11. **KPI screen:** on-time visit completion for the demo cohort, and recovery time.
-12. Close on the **Continuity Timeline**, splitting into mother and baby at delivery: *"The clinician decides. [App Name TBD] makes sure it happens."*
+12. Close on the **Continuity Timeline**, splitting into mother and baby at delivery: *"The clinician decides. Vatsala makes sure it happens."*
 
-### C. Lessons from fix-my-day → how [App Name TBD] does better
+### C. Lessons from fix-my-day → how Vatsala does better
 
-| fix-my-day | [App Name TBD] |
+| fix-my-day | Vatsala |
 |---|---|
 | Bare RN CLI; Codemagic for iOS; custom hot-updater | Expo dev client + EAS Build + EAS Update |
 | No navigation library; ~20 `isXVisible` flags | expo-router route groups, typed deep links |

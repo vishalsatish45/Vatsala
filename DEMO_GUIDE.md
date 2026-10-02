@@ -1,11 +1,11 @@
-# App Name TBD — Demo guide
+# Vatsala — Demo guide
 
 A preview of our Health-a-thon 2026 app (Maternal & Child Health track). It helps a hospital make sure nothing planned for a mother and her baby is missed, from pregnancy through delivery to the baby's vaccines. Everything runs **on the phone with made-up (synthetic) patients**. No real data, and no internet needed.
 
 ## Install (Android)
 1. Open the APK file on your phone.
 2. If asked, allow **"Install unknown apps"** for the app you opened it from (WhatsApp / Files / Drive).
-3. Tap **Install**. The app appears as **App Name TBD** with a pink heart icon.
+3. Tap **Install**. The app appears as **Vatsala** with a pink heart icon.
 
 ## Log in
 Pick a door, choose a demo account from the list, and enter the code **123456**.

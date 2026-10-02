@@ -1,4 +1,4 @@
-# [App Name TBD] — Design System & Screen Map
+# Vatsala — Design System & Screen Map
 
 | | |
 |---|---|
