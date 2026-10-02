@@ -380,3 +380,6 @@ export function continuityEvents(db: DbState, pregnancyId: string, now: Date, au
   }
   return ev.sort((a, b) => a.at.getTime() - b.at.getTime());
 }
+
+/** A dialable tel: link from a phone number as shown ("080-2222-0000" → "tel:08022220000"). */
+export const telUrl = (phone: string) => `tel:${phone.replace(/[^\d+]/g, '')}`;

@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Pill, Settings, ShieldAlert } from 'lucide-react-native';
 
+import { useDb } from '@/data/store';
 import { useFamily } from '@/features/family/useFamily';
 import { EmergencyCardView } from '@/features/family/EmergencyCardView';
 import { MedicinesView } from '@/features/family/MedicinesView';
@@ -18,6 +19,7 @@ export default function FamilyProfile() {
 
   const bloodGroup = ctx.pregnancy?.history.bloodGroup;
   const meds = ctx.pregnancy?.history.medicines ?? [];
+  const hospitalName = useDb((s) => s.hospital?.name);
 
   return (
     <Screen header={<TopBar back title={t('family.profileTitle')} right={<GlassIconButton icon={Settings} accessibilityLabel={t('family.settingsTitle')} onPress={() => router.push('/family/settings' as any)} />} />}>
@@ -25,7 +27,7 @@ export default function FamilyProfile() {
         <Avatar name={ctx.accountName || '?'} size={64} />
         <AppText variant="title">{ctx.accountName}</AppText>
         <AppText tone="secondary">
-          {ctx.pregnancy?.mchId} · Demo District Hospital
+          {[ctx.pregnancy?.mchId, hospitalName].filter(Boolean).join(' · ')}
         </AppText>
         {!!ctx.pregnancy?.assignedDoctor && (
           <AppText tone="secondary">🩺 {ctx.pregnancy.assignedDoctor.name}</AppText>

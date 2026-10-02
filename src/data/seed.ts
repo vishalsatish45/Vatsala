@@ -92,6 +92,7 @@ export function buildSeed(nowIn: Date): DbState {
     overrides: [],
     notifications: [],
     sharedResults: [],
+    hospital: { name: 'Demo District Hospital', phoneLabour: '080-2222-0000', phoneOpd: '080-2222-0001' },
     mchSeq: 1244,
   };
 

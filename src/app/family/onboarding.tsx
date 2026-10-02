@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Bell, HeartHandshake, MessageCircle, MessageSquareText, ShieldCheck, Stethoscope, type LucideIcon } from 'lucide-react-native';
 
 import { recordConsent } from '@/data/sync';
+import { useDb } from '@/data/store';
 import { useFamily } from '@/features/family/useFamily';
 import { LANGUAGES } from '@/lib/i18n';
 import { useSession } from '@/state/session';
@@ -32,6 +33,7 @@ export default function Onboarding() {
   const complete = useSession((s) => s.completeOnboarding);
   const signOut = useSession((s) => s.signOut);
   const { mother, pregnancy, accountId, accountName, isCaregiver } = useFamily();
+  const hospitalName = useDb((s) => s.hospital?.name);
   const [step, setStep] = useState(0);
   const [channels, setChannels] = useState<string[]>(['app', 'whatsapp']);
 
@@ -97,7 +99,7 @@ export default function Onboarding() {
             <InfoRow label={t('family.me.name')} value={isCaregiver ? accountName : mother?.name} />
             {isCaregiver && <InfoRow label="↳" value={mother?.name} />}
             <InfoRow label={t('family.me.phone')} value={mother?.phone} />
-            <InfoRow label={t('family.card.f.hospital')} value="Demo District Hospital" />
+            <InfoRow label={t('family.card.f.hospital')} value={hospitalName} />
             <InfoRow label="MCH ID" value={pregnancy?.mchId} />
             <InfoRow label={t('family.card.f.emergency')} value={mother ? `${mother.emergencyContact.name} · ${mother.emergencyContact.phone}` : undefined} />
           </Card>

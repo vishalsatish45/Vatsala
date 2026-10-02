@@ -32,7 +32,7 @@ export function EmergencyCardView({ qrSize = 190, onOpen }: { qrSize?: number; o
     weeks: p.status === 'delivered' ? '—' : `${formatGA(gestationalAge(p.edd, now))} · EDD ${fmtShort(p.edd, 'en')}`,
     allergies: p.history.allergies.join(', ') || t('family.card.none'),
     conditions: p.history.conditions.join(', ') || t('family.card.none'),
-    hospital: 'Demo District Hospital · 080-2222-0000',
+    hospital: [db.hospital?.name, db.hospital?.phoneLabour ?? db.hospital?.phoneOpd].filter(Boolean).join(' · ') || '—',
     emergency: `${mother.emergencyContact.name} ${mother.emergencyContact.phone}`,
   };
   const qrValue = (f: CardField) =>

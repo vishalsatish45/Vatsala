@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Ambulance, BellRing, Building2, Phone, UserPlus } from 'lucide-react-native';
 import { addDays } from '@domain/gestation';
 
+import { telUrl } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import type { CaregiverScopes } from '@/data/types';
 import { changeChannels } from '@/data/sync';
@@ -161,8 +162,12 @@ export default function FamilySettings() {
 
       <Section title={t('family.me.contact')}>
         <Card style={{ gap: space.sm }}>
-          <ListRow leading={<Building2 size={20} />} title={t('family.me.labourRoom')} subtitle="080-2222-0000" onPress={() => Linking.openURL('tel:08022220000')} />
-          <ListRow leading={<Phone size={20} />} title={t('family.me.opd')} subtitle="080-2222-0001" onPress={() => Linking.openURL('tel:08022220001')} />
+          {!!db.hospital?.phoneLabour && (
+            <ListRow leading={<Building2 size={20} />} title={t('family.me.labourRoom')} subtitle={db.hospital.phoneLabour} onPress={() => Linking.openURL(telUrl(db.hospital!.phoneLabour!))} />
+          )}
+          {!!db.hospital?.phoneOpd && (
+            <ListRow leading={<Phone size={20} />} title={t('family.me.opd')} subtitle={db.hospital.phoneOpd} onPress={() => Linking.openURL(telUrl(db.hospital!.phoneOpd!))} />
+          )}
           <ListRow leading={<Ambulance size={20} />} title={t('family.me.ambulance')} subtitle="108 · 102" onPress={() => Linking.openURL('tel:108')} />
         </Card>
       </Section>

@@ -171,7 +171,8 @@ export default function FamilyHome() {
           <AppText variant="display">{t('family.loss.title')}</AppText>
           <AppText tone="secondary">{t('family.loss.body')}</AppText>
           <AppText variant="bodyMedium" tone="accent">
-            {t('family.loss.support')} · 080-2222-0000
+            {t('family.loss.support')}
+            {db.hospital?.phoneOpd ? ` · ${db.hospital.phoneOpd}` : ''}
           </AppText>
         </GlassSurface>
       ) : delivered && baby && babyAge && focus === 'baby' ? (

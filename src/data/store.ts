@@ -67,6 +67,7 @@ import type {
   Delivery,
   DocumentId,
   Discharge,
+  HospitalContact,
   Id,
   Immunization,
   ImmunizationId,
@@ -128,6 +129,8 @@ export type DbState = {
   notifications: AppNotification[];
   /** Results shared with referrals (sensitive tests reach a specialist only this way). */
   sharedResults: SharedResult[];
+  /** Family face: her hospital's name and phones (from the server; the demo hospital in mock mode). */
+  hospital?: HospitalContact;
   mchSeq: number;
 };
 

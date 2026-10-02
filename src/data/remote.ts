@@ -747,6 +747,10 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
     emergencyContact: { name: card?.emergency_contact?.name ?? '', relation: card?.emergency_contact?.relation ?? '', phone: localPhone(card?.emergency_contact?.phone) },
   }];
   if (ctx.mother.card_fields) s.cardFields[motherId] = ctx.mother.card_fields;
+  if (ctx.hospital) {
+    const h = ctx.hospital;
+    s.hospital = { name: h.name, phoneOpd: localPhone(h.phone_opd) || undefined, phoneLabour: localPhone(h.phone_labour) || undefined, address: opt(h.address), mapsUrl: opt(h.maps_url) };
+  }
 
   const g = ctx.pregnancy;
   if (g) {

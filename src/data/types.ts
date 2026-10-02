@@ -41,6 +41,9 @@ export type NoteId = Branded<'NoteId'>;
 export type MedDoseId = Branded<'MedDoseId'>;
 export type DocumentId = Branded<'DocumentId'>;
 
+/** The hospital a family sees on the Family face (name, phones, how to get there). */
+export type HospitalContact = { name: string; phoneOpd?: string; phoneLabour?: string; address?: string; mapsUrl?: string };
+
 export type Mother = {
   id: MotherId;
   name: string;
