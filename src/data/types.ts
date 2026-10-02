@@ -57,9 +57,17 @@ export type Mother = {
   emergencyContact: { name: string; relation: string; phone: string };
   /** Further details as documented (RCH register fields); absent when not recorded. */
   altPhone?: string;
+  email?: string;
+  maritalStatus?: MaritalStatus;
+  /** Recorded only while she is married (server rule). */
   husbandName?: string;
+  husbandPhone?: string;
   dob?: Date;
   dobEstimated?: boolean;
+  /** House / street, one line (village, district, state and PIN are their own fields). */
+  addressLine?: string;
+  /** The last four digits of her Aadhaar number only — the full number is never collected (shown as XXXX-XXXX-1234). */
+  aadhaarLast4?: string;
   district?: string;
   state?: string;
   pincode?: string;
@@ -67,6 +75,8 @@ export type Mother = {
   abhaNumber?: string;
   abhaAddress?: string;
 };
+
+export type MaritalStatus = 'married' | 'unmarried' | 'widowed' | 'separated_divorced';
 
 export type PregnancyStatus = 'active' | 'admitted' | 'delivered' | 'closed';
 
@@ -79,8 +89,10 @@ export type Pregnancy = {
   motherId: MotherId;
   registeredOn: Date;
   lmp?: Date;
-  edd: Date;
-  eddSource: 'lmp' | 'scan' | 'clinician';
+  /** Absent until the doctor records the dating (registration no longer dates a pregnancy). */
+  edd?: Date;
+  /** How the current EDD was dated; absent while undated. */
+  eddSource?: 'lmp' | 'scan' | 'clinician';
   gpla: { g: number; p: number; l: number; a: number };
   status: PregnancyStatus;
   intensity: Intensity;
@@ -93,7 +105,8 @@ export type Pregnancy = {
   admittedAt?: Date;
   admissionReason?: string;
   assignedDoctor?: { name: string; phone?: string };
-  history: { conditions: string[]; allergies: string[]; medicines: string[]; bloodGroup?: string; heightCm?: number };
+  /** As documented at registration (height and weight are measurements of the registration encounter). */
+  history: { conditions: string[]; allergies: string[]; medicines: string[]; bloodGroup?: string; heightCm?: number; weightKg?: number };
   previous: PrevPregnancy[];
 };
 

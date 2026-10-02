@@ -97,7 +97,7 @@ select pg_temp.as_user(:'priya');
 select public.register_pregnancy(jsonb_build_object(
   'idempotency_key', pg_temp.key(2),
   'mother', jsonb_build_object('id', '00000000-0000-4000-8003-0000000090a2', 'phone', '919000000203', 'alt_phone', '919000000204',
-     'name', 'Kusuma H', 'husband_name', 'Mahesh H', 'dob', '1998-04-12', 'dob_estimated', false, 'age', 28, 'lang', 'hi',
+     'name', 'Kusuma H', 'marital_status', 'married', 'husband_name', 'Mahesh H', 'dob', '1998-04-12', 'dob_estimated', false, 'age', 28, 'lang', 'hi',
      'village', 'Demo Village', 'district', 'Demo District', 'state', 'Karnataka', 'pincode', '560001',
      'rch_id', '100000000203', 'abha_number', '10000000000203', 'abha_address', 'kusuma.h@abdm',
      'emergency_contact', jsonb_build_object('name', 'Mahesh H', 'relation', 'Husband', 'phone', '919000000205')),
@@ -217,12 +217,12 @@ call pg_temp.fails(pg_temp.call('update_mother', jsonb_build_object('idempotency
 
 select public.update_mother(jsonb_build_object('idempotency_key', pg_temp.key(18), 'mother_id', :'m_lakshmi', 'version', :lak_v,
   'name', 'Lakshmi Kumari', 'village', 'Demo Village', 'district', 'Demo District', 'pincode', '560002', 'alt_phone', '919000000206',
-  'husband_name', 'Ravi K', 'emergency_contact', jsonb_build_object('name', 'Ravi K', 'relation', 'Husband', 'phone', '919000000004'),
+  'marital_status', 'married', 'husband_name', 'Ravi K', 'emergency_contact', jsonb_build_object('name', 'Ravi K', 'relation', 'Husband', 'phone', '919000000004'),
   'rch_id', '100000000003'))::text as upd \gset
 select pg_temp.ok((:'upd'::jsonb ->> 'version')::int = :lak_v + 1, 'U009 a correction returns the new version');
 select pg_temp.ok(public.update_mother(jsonb_build_object('idempotency_key', pg_temp.key(18), 'mother_id', :'m_lakshmi', 'version', :lak_v,
   'name', 'Lakshmi Kumari', 'village', 'Demo Village', 'district', 'Demo District', 'pincode', '560002', 'alt_phone', '919000000206',
-  'husband_name', 'Ravi K', 'emergency_contact', jsonb_build_object('name', 'Ravi K', 'relation', 'Husband', 'phone', '919000000004'),
+  'marital_status', 'married', 'husband_name', 'Ravi K', 'emergency_contact', jsonb_build_object('name', 'Ravi K', 'relation', 'Husband', 'phone', '919000000004'),
   'rch_id', '100000000003')) = :'upd'::jsonb, 'U010 a replay returns the same response');
 select pg_temp.ok((select m.name = 'Lakshmi Kumari' and m.pincode = '560002' and m.alt_phone = '919000000206' and m.age_at_registration = 24
   and m.lang = 'kn' and m.emergency_contact ->> 'relation' = 'Husband' from public.mothers m where m.id = :'m_lakshmi'),

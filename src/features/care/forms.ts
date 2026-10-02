@@ -13,7 +13,7 @@ import { BLOOD_GROUPS, PREVIOUS_MODES, PREVIOUS_OUTCOMES } from '@/data/codes';
 import { asMotherId, asStaffId, asTeamId } from '@/data/ids';
 import { eddFor, type MotherDetails, type RegisterDating } from '@/data/payloads';
 import type { DeliveryInput, RegisterInput, VaccineDoseInput, VisitInput } from '@/data/store';
-import type { CaptureField, ChecklistState, Mother, Referral } from '@/data/types';
+import type { CaptureField, ChecklistState, MaritalStatus, Mother, Referral } from '@/data/types';
 
 // ── shared pieces ─────────────────────────────────────────────────────────────────
 
@@ -56,7 +56,6 @@ export function parseDayMonthYear(s: string): Date | undefined {
 export const calendarDay = (d: Date) => new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 /** A UTC-midnight date as the phone's local day (what a picker expects). */
 export const pickerDay = (d: Date) => new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-const ddmmyyyy = (d: Date) => `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${d.getUTCFullYear()}`;
 
 const isWhole = (s: string) => /^\d+$/.test(s.trim());
 /** A typed whole number from lo to hi (the server refuses fractions and anything outside the column's range). */
@@ -66,33 +65,60 @@ const trimmed = (s: string) => s.trim() || undefined;
 
 export const EC_RELATIONS = ['Husband', 'Mother', 'Father', 'Mother-in-law', 'Sister', 'Brother'] as const;
 
-/** A mother's details: the identity step of registration, and the "Edit details" form. */
+/** Marital status as documented (mothers.marital_status codes). */
+export const MARITAL_STATUSES = { Married: 'married', Unmarried: 'unmarried', Widowed: 'widowed', 'Separated or divorced': 'separated_divorced' } as const satisfies Record<string, MaritalStatus>;
+type MaritalLabel = keyof typeof MARITAL_STATUSES;
+const MARITAL_LABEL = Object.fromEntries(Object.entries(MARITAL_STATUSES).map(([l, c]) => [c, l])) as Record<MaritalStatus, MaritalLabel>;
+
+const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+/**
+ * A mother's details: step 1 of registration, and the "Edit details" form — the same fields in the same order
+ * (name, date of birth, mobile, alternate mobile, email, marital status → husband, address, ids, language, emergency
+ * contact). Her age is derived from the date of birth; only when the date is not known is the age typed instead.
+ */
 const motherFields = {
   name: text,
+  dob: z.date().optional(),
+  dobEstimated: z.boolean(),
+  /** The date of birth is not known: her age (in years) is entered instead. */
+  ageOnly: z.boolean(),
   age: text,
   phone: text,
   altPhone: text,
-  lang: z.enum(['English', 'Kannada', 'Hindi']),
+  email: text,
+  marital: z.enum(Object.keys(MARITAL_STATUSES) as [MaritalLabel, ...MaritalLabel[]]).optional(),
+  husbandName: text,
+  husbandPhone: text,
+  addressLine: text,
   village: text,
   district: text,
   state: text,
   pincode: text,
-  husbandName: text,
-  dobText: text,
-  dobEstimated: z.boolean(),
+  rchId: text,
+  /** The last four digits only: the full Aadhaar number is never collected. */
+  aadhaarLast4: text,
+  abhaNumber: text,
+  abhaAddress: text,
+  lang: z.enum(['English', 'Kannada', 'Hindi']),
   ecName: text,
   ecRelation: text,
   ecPhone: text,
-  rchId: text,
-  abhaNumber: text,
-  abhaAddress: text,
 };
 type MotherFieldValues = z.input<z.ZodObject<typeof motherFields>>;
 
 export const blankMother = (): MotherFieldValues => ({
-  name: '', age: '', phone: '', altPhone: '', lang: 'Kannada', village: '', district: '', state: '', pincode: '', husbandName: '',
-  dobText: '', dobEstimated: false, ecName: '', ecRelation: '', ecPhone: '', rchId: '', abhaNumber: '', abhaAddress: '',
+  name: '', dobEstimated: false, ageOnly: false, age: '', phone: '', altPhone: '', email: '', husbandName: '', husbandPhone: '',
+  addressLine: '', village: '', district: '', state: '', pincode: '', rchId: '', aadhaarLast4: '', abhaNumber: '', abhaAddress: '',
+  lang: 'Kannada', ecName: '', ecRelation: '', ecPhone: '',
 });
+
+/** Whole years from a date of birth (a UTC calendar day) to a moment — calendar arithmetic only. */
+export function ageOn(dob: Date, on: Date): number {
+  const y = on.getFullYear() - dob.getUTCFullYear();
+  const beforeBirthday = on.getMonth() < dob.getUTCMonth() || (on.getMonth() === dob.getUTCMonth() && on.getDate() < dob.getUTCDate());
+  return beforeBirthday ? y - 1 : y;
+}
 
 /** Form values for details already on record (Edit details; a returning mother found by phone). */
 export function motherFormValues(m: Partial<MotherDetails>): MotherFieldValues {
@@ -100,23 +126,29 @@ export function motherFormValues(m: Partial<MotherDetails>): MotherFieldValues {
   return {
     ...blankMother(),
     name: m.name ?? '',
-    age: m.age ? String(m.age) : '',
+    dob: m.dob ? pickerDay(m.dob) : undefined,
+    dobEstimated: !!m.dobEstimated,
+    ageOnly: !m.dob && !!m.age,
+    age: !m.dob && m.age ? String(m.age) : '',
     phone: m.phone ?? '',
     altPhone: m.altPhone ?? '',
-    lang: m.lang ? LANG_LABEL[m.lang] : 'Kannada',
+    email: m.email ?? '',
+    marital: m.maritalStatus ? MARITAL_LABEL[m.maritalStatus] : undefined,
+    husbandName: m.husbandName ?? '',
+    husbandPhone: m.husbandPhone ?? '',
+    addressLine: m.addressLine ?? '',
     village: m.village ?? '',
     district: m.district ?? '',
     state: m.state ?? '',
     pincode: m.pincode ?? '',
-    husbandName: m.husbandName ?? '',
-    dobText: m.dob ? ddmmyyyy(m.dob) : '',
-    dobEstimated: !!m.dobEstimated,
+    rchId: m.rchId ?? '',
+    aadhaarLast4: m.aadhaarLast4 ?? '',
+    abhaNumber: m.abhaNumber ?? '',
+    abhaAddress: m.abhaAddress ?? '',
+    lang: m.lang ? LANG_LABEL[m.lang] : 'Kannada',
     ecName: ec?.name ?? '',
     ecRelation: ec?.relation ?? '',
     ecPhone: ec?.phone ?? '',
-    rchId: m.rchId ?? '',
-    abhaNumber: m.abhaNumber ?? '',
-    abhaAddress: m.abhaAddress ?? '',
   };
 }
 
@@ -125,46 +157,63 @@ function checkMother(v: MotherFieldValues, ctx: z.RefinementCtx, now: Date) {
   const name = v.name.trim();
   if (!name) at('name', 'Enter her full name');
   else if (name.length > 120) at('name', 'Name: up to 120 characters');
-  if (!wholeIn(v.age, 10, 60)) at('age', 'Age: a whole number from 10 to 60');
+  if (v.ageOnly) {
+    if (!wholeIn(v.age, 10, 60)) at('age', 'Age: a whole number from 10 to 60');
+  } else if (!v.dob) at('dob', 'Pick her date of birth (or choose "Only her age is known")');
+  else {
+    const dob = calendarDay(v.dob);
+    if (dob.getTime() > calendarDay(now).getTime()) at('dob', 'The date of birth cannot be in the future');
+    else if (ageOn(dob, now) < 10 || ageOn(dob, now) > 60) at('dob', 'The date of birth must give an age from 10 to 60');
+  }
   if (!MOBILE.test(v.phone)) at('phone', 'Enter a 10-digit mobile number starting with 6, 7, 8 or 9');
   if (v.altPhone && !MOBILE.test(v.altPhone)) at('altPhone', 'Alternate number: 10 digits starting with 6, 7, 8 or 9');
   else if (v.altPhone && v.altPhone === v.phone) at('altPhone', 'The alternate number must differ from her mobile');
-  if (v.pincode.trim() && !/^[1-9]\d{5}$/.test(v.pincode.trim())) at('pincode', 'PIN code: 6 digits, not starting with 0');
-  if (v.husbandName.trim().length > 120) at('husbandName', 'Up to 120 characters');
-  if (v.dobText.trim()) {
-    const dob = parseDayMonthYear(v.dobText);
-    if (!dob) at('dobText', 'Date of birth as DD-MM-YYYY');
-    else if (dob.getTime() > calendarDay(now).getTime()) at('dobText', 'The date of birth cannot be in the future');
+  const email = v.email.trim();
+  if (email && (email.length > 120 || !EMAIL.test(email))) at('email', 'Email: like name@example.com (up to 120 characters)');
+  // A husband's details are recorded only for a married woman (hidden, and not sent, otherwise).
+  if (v.marital === 'Married') {
+    if (v.husbandName.trim().length > 120) at('husbandName', 'Up to 120 characters');
+    if (v.husbandPhone && !MOBILE.test(v.husbandPhone)) at('husbandPhone', "Husband's mobile: 10 digits starting with 6, 7, 8 or 9");
+    else if (v.husbandPhone && v.husbandPhone === v.phone) at('husbandPhone', "Husband's mobile must differ from her mobile");
   }
+  if (v.addressLine.trim().length > 200) at('addressLine', 'House / street: up to 200 characters');
+  if (v.pincode.trim() && !/^[1-9]\d{5}$/.test(v.pincode.trim())) at('pincode', 'PIN code: 6 digits, not starting with 0');
+  if (v.rchId.trim() && !/^\d{12}$/.test(v.rchId.trim())) at('rchId', 'An RCH id has 12 digits');
+  if (v.aadhaarLast4.trim() && !/^\d{4}$/.test(v.aadhaarLast4.trim())) at('aadhaarLast4', 'Aadhaar: the last 4 digits only');
+  if (v.abhaNumber.trim() && !/^\d{14}$/.test(v.abhaNumber.trim())) at('abhaNumber', 'An ABHA number has 14 digits');
+  if (v.abhaAddress.trim() && !/^[a-z0-9._]+@[a-z]+$/.test(v.abhaAddress.trim())) at('abhaAddress', 'An ABHA address looks like name@abdm');
   if (v.ecName.trim() || v.ecRelation.trim() || v.ecPhone) {
     if (!v.ecName.trim()) at('ecName', "Add the emergency contact's name");
     if (!MOBILE.test(v.ecPhone)) at('ecPhone', 'Emergency contact: 10 digits starting with 6, 7, 8 or 9');
   }
-  if (v.rchId.trim() && !/^\d{12}$/.test(v.rchId.trim())) at('rchId', 'An RCH id has 12 digits');
-  if (v.abhaNumber.trim() && !/^\d{14}$/.test(v.abhaNumber.trim())) at('abhaNumber', 'An ABHA number has 14 digits');
-  if (v.abhaAddress.trim() && !/^[a-z0-9._]+@[a-z]+$/.test(v.abhaAddress.trim())) at('abhaAddress', 'An ABHA address looks like name@abdm');
 }
 
 /** The details exactly as entered; blank optional fields stay absent (nothing is filled in for her). */
-function motherDetailsOf(v: MotherFieldValues): MotherDetails {
-  const dob = parseDayMonthYear(v.dobText);
+function motherDetailsOf(v: MotherFieldValues, now: Date): MotherDetails {
+  const dob = !v.ageOnly && v.dob ? calendarDay(v.dob) : undefined;
+  const married = v.marital === 'Married';
   return {
     name: v.name.trim(),
-    age: Number(v.age),
+    age: dob ? ageOn(dob, now) : Number(v.age),
+    dob,
+    dobEstimated: dob ? v.dobEstimated : undefined,
     phone: v.phone,
     altPhone: trimmed(v.altPhone),
-    lang: LANGUAGES[v.lang],
+    email: trimmed(v.email),
+    maritalStatus: v.marital ? MARITAL_STATUSES[v.marital] : undefined,
+    husbandName: married ? trimmed(v.husbandName) : undefined,
+    husbandPhone: married ? trimmed(v.husbandPhone) : undefined,
+    addressLine: trimmed(v.addressLine),
     village: v.village.trim(),
     district: trimmed(v.district),
     state: trimmed(v.state),
     pincode: trimmed(v.pincode),
-    husbandName: trimmed(v.husbandName),
-    dob,
-    dobEstimated: dob ? v.dobEstimated : undefined,
-    emergencyContact: v.ecPhone ? { name: v.ecName.trim(), relation: v.ecRelation.trim(), phone: v.ecPhone } : { name: '', relation: '', phone: '' },
     rchId: trimmed(v.rchId),
+    aadhaarLast4: trimmed(v.aadhaarLast4),
     abhaNumber: trimmed(v.abhaNumber),
     abhaAddress: trimmed(v.abhaAddress),
+    lang: LANGUAGES[v.lang],
+    emergencyContact: v.ecPhone ? { name: v.ecName.trim(), relation: v.ecRelation.trim(), phone: v.ecPhone } : { name: '', relation: '', phone: '' },
   };
 }
 
@@ -173,27 +222,32 @@ export function makeMotherSchema(now: Date) {
   return z
     .object(motherFields)
     .superRefine((v, ctx) => checkMother(v, ctx, now))
-    .transform(motherDetailsOf);
+    .transform((v) => motherDetailsOf(v, now));
 }
 export type MotherForm = z.input<ReturnType<typeof makeMotherSchema>>;
 
+/** Aadhaar as shown: masked, the last four digits only ("XXXX-XXXX-1234"). */
+export const maskedAadhaar = (last4: string) => `XXXX-XXXX-${last4}`;
+
+// ── Dating (recorded later by the doctor: CT-20 "Record dating" / "Re-date") ──────
+
 export const DATING_METHODS = { LMP: 'lmp', Scan: 'scan', 'Clinician EDD': 'clinician' } as const;
 export const LMP_CERTAINTY = ['Certain', 'Uncertain'] as const;
-export const OTHER_CONDITION = 'Other';
-export const MAX_PREVIOUS = 20;
 
-const previousRow = z.object({
-  year: text,
-  outcome: z.enum(PREVIOUS_OUTCOMES).optional(),
-  mode: z.enum(PREVIOUS_MODES).optional(),
-  weeks: text,
-  complications: text,
-  note: text,
-});
-export type PreviousRow = z.input<typeof previousRow>;
-export const blankPrevious = (): PreviousRow => ({ year: '', weeks: '', complications: '', note: '' });
+/** How the clinician dates the pregnancy: LMP, a scan (date + GA at the scan) or an EDD she decides. */
+const datingFields = {
+  method: z.enum(['LMP', 'Scan', 'Clinician EDD']),
+  lmp: z.date().optional(),
+  lmpCertain: z.enum(LMP_CERTAINTY).optional(),
+  scanOn: z.date(),
+  scanWeeks: text,
+  scanDays: text,
+  eddDecided: z.date().optional(),
+  datingNote: text,
+};
+type DatingValues = z.input<z.ZodObject<typeof datingFields>>;
 
-type DatingValues = { method: keyof typeof DATING_METHODS; lmp?: Date; lmpCertain?: (typeof LMP_CERTAINTY)[number]; scanOn: Date; scanWeeks: string; scanDays: string; eddDecided?: Date; datingNote: string };
+export const blankDating = (now: Date): DatingValues => ({ method: 'LMP', scanOn: now, scanWeeks: '', scanDays: '', datingNote: '' });
 
 /** The dating the form describes (the clinician's choice), or undefined while it is incomplete. */
 export function registerDating(v: DatingValues): RegisterDating | undefined {
@@ -212,36 +266,78 @@ export function registerDating(v: DatingValues): RegisterDating | undefined {
 /** Days of gestation the dating gives on a day (calendar arithmetic only). */
 export const gaDaysOn = (d: RegisterDating, day: Date) => PREGNANCY_DAYS - daysBetween(day, eddFor(d));
 
+/**
+ * The checks every dating gets (server app.check_dating): a complete dating, no LMP or scan in the future, and a
+ * gestational age of 0–45 weeks on `on` (the registration day for an import row, today when the doctor dates her).
+ * Possibility only — nothing here judges a dating.
+ */
+function checkDating(v: DatingValues, ctx: z.RefinementCtx, now: Date, on: { day: Date; label: string }) {
+  const at = (path: string, message: string) => ctx.addIssue({ code: 'custom', path: [path], message });
+  const today = calendarDay(now);
+  const method = DATING_METHODS[v.method];
+  const field = method === 'lmp' ? 'lmp' : method === 'scan' ? 'scanWeeks' : 'eddDecided';
+  const d = registerDating(v);
+  if (!d) at(field, method === 'lmp' ? 'Pick the first day of her last period' : method === 'scan' ? 'GA at the scan: 4–42 weeks and 0–6 days' : 'Pick the EDD you decided');
+  else if (d.method === 'lmp' && d.lmp.getTime() > today.getTime()) at('lmp', 'The LMP cannot be in the future');
+  else if (d.method === 'scan' && d.scanOn.getTime() > today.getTime()) at('scanOn', 'The scan date cannot be in the future');
+  else {
+    const ga = gaDaysOn(d, on.day);
+    if (ga < 0 || ga > 320) at(field, `This dating gives a gestational age outside 0–45 weeks ${on.label}`);
+  }
+  if (v.datingNote.length > 500) at('datingNote', 'Note: up to 500 characters');
+}
+
+/** CT-20 "Record dating" (first dating) and "Re-date": the dating the doctor records, checked against today. */
+export function makeDatingSchema(now: Date) {
+  return z
+    .object(datingFields)
+    .superRefine((v, ctx) => checkDating(v, ctx, now, { day: calendarDay(now), label: 'today' }))
+    .transform((v): RegisterDating => registerDating(v)!);
+}
+export type DatingForm = z.input<ReturnType<typeof makeDatingSchema>>;
+
+// ── CT-61…66 Register pregnancy: step 2, the obstetric summary ─────────────────────
+
+export const OTHER_CONDITION = 'Other';
+export const MAX_PREVIOUS = 20;
+
+const previousRow = z.object({
+  year: text,
+  outcome: z.enum(PREVIOUS_OUTCOMES).optional(),
+  mode: z.enum(PREVIOUS_MODES).optional(),
+  weeks: text,
+  complications: text,
+  note: text,
+});
+export type PreviousRow = z.input<typeof previousRow>;
+export const blankPrevious = (): PreviousRow => ({ year: '', weeks: '', complications: '', note: '' });
+
 export const gplaOf = (v: { g: string; p: string; l: string; a: string }) => ({ g: Number(v.g) || 0, p: Number(v.p) || 0, l: Number(v.l) || 0, a: Number(v.a) || 0 });
 
 /** Which fields each registration step owns — "Next" stays disabled while any of them has an issue. */
 export const REGISTER_STEPS = [
-  ['name', 'age', 'phone', 'altPhone', 'lang', 'village', 'district', 'state', 'pincode', 'husbandName', 'dobText', 'ecName', 'ecRelation', 'ecPhone', 'rchId', 'abhaNumber', 'abhaAddress', 'returningId'],
-  ['registeredOn', 'method', 'lmp', 'lmpCertain', 'scanOn', 'scanWeeks', 'scanDays', 'eddDecided', 'datingNote', 'g', 'p', 'l', 'a', 'fetuses', 'previous'],
-  ['conditions', 'otherCondition', 'allergies', 'medicines', 'blood', 'height', 'tags', 'tagNote', 'intensity', 'teamId'],
+  ['name', 'dob', 'ageOnly', 'age', 'phone', 'altPhone', 'email', 'marital', 'husbandName', 'husbandPhone', 'addressLine', 'village', 'district', 'state', 'pincode',
+    'rchId', 'aadhaarLast4', 'abhaNumber', 'abhaAddress', 'lang', 'ecName', 'ecRelation', 'ecPhone', 'returningId'],
+  ['registeredOn', 'g', 'p', 'l', 'a', 'previous', 'conditions', 'otherCondition', 'allergies', 'medicines', 'blood', 'height', 'weight', 'tags', 'tagNote', 'intensity', 'teamId'],
 ] as const;
 
-/** `units`: the obstetric units the clinician may register into; with several, she must choose one. */
-export function makeRegisterSchema(now: Date, opts: { units?: readonly string[] } = {}) {
+/**
+ * Registration (CT-61…66). No dating: the doctor records it later. `units`: the obstetric units the clinician may
+ * register into; with several, she must choose one. `dating: true` (register import only): each row also carries its
+ * LMP, which is then required and checked like any dating.
+ */
+export function makeRegisterSchema(now: Date, opts: { units?: readonly string[]; dating?: boolean } = {}) {
   return z
     .object({
       ...motherFields,
       /** A returning mother the clinician confirmed (find_mother). */
       returningId: z.string().optional(),
       registeredOn: z.date(),
-      method: z.enum(['LMP', 'Scan', 'Clinician EDD']),
-      lmp: z.date().optional(),
-      lmpCertain: z.enum(LMP_CERTAINTY).optional(),
-      scanOn: z.date(),
-      scanWeeks: text,
-      scanDays: text,
-      eddDecided: z.date().optional(),
-      datingNote: text,
+      ...z.object(datingFields).partial().shape,
       g: text,
       p: text,
       l: text,
       a: text,
-      fetuses: z.enum(['1', '2', '3', '4']),
       previous: z.array(previousRow),
       conditions: list,
       otherCondition: text,
@@ -249,6 +345,7 @@ export function makeRegisterSchema(now: Date, opts: { units?: readonly string[] 
       medicines: text,
       blood: choice,
       height: text,
+      weight: text,
       tags: list,
       tagNote: text,
       intensity,
@@ -258,21 +355,9 @@ export function makeRegisterSchema(now: Date, opts: { units?: readonly string[] 
       const at = (path: (string | number)[], message: string) => ctx.addIssue({ code: 'custom', path, message });
       checkMother(v, ctx, now);
 
-      // Dating (pregnancy_datings, encounters.ga_days 0–320).
-      const today = calendarDay(now);
-      const method = DATING_METHODS[v.method];
-      const field = method === 'lmp' ? 'lmp' : method === 'scan' ? 'scanWeeks' : 'eddDecided';
       const reg = calendarDay(v.registeredOn);
-      if (reg.getTime() > today.getTime()) at(['registeredOn'], 'The registration date cannot be in the future');
-      const d = registerDating(v);
-      if (!d) at([field], method === 'lmp' ? 'Pick the first day of her last period' : method === 'scan' ? 'GA at the scan: 4–42 weeks and 0–6 days' : 'Pick the EDD you decided');
-      else if (d.method === 'lmp' && d.lmp.getTime() > today.getTime()) at(['lmp'], 'The LMP cannot be in the future');
-      else if (d.method === 'scan' && d.scanOn.getTime() > today.getTime()) at(['scanOn'], 'The scan date cannot be in the future');
-      else {
-        const ga = gaDaysOn(d, reg);
-        if (ga < 0 || ga > 320) at([field], 'This dating gives a gestational age outside 0–45 weeks on the registration date');
-      }
-      if (v.datingNote.length > 500) at(['datingNote'], 'Note: up to 500 characters');
+      if (reg.getTime() > calendarDay(now).getTime()) at(['registeredOn'], 'The registration date cannot be in the future');
+      if (opts.dating) checkDating({ ...blankDating(now), ...v }, ctx, now, { day: reg, label: 'on the registration date' });
 
       // Obstetric summary (pregnancies: G 1–20, P/L/A 0–20, P + A ≤ G − 1 for a current pregnancy).
       if (!wholeIn(v.g, 1, 20)) at(['g'], 'G: a whole number from 1 to 20');
@@ -287,30 +372,32 @@ export function makeRegisterSchema(now: Date, opts: { units?: readonly string[] 
         if (r.weeks.trim() && !wholeIn(r.weeks, 4, 45)) at(['previous', i, 'weeks'], `Previous pregnancy ${i + 1}: gestation 4–45 weeks`);
       });
 
-      // History (observation codes: blood group codes, height 100–220 cm).
+      // History (observation codes: blood group codes; possible entries for height 100–220 cm, weight 20–250 kg).
       if (v.conditions.includes(OTHER_CONDITION) && !v.otherCondition.trim()) at(['otherCondition'], 'Name the other condition as documented');
       if (v.blood && v.blood !== 'Unknown' && !(BLOOD_GROUPS as readonly string[]).includes(v.blood)) at(['blood'], 'Choose a blood group');
       const h = numText(v.height);
       if (h !== undefined && !(h >= 100 && h <= 220)) at(['height'], 'Height: 100–220 cm');
+      const w = numText(v.weight);
+      if (w !== undefined && !(w >= 20 && w <= 250)) at(['weight'], 'Weight: 20–250 kg');
       if (opts.units?.length && !opts.units.includes(v.teamId ?? '')) at(['teamId'], 'Choose her obstetric unit');
     })
     .transform((v): RegisterInput => {
       const reg = calendarDay(v.registeredOn);
       const sameDay = reg.getTime() === calendarDay(now).getTime();
       return {
-        mother: motherDetailsOf(v),
+        mother: motherDetailsOf(v, now),
         existingMotherId: v.returningId ? asMotherId(v.returningId) : undefined,
         // Today → this moment; a back-entered day → noon of that day (so the date is the same in every time zone).
         registeredOn: sameDay ? now : new Date(v.registeredOn.getFullYear(), v.registeredOn.getMonth(), v.registeredOn.getDate(), 12),
-        dating: registerDating(v)!,
+        dating: opts.dating ? registerDating({ ...blankDating(now), ...v }) : undefined,
         gpla: gplaOf(v),
-        fetuses: Number(v.fetuses),
         history: {
           conditions: [...v.conditions.filter((c) => c !== OTHER_CONDITION), ...(v.conditions.includes(OTHER_CONDITION) ? [v.otherCondition.trim()] : [])],
           allergies: csv(v.allergies),
           medicines: csv(v.medicines),
           bloodGroup: v.blood && v.blood !== 'Unknown' ? v.blood : undefined,
           heightCm: numText(v.height),
+          weightKg: numText(v.weight),
         },
         previous: v.previous.map((r) => ({
           year: Number(r.year),
@@ -329,26 +416,21 @@ export function makeRegisterSchema(now: Date, opts: { units?: readonly string[] 
 }
 export type RegisterForm = z.input<ReturnType<typeof makeRegisterSchema>>;
 
-/** A blank registration (nothing pre-selected beyond the form's own defaults: today, LMP dating, one fetus, routine). */
+/** A blank registration (nothing pre-selected beyond the form's own defaults: today, routine follow-up). */
 export const blankRegisterForm = (now: Date): RegisterForm => ({
   ...blankMother(),
   registeredOn: now,
-  method: 'LMP',
-  scanOn: now,
-  scanWeeks: '',
-  scanDays: '',
-  datingNote: '',
   g: '',
   p: '',
   l: '',
   a: '',
-  fetuses: '1',
   previous: [],
   conditions: [],
   otherCondition: '',
   allergies: '',
   medicines: '',
   height: '',
+  weight: '',
   tags: [],
   tagNote: '',
   intensity: 'routine',
@@ -512,9 +594,9 @@ const inRange = (s: string, lo: number, hi: number) => !s.trim() || (Number(s) >
 
 /**
  * CT-56/57: everything the server's record_delivery accepts, as documented. `edd` bounds the time of birth to the
- * server's 20–46 weeks of gestation; a birth cannot be in the future.
+ * server's 20–46 weeks of gestation (no bound while the pregnancy is undated); a birth cannot be in the future.
  */
-export function makeDeliverySchema(now: Date, edd: Date) {
+export function makeDeliverySchema(now: Date, edd: Date | undefined) {
   return z
     .object({
       date: text,
@@ -539,7 +621,7 @@ export function makeDeliverySchema(now: Date, edd: Date) {
       const at = birthTime(v.date, v.time);
       if (!at) ctx.addIssue({ code: 'custom', path: ['time'], message: 'Enter the date as DD-MM-YYYY and the time as HH:MM (24-hour).' });
       else if (at.getTime() > now.getTime() + 10 * 60_000) ctx.addIssue({ code: 'custom', path: ['time'], message: 'The time of birth cannot be in the future.' });
-      else {
+      else if (edd) {
         const gaDays = 280 - Math.round((edd.getTime() - at.getTime()) / 86_400_000);
         if (gaDays < 140 || gaDays > 320) ctx.addIssue({ code: 'custom', path: ['date'], message: 'Check the date: it gives a gestation outside 20–46 weeks for this EDD.' });
       }

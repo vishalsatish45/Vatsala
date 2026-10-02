@@ -37,7 +37,7 @@ describe('mock-mode record keeping', () => {
   it('re-dates a pregnancy and re-plans its future visits from the new EDD', () => {
     const p = pregnancyOf('Lakshmi K');
     const before = db().tasks.filter((t) => t.subjectId === p.id && t.kind === 'anc_visit' && !t.completedAt && !t.cancelledAt && t.dueBy > now);
-    const edd = addDays(p.edd, 14);
+    const edd = addDays(p.edd!, 14);
     db().redatePregnancy(p.id, { method: 'clinician', edd }, by, now);
     const after = db().pregnancies.find((x) => x.id === p.id)!;
     expect(after.edd).toEqual(edd);
@@ -199,6 +199,40 @@ describe('mock-mode registration, details and care teams', () => {
     const a = db().assignments.filter((x) => x.subjectId === id);
     expect(a.map((x) => [x.specialty, x.teamId])).toEqual([['obstetrics', 'team_ob_unit_b'], ['paediatrics', 'team_paediatrics_unit']]);
     expect(db().pregnancies.find((p) => p.id === id)!.eddSource).toBe('lmp');
+  });
+
+  it('registers WITHOUT a dating: undated, nothing planned; the first dating plans the visits and test windows', () => {
+    const { dating: _none, ...undated } = base;
+    const id = db().registerPregnancy(
+      { ...undated, history: { ...undated.history, bloodGroup: 'O-', weightKg: 58 }, mother: { name: 'Undated Mother', age: 24, phone: '9822200303', lang: 'en', village: '', emergencyContact: { name: '', relation: '', phone: '' } } },
+      by,
+      now,
+    );
+    const p = db().pregnancies.find((x) => x.id === id)!;
+    expect(p).toMatchObject({ edd: undefined, eddSource: undefined, lmp: undefined });
+    expect(p.history.weightKg).toBe(58);
+    expect(db().tasks.some((t) => t.subjectId === id)).toBe(false);
+    expect(db().investigations.some((i) => i.subjectId === id)).toBe(false);
+    // Changing the intensity of an undated pregnancy plans no visit either.
+    db().setIntensity(id, 'close', by, now);
+    expect(db().tasks.some((t) => t.subjectId === id)).toBe(false);
+
+    db().redatePregnancy(id, { method: 'lmp', lmp: new Date('2026-07-01T00:00:00Z'), lmpCertain: true }, by, now);
+    const dated = db().pregnancies.find((x) => x.id === id)!;
+    expect(dated).toMatchObject({ edd: new Date('2027-04-07T00:00:00Z'), eddSource: 'lmp' });
+    const visits = db().tasks.filter((t) => t.subjectId === id && t.kind === 'anc_visit');
+    const tests = db().investigations.filter((i) => i.subjectId === id);
+    expect(visits.length).toBeGreaterThan(0);
+    expect(visits.every((t) => t.dueBy.getTime() <= dated.edd!.getTime())).toBe(true);
+    expect(tests.length).toBeGreaterThan(0);
+    // Rh-negative as documented: the windows include the ICT, as registration used to plan them.
+    expect(tests.some((i) => i.code === 'ict')).toBe(true);
+    expect(db().audit[0]!.action).toMatch(/^record_dating \(lmp\)/);
+
+    // A second dating is a re-dating: visits re-planned, no second set of test windows.
+    db().redatePregnancy(id, { method: 'clinician', edd: new Date('2027-04-14T00:00:00Z') }, by, now);
+    expect(db().investigations.filter((i) => i.subjectId === id)).toHaveLength(tests.length);
+    expect(db().audit[0]!.action).toMatch(/^redate \(clinician\)/);
   });
 
   it('a confirmed returning mother keeps one record, corrected only where the form entered something', () => {

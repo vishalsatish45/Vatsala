@@ -15,7 +15,11 @@ import {
   pickerDay,
   referralReasonSchema,
   referralRecsSchema,
+  ageOn,
+  blankDating,
   makeAssignCareSchema,
+  makeDatingSchema,
+  maskedAadhaar,
   makeMotherSchema,
   makeRegisterSchema,
   motherFormValues,
@@ -43,11 +47,9 @@ describe('register schema', () => {
   const valid: RegisterForm = {
     ...blankRegisterForm(NOW),
     name: ' Asha R ',
-    age: '24',
+    dob: local('2002-05-01'),
     phone: '9000000099',
     lang: 'Kannada',
-    lmp: local('2026-07-10'),
-    lmpCertain: 'Certain',
     g: '2',
     p: '1',
     l: '1',
@@ -59,44 +61,70 @@ describe('register schema', () => {
     medicines: 'Thyroxine',
     blood: 'Unknown',
     height: '152',
+    weight: '54,5',
     tags: ['prev_cs'],
     tagNote: ' On the referral letter ',
     intensity: 'enhanced',
   };
 
-  it('accepts a complete registration and sends only what was entered', () => {
+  it('accepts a complete registration WITHOUT a dating and sends only what was entered', () => {
     const r = schema.safeParse(valid);
     expect(messages(r)).toEqual([]);
     const out = r.data!;
-    expect(out.mother).toMatchObject({ name: 'Asha R', age: 24, phone: '9000000099', village: '', lang: 'kn', emergencyContact: { name: '', relation: '', phone: '' } });
+    // Her age is derived from the date of birth (calendar years on the registration day).
+    expect(out.mother).toMatchObject({ name: 'Asha R', age: 24, dob: new Date('2002-05-01T00:00:00Z'), phone: '9000000099', village: '', lang: 'kn', emergencyContact: { name: '', relation: '', phone: '' } });
     expect(out.mother.altPhone).toBeUndefined();
-    expect(out.dating).toEqual({ method: 'lmp', lmp: new Date('2026-07-10T00:00:00Z'), lmpCertain: true, note: undefined });
+    expect(out.mother.husbandName).toBeUndefined();
+    expect(out.dating).toBeUndefined();
+    expect(out.fetuses).toBeUndefined();
     expect(out.registeredOn).toBe(NOW);
     expect(out.gpla).toEqual({ g: 2, p: 1, l: 1, a: 0 });
-    expect(out.history).toEqual({ conditions: ['Asthma', 'Thalassaemia trait'], allergies: ['Penicillin', 'Sulfa'], medicines: ['Thyroxine'], bloodGroup: undefined, heightCm: 152 });
+    expect(out.history).toEqual({ conditions: ['Asthma', 'Thalassaemia trait'], allergies: ['Penicillin', 'Sulfa'], medicines: ['Thyroxine'], bloodGroup: undefined, heightCm: 152, weightKg: 54.5 });
     // As documented: no invented year, outcome or mode.
     expect(out.previous).toEqual([{ year: 2024, outcome: 'Live birth', mode: 'LSCS', gestationWeeks: 38, complications: ['PPH'], note: 'District hospital' }]);
     expect(out.tagCodes).toEqual(['prev_cs']);
     expect(out.tagNote).toBe('On the referral letter');
-    expect(out.fetuses).toBe(1);
   });
 
   it('mirrors the server bounds for her details', () => {
-    expect(messages(schema.safeParse({ ...valid, name: ' ', age: '61', phone: '5123456789' }))).toEqual([
+    expect(messages(schema.safeParse({ ...valid, name: ' ', phone: '5123456789' }))).toEqual([
       'name: Enter her full name',
-      'age: Age: a whole number from 10 to 60',
       'phone: Enter a 10-digit mobile number starting with 6, 7, 8 or 9',
     ]);
-    expect(messages(schema.safeParse({ ...valid, age: '24.5' }))).toEqual(['age: Age: a whole number from 10 to 60']);
-    expect(messages(schema.safeParse({ ...valid, age: '9' }))).toEqual(['age: Age: a whole number from 10 to 60']);
+    expect(messages(schema.safeParse({ ...valid, dob: undefined }))).toEqual(['dob: Pick her date of birth (or choose "Only her age is known")']);
+    expect(messages(schema.safeParse({ ...valid, dob: local('2026-10-05') }))).toEqual(['dob: The date of birth cannot be in the future']);
+    expect(messages(schema.safeParse({ ...valid, dob: local('2020-01-01') }))).toEqual(['dob: The date of birth must give an age from 10 to 60']);
+    // Age only as a fallback when the date of birth is not known.
+    expect(messages(schema.safeParse({ ...valid, ageOnly: true, age: '61' }))).toEqual(['age: Age: a whole number from 10 to 60']);
+    expect(messages(schema.safeParse({ ...valid, ageOnly: true, age: '24.5' }))).toEqual(['age: Age: a whole number from 10 to 60']);
+    const ageOnly = schema.parse({ ...valid, ageOnly: true, age: '31' });
+    expect(ageOnly.mother).toMatchObject({ age: 31, dob: undefined, dobEstimated: undefined });
     expect(messages(schema.safeParse({ ...valid, name: 'x'.repeat(121) }))).toEqual(['name: Name: up to 120 characters']);
     expect(messages(schema.safeParse({ ...valid, altPhone: '9000000099' }))).toEqual(['altPhone: The alternate number must differ from her mobile']);
+    expect(messages(schema.safeParse({ ...valid, email: 'asha@' }))).toEqual(['email: Email: like name@example.com (up to 120 characters)']);
     expect(messages(schema.safeParse({ ...valid, pincode: '012345', rchId: '123', abhaAddress: 'Asha@ABDM' }))).toEqual([
       'pincode: PIN code: 6 digits, not starting with 0',
       'rchId: An RCH id has 12 digits',
       'abhaAddress: An ABHA address looks like name@abdm',
     ]);
-    expect(messages(schema.safeParse({ ...valid, dobText: '31-02-1999' }))).toEqual(['dobText: Date of birth as DD-MM-YYYY']);
+    expect(messages(schema.safeParse({ ...valid, addressLine: 'x'.repeat(201) }))).toEqual(['addressLine: House / street: up to 200 characters']);
+  });
+
+  it('Aadhaar: the last 4 digits only, never the full number', () => {
+    expect(messages(schema.safeParse({ ...valid, aadhaarLast4: '123456789012' }))).toEqual(['aadhaarLast4: Aadhaar: the last 4 digits only']);
+    expect(messages(schema.safeParse({ ...valid, aadhaarLast4: '12a4' }))).toEqual(['aadhaarLast4: Aadhaar: the last 4 digits only']);
+    expect(schema.parse({ ...valid, aadhaarLast4: ' 1234 ' }).mother.aadhaarLast4).toBe('1234');
+    expect(maskedAadhaar('1234')).toBe('XXXX-XXXX-1234');
+  });
+
+  it("keeps a husband's details only when she is married", () => {
+    const married = schema.parse({ ...valid, marital: 'Married', husbandName: ' Ravi K ', husbandPhone: '9000000097' });
+    expect(married.mother).toMatchObject({ maritalStatus: 'married', husbandName: 'Ravi K', husbandPhone: '9000000097' });
+    // Typed, then the status changed: the hidden fields are not sent.
+    const widowed = schema.parse({ ...valid, marital: 'Widowed', husbandName: 'Ravi K', husbandPhone: '9000000097' });
+    expect(widowed.mother).toMatchObject({ maritalStatus: 'widowed', husbandName: undefined, husbandPhone: undefined });
+    expect(messages(schema.safeParse({ ...valid, marital: 'Married', husbandPhone: '9000000099' }))).toEqual(["husbandPhone: Husband's mobile must differ from her mobile"]);
+    expect(messages(schema.safeParse({ ...valid, marital: 'Married', husbandPhone: '123' }))).toEqual(["husbandPhone: Husband's mobile: 10 digits starting with 6, 7, 8 or 9"]);
   });
 
   it('validates the emergency contact instead of dropping it, with its relation', () => {
@@ -105,24 +133,22 @@ describe('register schema', () => {
       "ecName: Add the emergency contact's name",
       'ecPhone: Emergency contact: 10 digits starting with 6, 7, 8 or 9',
     ]);
-    const ok = schema.parse({ ...valid, ecName: ' Ravi K ', ecRelation: 'Husband', ecPhone: '9000000098', altPhone: '9000000097', husbandName: 'Ravi K', rchId: '100000000001' });
-    expect(ok.mother).toMatchObject({ emergencyContact: { name: 'Ravi K', relation: 'Husband', phone: '9000000098' }, altPhone: '9000000097', husbandName: 'Ravi K', rchId: '100000000001' });
+    const ok = schema.parse({ ...valid, ecName: ' Ravi K ', ecRelation: 'Husband', ecPhone: '9000000098', altPhone: '9000000097', email: ' asha@example.com ', addressLine: ' #12 Temple Road ', rchId: '100000000001' });
+    expect(ok.mother).toMatchObject({ emergencyContact: { name: 'Ravi K', relation: 'Husband', phone: '9000000098' }, altPhone: '9000000097', email: 'asha@example.com', addressLine: '#12 Temple Road', rchId: '100000000001' });
   });
 
-  it('dates by LMP, scan or a clinician-decided EDD, refusing what the server refuses', () => {
-    expect(messages(schema.safeParse({ ...valid, lmp: undefined }))).toEqual(['lmp: Pick the first day of her last period']);
-    expect(messages(schema.safeParse({ ...valid, lmp: local('2026-10-05') }))).toEqual(['lmp: The LMP cannot be in the future']);
-    expect(messages(schema.safeParse({ ...valid, lmp: local('2025-08-01') }))).toEqual(['lmp: This dating gives a gestational age outside 0–45 weeks on the registration date']);
-    // A scan-only dating is a scan dating (never "LMP").
-    const scan = schema.parse({ ...valid, lmp: undefined, method: 'Scan', scanOn: local('2026-09-30'), scanWeeks: '12', scanDays: '3', datingNote: ' Scan report ' });
+  it('a register import still dates each row by LMP, scan or a clinician-decided EDD, refusing what the server refuses', () => {
+    const imp = makeRegisterSchema(NOW, { dating: true });
+    const dated: RegisterForm = { ...valid, method: 'LMP', lmp: local('2026-07-10'), lmpCertain: 'Certain', scanOn: NOW, scanWeeks: '', scanDays: '', datingNote: '' };
+    expect(imp.parse(dated).dating).toEqual({ method: 'lmp', lmp: new Date('2026-07-10T00:00:00Z'), lmpCertain: true, note: undefined });
+    expect(messages(imp.safeParse({ ...dated, lmp: undefined }))).toEqual(['lmp: Pick the first day of her last period']);
+    expect(messages(imp.safeParse({ ...dated, lmp: local('2026-10-05') }))).toEqual(['lmp: The LMP cannot be in the future']);
+    expect(messages(imp.safeParse({ ...dated, lmp: local('2025-08-01') }))).toEqual(['lmp: This dating gives a gestational age outside 0–45 weeks on the registration date']);
+    const scan = imp.parse({ ...dated, lmp: undefined, method: 'Scan', scanOn: local('2026-09-30'), scanWeeks: '12', scanDays: '3', datingNote: ' Scan report ' });
     expect(scan.dating).toEqual({ method: 'scan', scanOn: new Date('2026-09-30T00:00:00Z'), gaAtScanDays: 87, note: 'Scan report' });
-    expect(messages(schema.safeParse({ ...valid, method: 'Scan', scanWeeks: '3' }))).toEqual(['scanWeeks: GA at the scan: 4–42 weeks and 0–6 days']);
-    expect(messages(schema.safeParse({ ...valid, method: 'Scan', scanWeeks: '12', scanDays: '7' }))).toEqual(['scanWeeks: GA at the scan: 4–42 weeks and 0–6 days']);
-    const decided = schema.parse({ ...valid, method: 'Clinician EDD', eddDecided: local('2027-03-01') });
-    expect(decided.dating).toEqual({ method: 'clinician', edd: new Date('2027-03-01T00:00:00Z'), note: undefined });
-    expect(messages(schema.safeParse({ ...valid, method: 'Clinician EDD', eddDecided: local('2027-08-01') }))).toEqual([
-      'eddDecided: This dating gives a gestational age outside 0–45 weeks on the registration date',
-    ]);
+    expect(messages(imp.safeParse({ ...dated, method: 'Scan', scanWeeks: '3' }))).toEqual(['scanWeeks: GA at the scan: 4–42 weeks and 0–6 days']);
+    // The registration form itself never dates: the same fields are ignored there.
+    expect(schema.parse(dated).dating).toBeUndefined();
   });
 
   it('back-dates a registration to noon of the chosen day, never into the future', () => {
@@ -139,14 +165,14 @@ describe('register schema', () => {
     expect(messages(schema.safeParse({ ...valid, l: '1.5' }))).toEqual(['g: P, L and A: whole numbers from 0 to 20']);
   });
 
-  it('checks previous pregnancies, history codes and height', () => {
+  it('checks previous pregnancies, history codes, height and weight', () => {
     expect(messages(schema.safeParse({ ...valid, previous: [{ ...blankPrevious(), year: '1950', weeks: '50' }] }))).toEqual([
       'previous.0.year: Previous pregnancy 1: year 1960–2026',
       'previous.0.outcome: Previous pregnancy 1: choose the outcome',
       'previous.0.weeks: Previous pregnancy 1: gestation 4–45 weeks',
     ]);
     expect(messages(schema.safeParse({ ...valid, otherCondition: ' ' }))).toEqual(['otherCondition: Name the other condition as documented']);
-    expect(messages(schema.safeParse({ ...valid, blood: 'B positive', height: '90' }))).toEqual(['blood: Choose a blood group', 'height: Height: 100–220 cm']);
+    expect(messages(schema.safeParse({ ...valid, blood: 'B positive', height: '90', weight: '300' }))).toEqual(['blood: Choose a blood group', 'height: Height: 100–220 cm', 'weight: Weight: 20–250 kg']);
   });
 
   it('needs her unit when the clinician has several', () => {
@@ -167,16 +193,43 @@ describe('register schema', () => {
   });
 });
 
+describe('dating schema (record dating / re-date)', () => {
+  const local = (iso: string) => pickerDay(new Date(`${iso}T00:00:00Z`));
+  const schema = makeDatingSchema(NOW);
+  const base = { ...blankDating(NOW) };
+
+  it('gives the dating the clinician chose, checked against today', () => {
+    expect(schema.parse({ ...base, lmp: local('2026-07-10'), lmpCertain: 'Uncertain', datingNote: ' Card ' })).toEqual({
+      method: 'lmp', lmp: new Date('2026-07-10T00:00:00Z'), lmpCertain: false, note: 'Card',
+    });
+    expect(schema.parse({ ...base, method: 'Clinician EDD', eddDecided: local('2027-03-01') })).toEqual({ method: 'clinician', edd: new Date('2027-03-01T00:00:00Z'), note: undefined });
+    expect(messages(schema.safeParse(base))).toEqual(['lmp: Pick the first day of her last period']);
+    expect(messages(schema.safeParse({ ...base, method: 'Scan', scanOn: local('2026-10-05'), scanWeeks: '12' }))).toEqual(['scanOn: The scan date cannot be in the future']);
+    expect(messages(schema.safeParse({ ...base, method: 'Clinician EDD', eddDecided: local('2027-08-01') }))).toEqual([
+      'eddDecided: This dating gives a gestational age outside 0–45 weeks today',
+    ]);
+  });
+});
+
 describe('mother details schema', () => {
   it('turns the form back into her details, blank optional fields absent', () => {
     const values = motherFormValues({
       name: 'Lakshmi K', age: 24, phone: '9000000003', lang: 'kn', village: 'Hoskote', dob: new Date('2002-05-01T00:00:00Z'), dobEstimated: true,
+      maritalStatus: 'married', husbandName: 'Ravi K', aadhaarLast4: '4321',
       emergencyContact: { name: 'Ravi K', relation: 'Husband', phone: '9000000004' },
     });
-    expect(values).toMatchObject({ age: '24', lang: 'Kannada', dobText: '01-05-2002', ecRelation: 'Husband', district: '' });
+    expect(values).toMatchObject({ ageOnly: false, age: '', lang: 'Kannada', marital: 'Married', husbandName: 'Ravi K', aadhaarLast4: '4321', ecRelation: 'Husband', district: '' });
+    expect(values.dob && pickerDay(new Date('2002-05-01T00:00:00Z')).getTime() === values.dob.getTime()).toBe(true);
     const out = makeMotherSchema(NOW).parse({ ...values, district: ' Demo District ' });
-    expect(out).toMatchObject({ name: 'Lakshmi K', age: 24, lang: 'kn', district: 'Demo District', dob: new Date('2002-05-01T00:00:00Z'), dobEstimated: true, altPhone: undefined });
+    expect(out).toMatchObject({ name: 'Lakshmi K', age: 24, lang: 'kn', district: 'Demo District', dob: new Date('2002-05-01T00:00:00Z'), dobEstimated: true, altPhone: undefined, maritalStatus: 'married', husbandName: 'Ravi K' });
     expect(messages(makeMotherSchema(NOW).safeParse({ ...values, phone: '' }))).toEqual(['phone: Enter a 10-digit mobile number starting with 6, 7, 8 or 9']);
+    // On record with an age only (no date of birth): the age stays the fallback.
+    expect(motherFormValues({ name: 'Meena T', age: 27, phone: '9000000006', lang: 'en', village: '', emergencyContact: { name: '', relation: '', phone: '' } })).toMatchObject({ ageOnly: true, age: '27', dob: undefined });
+  });
+
+  it('derives her age in calendar years', () => {
+    expect(ageOn(new Date('2002-10-02T00:00:00Z'), NOW)).toBe(24);
+    expect(ageOn(new Date('2002-10-03T00:00:00Z'), NOW)).toBe(23);
   });
 });
 

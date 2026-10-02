@@ -72,8 +72,13 @@ export type RegisterInput = {
   /** A returning mother the clinician confirmed (find_mother): her record is reused and corrected from the form. */
   existingMotherId?: MotherId;
   registeredOn: Date;
-  dating: RegisterDating;
+  /**
+   * Absent from the registration form: the doctor records the dating later (redate_pregnancy, first dating). A
+   * register import still carries each row's LMP.
+   */
+  dating?: RegisterDating;
   gpla: Pregnancy['gpla'];
+  /** Number of fetuses as documented (register import / older clients; the form no longer asks). */
   fetuses?: number;
   history: Pregnancy['history'];
   previous: Pregnancy['previous'];
@@ -96,23 +101,31 @@ export function registerDatingPayload(d: RegisterDating) {
 export function motherPayload(m: MotherDetails) {
   const ec = m.emergencyContact;
   const t = (v: string | undefined) => v?.trim() ?? '';
+  // A husband's details are sent only for a married woman (the server refuses them otherwise).
+  const married = m.maritalStatus === 'married';
   return {
     name: m.name.trim(),
-    age: m.age,
     dob: m.dob ? isoDay(m.dob) : null,
     dob_estimated: !!m.dob && !!m.dobEstimated,
+    // Her age is derived from the date of birth; it is stored only when the date is not known.
+    age: m.dob ? undefined : m.age,
     phone: e164(m.phone),
     alt_phone: m.altPhone ? e164(m.altPhone) : '',
-    lang: m.lang,
-    husband_name: t(m.husbandName),
+    email: t(m.email),
+    marital_status: m.maritalStatus ?? '',
+    husband_name: married ? t(m.husbandName) : '',
+    husband_phone: married && m.husbandPhone ? e164(m.husbandPhone) : '',
+    address_line: t(m.addressLine),
     village: t(m.village),
     district: t(m.district),
     state: t(m.state),
     pincode: t(m.pincode),
-    emergency_contact: ec.phone ? { name: ec.name.trim(), relation: ec.relation.trim() || undefined, phone: e164(ec.phone) } : null,
     rch_id: t(m.rchId),
+    aadhaar_last4: t(m.aadhaarLast4),
     abha_number: t(m.abhaNumber),
     abha_address: t(m.abhaAddress),
+    lang: m.lang,
+    emergency_contact: ec.phone ? { name: ec.name.trim(), relation: ec.relation.trim() || undefined, phone: e164(ec.phone) } : null,
   };
 }
 type MotherPayload = ReturnType<typeof motherPayload>;
@@ -132,9 +145,12 @@ export function motherUpdatePayload(before: MotherDetails, after: MotherDetails)
 type PlannedTest = { id: Id; code: string; dueFrom: Date; dueBy: Date; late: boolean };
 type PlannedVisit = { id: Id; kind: string; title: string; dueFrom?: Date; dueBy: Date };
 
-/** `register_pregnancy` — every key of its allowlist that the clinician filled in, nothing invented. */
+/**
+ * `register_pregnancy` — every key of its allowlist that the clinician filled in, nothing invented. Without a dating
+ * (the registration form) there is no `dating`, no `ga_days` and no plan: those come with the first dating.
+ */
 export function registerPayload(input: RegisterInput, plan: { motherId: MotherId; pregnancyId: PregnancyId; investigations: PlannedTest[]; tasks: PlannedVisit[] }) {
-  const edd = eddFor(input.dating);
+  const edd = input.dating && eddFor(input.dating);
   const h = input.history;
   return {
     mother: { id: plan.motherId, ...enteredOnly(motherPayload(input.mother)) },
@@ -147,13 +163,14 @@ export function registerPayload(input: RegisterInput, plan: { motherId: MotherId
       abortions: input.gpla.a,
       fetuses: input.fetuses,
     },
-    dating: registerDatingPayload(input.dating),
+    dating: input.dating && registerDatingPayload(input.dating),
     history: {
       conditions: h.conditions,
       allergies: h.allergies,
       medicines: h.medicines,
       blood_group: h.bloodGroup,
       height_cm: h.heightCm,
+      weight_kg: h.weightKg,
       previous: input.previous.map((x) => ({
         year: x.year,
         // A label without a code is sent as typed: the server refuses it (visible), it is never guessed.
@@ -170,7 +187,29 @@ export function registerPayload(input: RegisterInput, plan: { motherId: MotherId
     tag_note: input.tagCodes.length ? input.tagNote : undefined,
     investigations: plan.investigations.map((i) => ({ id: i.id, code: i.code, due_from: isoDay(i.dueFrom), due_by: isoDay(i.dueBy), late: i.late })),
     tasks: plan.tasks.map((t) => ({ id: t.id, kind: t.kind, title: t.title, due_from: t.dueFrom && isoDay(t.dueFrom), due_by: isoDay(t.dueBy) })),
-    ga_days: gestationalAge(edd, input.registeredOn).totalDays,
+    ga_days: edd && gestationalAge(edd, input.registeredOn).totalDays,
+  };
+}
+
+/**
+ * `redate_pregnancy` — the dating, the ANC visits it re-plans and, at the FIRST dating of a pregnancy registered
+ * without one, the test windows (what registration used to plan).
+ */
+export function redatePayload(
+  pregnancyId: PregnancyId,
+  input: RegisterDating,
+  plan: { cancelled: Id[]; tasks: PlannedVisit[]; investigations?: PlannedTest[] },
+  at: Date,
+) {
+  return {
+    pregnancy_id: pregnancyId,
+    dating: registerDatingPayload(input),
+    cancel_task_ids: plan.cancelled,
+    new_tasks: plan.tasks.map((t) => ({ id: t.id, kind: t.kind, title: t.title, due_from: t.dueFrom && isoDay(t.dueFrom), due_by: isoDay(t.dueBy) })),
+    investigations: plan.investigations?.length
+      ? plan.investigations.map((i) => ({ id: i.id, code: i.code, due_from: isoDay(i.dueFrom), due_by: isoDay(i.dueBy), late: i.late }))
+      : undefined,
+    at: at.toISOString(),
   };
 }
 

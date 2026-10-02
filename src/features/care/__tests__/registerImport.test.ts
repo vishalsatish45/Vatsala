@@ -28,10 +28,11 @@ describe('register import', () => {
   it('sends only what the file says — no default medicines, living children or abortions', () => {
     const [head, ...rows] = parseCsv(sampleRegisterCsv(now));
     const bhavya = validate(rows, autoMap(head!), [], now).find((r) => r.cells[0] === 'Bhavya S')!.input!;
-    expect(bhavya.history).toEqual({ conditions: [], allergies: [], medicines: [], bloodGroup: 'B+', heightCm: undefined });
+    expect(bhavya.history).toEqual({ conditions: [], allergies: [], medicines: [], bloodGroup: 'B+', heightCm: undefined, weightKg: undefined });
     expect(bhavya.gpla).toEqual({ g: 2, p: 1, l: 1, a: 0 });
     expect(bhavya.mother).toMatchObject({ name: 'Bhavya S', age: 27, phone: '9822200002', village: 'Malur', lang: 'kn', emergencyContact: { name: '', relation: '', phone: '' } });
-    expect(bhavya.dating.method).toBe('lmp');
+    // A register row still carries its LMP: the import dates each pregnancy.
+    expect(bhavya.dating?.method).toBe('lmp');
   });
 
   it('refuses values the server refuses (age, G/P/L/A, blood group, impossible dates, repeated mobiles)', () => {

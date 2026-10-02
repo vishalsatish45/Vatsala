@@ -128,12 +128,14 @@ const T = {
     id, phone: nstr, name: str, dob: nstr, age_at_registration: nnum, lang: z.enum(['en', 'kn', 'hi']), village: nstr,
     emergency_contact: emergencyContact, card_fields: z.array(z.enum(CARD_FIELDS)), version: num,
     alt_phone: nstr, husband_name: nstr, dob_estimated: bool, district: nstr, state: nstr, pincode: nstr,
+    email: nstr, marital_status: z.enum(['married', 'unmarried', 'widowed', 'separated_divorced']).nullable(), husband_phone: nstr,
+    address_line: nstr, aadhaar_last4: nstr,
   }),
   // Her national ids as documented (RCH register, ABHA); the hospital MRN is not read here.
   patient_identifiers: z.strictObject({ id, mother_id: id, system: z.enum(['rch', 'abha_number', 'abha_address']), value: str }),
   team_members: z.strictObject({ id, team_id: id, staff_id: id }),
   pregnancies: z.strictObject({
-    id, mch_id: str, mother_id: id, registered_on: str, edd: str, gravida: num, para: num, living: num, abortions: num,
+    id, mch_id: str, mother_id: id, registered_on: str, edd: nstr, gravida: num, para: num, living: num, abortions: num,
     status: z.enum(['active', 'delivered', 'closed']), intensity, ended_on: nstr, end_reason: endReason.nullable(), version: num,
   }),
   pregnancy_datings: z.strictObject({ id, pregnancy_id: id, method: z.enum(['lmp', 'scan', 'clinician']), lmp: nstr }),
@@ -230,7 +232,7 @@ const F = {
     hospital: z.strictObject({ name: str, phone_opd: nstr, phone_labour: nstr, address: nstr, maps_url: nstr }).nullable(),
     pregnancy: z
       .strictObject({
-        id, mch_id: nstr, registered_on: str, edd: str, status: z.enum(['active', 'delivered', 'closed']), ended_on: nstr, end_reason: nstr,
+        id, mch_id: nstr, registered_on: str, edd: nstr, status: z.enum(['active', 'delivered', 'closed']), ended_on: nstr, end_reason: nstr,
         closer_follow_up: bool,
       })
       .nullable(),
@@ -416,16 +418,22 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
     return {
       id: asMotherId(m.id),
       name: m.name,
-      age: m.age_at_registration ?? (m.dob ? Math.floor((Date.now() - day(m.dob).getTime()) / (365.25 * 86_400_000)) : 0),
+      // Derived from the date of birth when it is known; the age typed at registration otherwise.
+      age: m.dob ? Math.floor((Date.now() - day(m.dob).getTime()) / (365.25 * 86_400_000)) : (m.age_at_registration ?? 0),
       phone: localPhone(m.phone),
       lang: m.lang,
       village: m.village ?? '',
       ipNo: adm?.ip_no,
       emergencyContact: { name: ec?.name ?? '', relation: ec?.relation ?? '', phone: localPhone(ec?.phone) },
       altPhone: m.alt_phone ? localPhone(m.alt_phone) : undefined,
+      email: opt(m.email),
+      maritalStatus: opt(m.marital_status),
       husbandName: opt(m.husband_name),
+      husbandPhone: m.husband_phone ? localPhone(m.husband_phone) : undefined,
       dob: dayOpt(m.dob),
       dobEstimated: m.dob ? m.dob_estimated : undefined,
+      addressLine: opt(m.address_line),
+      aadhaarLast4: opt(m.aadhaar_last4),
       district: opt(m.district),
       state: opt(m.state),
       pincode: opt(m.pincode),
@@ -444,6 +452,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
     return v;
   };
   const encPregnancy = new Map(encounters.map((e) => [e.id, e.pregnancy_id]));
+  const regEncounter = new Map(encounters.filter((e) => e.kind === 'registration').map((e) => [e.id, e.pregnancy_id]));
   const latestObs = (pregIds: Set<string>, code: string) =>
     observations
       .filter((o) => o.code === code && pregIds.has(encPregnancy.get(o.encounter_id) ?? ''))
@@ -463,14 +472,17 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
     const sameMother = new Set((pregsByMother.get(g.mother_id) ?? []).map((x) => x.id));
     const bg = latestObs(sameMother, 'blood_group');
     const ht = latestObs(sameMother, 'height');
+    // Weight at registration: this pregnancy's registration encounter only (later weights are visit values).
+    const wt = observations.find((o) => o.code === 'weight' && regEncounter.get(o.encounter_id) === g.id);
     return {
       id: asPregnancyId(g.id),
       mchId: g.mch_id,
       motherId: asMotherId(g.mother_id),
       registeredOn: new Date(g.registered_on),
       lmp: dayOpt(d?.lmp),
-      edd: day(g.edd),
-      eddSource: d?.method ?? 'lmp',
+      // Undated until the doctor records the dating (no current dating row then).
+      edd: dayOpt(g.edd),
+      eddSource: g.edd ? (d?.method ?? 'lmp') : undefined,
       gpla: { g: g.gravida, p: g.para, l: g.living, a: g.abortions },
       // 'Admitted' is an open admission, not a stored status.
       status: g.status === 'active' && openAdm.has(g.id) ? 'admitted' : g.status,
@@ -487,6 +499,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
         medicines: medications.filter((x) => x.pregnancy_id === g.id && x.kind === 'statement' && x.status === 'active').map((x) => x.name),
         bloodGroup: opt(bg?.value_text),
         heightCm: opt(ht?.value_num),
+        weightKg: opt(wt?.value_num),
       },
       previous: (prevByMother.get(g.mother_id) ?? []).map((x) => ({
         id: x.id,
@@ -523,7 +536,8 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
 
   // ANC visits (and a registration encounter that recorded vitals). Paper-record captures are visits too.
   const checklistByEnc = groupBy(checklist, (c) => c.encounter_id);
-  const VITALS = ['weight', 'bp_sys', 'bp_dia'];
+  // (BP only: a registration's height / weight / blood group are history, not a visit.)
+  const VITALS = ['bp_sys', 'bp_dia'];
   s.visits = encounters
     .filter((e) => e.pregnancy_id && (e.kind === 'anc' || (e.kind === 'registration' && (obsByEnc.get(e.id) ?? []).some((o) => VITALS.includes(o.code)))))
     .map((e): Visit => {
@@ -830,8 +844,9 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
       mchId: g.mch_id ?? '',
       motherId,
       registeredOn: new Date(g.registered_on),
-      edd: day(g.edd),
-      eddSource: 'lmp',
+      // Null until her doctor records the dating at her first check-up.
+      edd: dayOpt(g.edd),
+      eddSource: g.edd ? 'lmp' : undefined,
       gpla: { g: 0, p: 0, l: 0, a: 0 },
       status: g.status,
       endReason: opt(g.end_reason),

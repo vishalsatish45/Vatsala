@@ -42,7 +42,7 @@ export function EmergencyCardView({ qrSize = 190, onOpen }: { qrSize?: number; o
     age: `${mother.age}`,
     blood: p.history.bloodGroup ?? '—',
     // Weeks and due date only while she is pregnant (not after a birth, a closed episode or a loss).
-    weeks: isPregnant(p) ? `${formatGA(gestationalAge(p.edd, localDay(now)))} · ${t('family.card.edd')} ${fmtShort(p.edd, 'en')}` : '—',
+    weeks: !isPregnant(p) ? '—' : p.edd ? `${formatGA(gestationalAge(p.edd, localDay(now)))} · ${t('family.card.edd')} ${fmtShort(p.edd, 'en')}` : t('family.dueDateLater'),
     allergies: p.history.allergies.join(', ') || t('family.card.none'),
     conditions: p.history.conditions.join(', ') || t('family.card.none'),
     hospital: [db.hospital?.name, db.hospital?.phoneLabour ?? db.hospital?.phoneOpd].filter(Boolean).join(' · ') || '—',

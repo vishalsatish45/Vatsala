@@ -8,7 +8,7 @@ import { gestationalAge } from '@domain/gestation';
 import { tagLabel } from '@/data/catalogue';
 import { endReasonCodes } from '@/data/codes';
 import { asPregnancyId } from '@/data/ids';
-import { activeTags, ago, continuityEvents, fmtDate, fmtDay, fmtTime, invState, motherOf, nextVisit, patientIds, referralStatusLabel, sexLabel, stillDue, type DueItem } from '@/data/selectors';
+import { DATING_NOT_RECORDED, activeTags, ago, continuityEvents, fmtDate, fmtDay, fmtTime, invState, motherOf, nextVisit, patientIds, referralStatusLabel, sexLabel, stillDue, type DueItem } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { REFERRAL_STEPS, type Pregnancy } from '@/data/types';
 import { EndAdmissionSheet } from '@/features/care/AdmissionSheets';
@@ -80,7 +80,7 @@ export default function PatientView() {
   }, [id, by, logAccess]);
   if (!p) return <Screen header={<TopBar back title="Patient" />}><AppText>Not found.</AppText></Screen>;
   const m = motherOf(db, p.motherId);
-  const ga = gestationalAge(p.edd, now);
+  const ga = p.edd && gestationalAge(p.edd, now);
   const tags = activeTags(db, p.id);
   const due = stillDue(db, p, now);
   const visits = db.visits.filter((v) => v.pregnancyId === p.id).sort((a, b) => b.at.getTime() - a.at.getTime());
@@ -154,6 +154,10 @@ export default function PatientView() {
           <AppText variant="hero" align="center">
             Delivered
           </AppText>
+        ) : !ga ? (
+          <AppText variant="display" align="center">
+            {DATING_NOT_RECORDED}
+          </AppText>
         ) : (
           <View style={styles.gaRow}>
             <AppText variant="hero">{ga.weeks}</AppText>
@@ -165,7 +169,7 @@ export default function PatientView() {
         )}
         <View style={styles.chips}>
           {!!p.lmp && <Chip label={`LMP: ${fmtDate(p.lmp)}`} variant="glass" />}
-          <Chip label={`EDD: ${fmtDate(p.edd)}`} variant="glass" />
+          {!!p.edd && <Chip label={`EDD: ${fmtDate(p.edd)}`} variant="glass" />}
           {!!p.history.bloodGroup && <Chip label={p.history.bloodGroup} variant="glass" />}
           {p.history.allergies.map((a) => (
             <Chip key={a} label={`Allergy: ${a}`} variant="glass" />
@@ -239,6 +243,14 @@ export default function PatientView() {
             </GlassSurface>
           </PressableScale>
 
+          {!p.edd && ongoing && (
+            <Card style={{ gap: space.sm }}>
+              <AppText variant="title">{DATING_NOT_RECORDED}</AppText>
+              <AppText tone="secondary">Record the dating (LMP, scan or your EDD) to schedule her ANC visits and test windows.</AppText>
+              {treating && <Button label="Record dating" icon={CalendarClock} onPress={() => router.push({ pathname: '/care/p/[id]/redate', params: { id: p.id } })} />}
+            </Card>
+          )}
+
           <Card style={{ gap: 4 }}>
             <View style={styles.cardHead}>
               <AppText variant="title">Still due</AppText>
@@ -310,7 +322,7 @@ export default function PatientView() {
           <Section title="Plan">
             <Card>
               <InfoRow label="Next visit" value={nv ? `${fmtDay(nv.dueBy)} · ${nv.title}` : undefined} />
-              <InfoRow label="EDD" value={`${fmtDay(p.edd)} (${p.eddSource.toUpperCase()})`} />
+              <InfoRow label="EDD" value={p.edd ? `${fmtDay(p.edd)} (${(p.eddSource ?? 'lmp').toUpperCase()})` : DATING_NOT_RECORDED} />
               <CareTeamRows subjectId={p.id} specialties={['obstetrics', 'paediatrics']} />
               <InfoRow label="Village" value={m.village} />
               <InfoRow label="Phone" value={m.phone} />
@@ -324,7 +336,7 @@ export default function PatientView() {
               {treating && ongoing && <Chip label="Capture paper record" icon={Camera} onPress={() => router.push({ pathname: '/care/capture', params: { id: p.id } })} />}
               {treating && ongoing && <Chip label="Admit / record delivery" icon={Baby} onPress={() => router.push({ pathname: '/care/p/[id]/deliver', params: { id: p.id } })} />}
               {treating && delivered && <Chip label="Discharge checklist" onPress={() => router.push({ pathname: '/care/discharge/[id]', params: { id: p.id } })} />}
-              {treating && ongoing && <Chip label="Re-date (EDD)" icon={CalendarClock} onPress={() => router.push({ pathname: '/care/p/[id]/redate', params: { id: p.id } })} />}
+              {treating && ongoing && <Chip label={p.edd ? 'Re-date (EDD)' : 'Record dating'} icon={CalendarClock} onPress={() => router.push({ pathname: '/care/p/[id]/redate', params: { id: p.id } })} />}
               {treating && p.status === 'admitted' && <Chip label="End admission (no delivery)" icon={DoorOpen} onPress={() => setEndingAdmission(true)} />}
               {treating && (p.status === 'active' || delivered) && (
                 <Chip
@@ -364,7 +376,7 @@ export default function PatientView() {
           babyLabel="Baby"
           todayLabel="Today"
           edd={delivered ? undefined : p.edd}
-          eddLabel={`EDD · ${fmtDay(p.edd)}`}
+          eddLabel={p.edd ? `EDD · ${fmtDay(p.edd)}` : DATING_NOT_RECORDED}
         />
       )}
 
@@ -436,7 +448,7 @@ export default function PatientView() {
             return (
               <ListRow
                 key={v.id}
-                title={`${fmtDay(v.at)} · ${gestationalAge(p.edd, v.at).weeks} weeks`}
+                title={`${fmtDay(v.at)}${p.edd ? ` · ${gestationalAge(p.edd, v.at).weeks} weeks` : ''}`}
                 subtitle={[
                   `BP ${v.vitals.bpSys ?? '—'}/${v.vitals.bpDia ?? '—'} · ${v.vitals.weightKg ?? '—'} kg`,
                   v.complaints.length ? v.complaints.join(', ') : '',

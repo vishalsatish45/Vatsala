@@ -3,7 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 
 import { asPregnancyId } from '@/data/ids';
 import { tagLabel } from '@/data/catalogue';
-import { activeTags, fmtDay, motherOf, patientIds, referralStatusLabel } from '@/data/selectors';
+import { DATING_NOT_RECORDED, activeTags, fmtDay, motherOf, patientIds, referralStatusLabel } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { AiDraftPanel } from '@/features/ai/AiDraftPanel';
 import { useCareMe } from '@/features/care/CareTeam';
@@ -55,7 +55,7 @@ export default function CaseFile() {
           <InfoRow label="Blood group" value={p.history.bloodGroup} />
           <InfoRow label="Height" value={p.history.heightCm ? `${p.history.heightCm} cm` : undefined} />
           <InfoRow label="LMP" value={p.lmp ? fmtDay(p.lmp) : '—'} />
-          <InfoRow label="EDD" value={fmtDay(p.edd)} />
+          <InfoRow label="EDD" value={p.edd ? fmtDay(p.edd) : DATING_NOT_RECORDED} />
         </Card>
       </Section>
 

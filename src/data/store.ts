@@ -29,16 +29,16 @@ import {
 import { enqueue, useOutbox } from './outbox';
 import {
   caregiverScopesPayload,
-  datingPayload,
   eddFor,
   eiePayload,
   motherUpdatePayload,
   notificationsReadPayload,
   prescribePayload,
+  redatePayload,
   registerPayload,
   type MotherDetails,
   type PrescriptionInput,
-  type RedateInput,
+  type RegisterDating,
   type RegisterInput,
   type Subject,
 } from './payloads';
@@ -270,8 +270,11 @@ type Actions = {
   /** A clinician-entered prescription for a pregnancy (obstetrics) or a baby (paediatrics). */
   prescribe: (subject: Subject, input: PrescriptionInput, by: string, now: Date) => Id;
   stopMedication: (id: Id, reason: string, by: string, now: Date) => void;
-  /** New dating chosen by the clinician; future ANC visits are re-planned from the new EDD. */
-  redatePregnancy: (pregnancyId: Id, input: RedateInput, by: string, now: Date) => void;
+  /**
+   * The dating chosen by the clinician. The FIRST dating of a pregnancy registered without one plans the ANC visits
+   * and test windows; a re-dating re-plans the future ANC visits from the new EDD.
+   */
+  redatePregnancy: (pregnancyId: PregnancyId, input: RegisterDating, by: string, now: Date) => void;
   /** End an ongoing pregnancy with its outcome, or close a delivered episode (reason 'delivered'). */
   endPregnancy: (pregnancyId: Id, reason: string, note: string | undefined, endedOn: Date | undefined, by: string, now: Date) => void;
   /** End an admission that did not lead to a delivery, at the documented time `at`. */
@@ -314,15 +317,29 @@ export const DOSE_WAIT_MESSAGE = 'The delivery is still being saved — record v
 
 type Replan = { tasks: Task[]; cancelled: Task[]; fresh: Task[] };
 
-/** Cancel open future ANC visits and plan new ones from `from` using the pregnancy's intensity. */
+/**
+ * Cancel open future ANC visits and plan new ones from `from` using the pregnancy's intensity. An undated pregnancy
+ * has no ANC plan: nothing is planned until the doctor records the dating (the server refuses ANC visits until then).
+ */
 function regenerateAnc(s: DbState, p: Pregnancy, from: Date, firstOn?: Date): Replan {
   const isFutureOpen = (t: Task) => t.subjectId === p.id && t.kind === 'anc_visit' && !t.completedAt && !t.cancelledAt && t.dueBy.getTime() > from.getTime();
+  if (!p.edd) return { tasks: s.tasks, cancelled: [], fresh: [] };
   const cancelled = s.tasks.filter(isFutureOpen);
   const kept = s.tasks.filter((t) => !isFutureOpen(t));
   const start = firstOn ?? from;
   const fresh = ancTasks(p.id, p.edd, [...(firstOn ? [firstOn] : []), ...ancVisitDates(p.edd, p.intensity, start)]);
   return { tasks: [...kept, ...fresh], cancelled, fresh };
 }
+
+/** The test windows and ANC visits a dating plans from `now` (registration used to plan them; now the first dating). */
+function datingPlan(pregnancyId: PregnancyId, edd: Date, intensity: Intensity, rhNegative: boolean, now: Date) {
+  const investigations: Investigation[] = investigationWindows(edd, now, { rhNegative }).map((w) => ({ id: uid('iv'), subjectId: pregnancyId, status: 'due', ...w }));
+  const tasks = ancTasks(pregnancyId, edd, ancVisitDates(edd, intensity, now));
+  return { investigations, tasks };
+}
+
+/** Rh-negative as documented (blood group) or tagged by the clinician: the windows then include the ICT. */
+const isRhNegative = (bloodGroup: string | undefined, tagCodes: string[]) => /-|neg/i.test(bloodGroup ?? '') || tagCodes.includes('rh_neg');
 
 /** Planned ANC visits on the given days. */
 function ancTasks(pregnancyId: PregnancyId, edd: Date, dates: Date[]): Task[] {
@@ -467,16 +484,18 @@ function myObstetricUnit() {
 }
 
 /**
- * What a registration creates, planned on the phone (ids, the ANC visits, the test windows) and its RPC payload —
- * nothing is saved yet. Dates only: the plan comes from shared/domain, never from a reading.
+ * What a registration creates, planned on the phone (ids and — only when the registration carries a dating, as a
+ * register import row does — the ANC visits and test windows) and its RPC payload. Nothing is saved yet. Dates only:
+ * the plan comes from shared/domain, never from a reading. Without a dating nothing is planned until the doctor
+ * records it (`redatePregnancy`, first dating).
  */
 export function planRegistration(input: RegisterInput, now: Date) {
   const motherId = input.existingMotherId ?? uid('mo');
   const pregnancyId = uid('pg');
-  const edd = eddFor(input.dating);
-  const rhNegative = /-|neg/i.test(input.history.bloodGroup ?? '') || input.tagCodes.includes('rh_neg');
-  const investigations: Investigation[] = investigationWindows(edd, now, { rhNegative }).map((w) => ({ id: uid('iv'), subjectId: pregnancyId, status: 'due', ...w }));
-  const tasks = ancTasks(pregnancyId, edd, ancVisitDates(edd, input.intensity, now));
+  const edd = input.dating && eddFor(input.dating);
+  const { investigations, tasks } = edd
+    ? datingPlan(pregnancyId, edd, input.intensity, isRhNegative(input.history.bloodGroup, input.tagCodes), now)
+    : { investigations: [] as Investigation[], tasks: [] as Task[] };
   const teamId = input.teamId ?? myObstetricUnit();
   const payload = registerPayload({ ...input, teamId }, { motherId, pregnancyId, investigations, tasks });
   return { motherId, pregnancyId, edd, investigations, tasks, teamId, payload };
@@ -503,9 +522,9 @@ export const useDb = create<Db>()((set, get) => {
       mchId: isRemote ? 'MCH id pending' : `MCH-${now.getFullYear()}-${String(seq).padStart(6, '0')}`,
       motherId,
       registeredOn: input.registeredOn,
-      lmp: input.dating.method === 'lmp' ? input.dating.lmp : undefined,
+      lmp: input.dating?.method === 'lmp' ? input.dating.lmp : undefined,
       edd: plan.edd,
-      eddSource: input.dating.method,
+      eddSource: input.dating?.method,
       gpla: input.gpla,
       status: 'active',
       intensity: input.intensity,
@@ -590,7 +609,7 @@ export const useDb = create<Db>()((set, get) => {
           encounter_id: visit.id,
           pregnancy_id: pregnancyId,
           at: at.toISOString(),
-          ga_days: gestationalAge(p.edd, at).totalDays,
+          ga_days: p.edd && gestationalAge(p.edd, at).totalDays,
           observations: observationRows(input.vitals),
           checklist: Object.entries(input.checklist).map(([component, c]) => ({ component, state: c.state, reason: c.reason })),
           complaints: codes,
@@ -861,7 +880,8 @@ export const useDb = create<Db>()((set, get) => {
     recordDelivery: (pregnancyId, input, by) => {
       const s = get();
       const p = s.pregnancies.find((x) => x.id === pregnancyId)!;
-      const gaDays = gestationalAge(p.edd, input.at).totalDays;
+      // An undated pregnancy has no gestational age at birth (0 = not recorded, as the server's null is read).
+      const gaDays = p.edd ? gestationalAge(p.edd, input.at).totalDays : 0;
       const babies: Baby[] = input.babies.map((b, i) => ({
         id: uid('bb'),
         childId: `${p.mchId}-B${i + 1}`,
@@ -1176,18 +1196,35 @@ export const useDb = create<Db>()((set, get) => {
       const s = get();
       const p = s.pregnancies.find((x) => x.id === pregnancyId);
       if (!p) return;
-      const updated: Pregnancy = { ...p, edd: eddFor(input), eddSource: input.method, lmp: input.method === 'lmp' ? input.lmp : undefined };
-      // The same re-plan as a change of intensity: from the last visit if recent, else from today.
+      const edd = eddFor(input);
+      const updated: Pregnancy = { ...p, edd, eddSource: input.method, lmp: input.method === 'lmp' ? input.lmp : undefined };
+      const pregnancies = s.pregnancies.map((x) => (x.id === p.id ? updated : x));
+      if (!p.edd) {
+        // First dating of a pregnancy registered without one: plan what registration used to plan — the ANC visits
+        // and the test windows from today (server: redate_pregnancy, audited 'record_dating').
+        const rhNegative = isRhNegative(p.history.bloodGroup, s.tags.filter((t) => t.subjectId === p.id && !t.removedAt).map((t) => t.code));
+        const plan = datingPlan(p.id, edd, p.intensity, rhNegative, now);
+        set({
+          pregnancies,
+          tasks: [...s.tasks, ...plan.tasks],
+          investigations: [...s.investigations, ...plan.investigations],
+          audit: audit(s, by, `record_dating (${input.method}) → EDD ${isoDay(edd)}`, p.mchId, now),
+        });
+        enqueue('redate_pregnancy', redatePayload(p.id, input, { cancelled: [], tasks: plan.tasks, investigations: plan.investigations }, now), {
+          entityId: p.id,
+          withVersion: true,
+        });
+        return;
+      }
+      // Re-dating: the same re-plan as a change of intensity, from the last visit if recent, else from today.
       const lastVisit = s.visits.filter((v) => v.pregnancyId === p.id).sort((a, b) => b.at.getTime() - a.at.getTime())[0];
       const from = lastVisit && lastVisit.at.getTime() > addDays(now, -28).getTime() ? lastVisit.at : now;
-      const pregnancies = s.pregnancies.map((x) => (x.id === p.id ? updated : x));
       const plan = regenerateAnc({ ...s, pregnancies }, updated, from);
-      set({ pregnancies, tasks: plan.tasks, audit: audit(s, by, `redate (${input.method}) → EDD ${isoDay(updated.edd)}`, p.mchId, now) });
-      enqueue(
-        'redate_pregnancy',
-        { pregnancy_id: p.id, dating: datingPayload(input), cancel_task_ids: plan.cancelled.map((t) => t.id), new_tasks: taskRows(plan.fresh), at: now.toISOString() },
-        { entityId: p.id, withVersion: true },
-      );
+      set({ pregnancies, tasks: plan.tasks, audit: audit(s, by, `redate (${input.method}) → EDD ${isoDay(edd)}`, p.mchId, now) });
+      enqueue('redate_pregnancy', redatePayload(p.id, input, { cancelled: plan.cancelled.map((t) => t.id), tasks: plan.fresh }, now), {
+        entityId: p.id,
+        withVersion: true,
+      });
     },
 
     endPregnancy: (pregnancyId, reason, note, endedOn, by, now) => {

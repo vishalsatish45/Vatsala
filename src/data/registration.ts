@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { asMotherId } from './ids';
 import { day, e164 } from './remote';
 import { planRegistration, useDb, type RegisterInput } from './store';
-import type { Mother, MotherId } from './types';
+import type { MaritalStatus, Mother, MotherId } from './types';
 import { isRemote, supabase } from '@/lib/supabase';
 
 export type MotherMatch = {
@@ -26,6 +26,8 @@ export type MotherMatch = {
   dob?: Date;
   dobEstimated?: boolean;
   lang: Mother['lang'];
+  maritalStatus?: MaritalStatus;
+  addressLine?: string;
   village?: string;
   district?: string;
   state?: string;
@@ -48,6 +50,8 @@ const Found = z
     dob: nstr,
     dob_estimated: z.boolean(),
     lang: z.enum(['en', 'kn', 'hi']),
+    marital_status: z.enum(['married', 'unmarried', 'widowed', 'separated_divorced']).nullable(),
+    address_line: nstr,
     village: nstr,
     district: nstr,
     state: nstr,
@@ -79,7 +83,7 @@ export async function findMother(phone: string): Promise<LookupResult> {
     return {
       ok: true,
       match: {
-        motherId: m.id, name: m.name, age: m.age, dob: m.dob, dobEstimated: m.dobEstimated, lang: m.lang, village: m.village || undefined,
+        motherId: m.id, name: m.name, age: m.age, dob: m.dob, dobEstimated: m.dobEstimated, lang: m.lang, maritalStatus: m.maritalStatus, addressLine: m.addressLine, village: m.village || undefined,
         district: m.district, state: m.state, pincode: m.pincode, husbandName: m.husbandName,
         activePregnancy: pregs.some((g) => g.status === 'active' || g.status === 'admitted'), pregnancies: pregs.length,
       },
@@ -98,7 +102,7 @@ export async function findMother(phone: string): Promise<LookupResult> {
     ok: true,
     match: {
       motherId: asMotherId(f.mother_id), name: f.name, age: f.age ?? undefined, dob: f.dob ? day(f.dob) : undefined, dobEstimated: f.dob_estimated,
-      lang: f.lang, village: opt(f.village), district: opt(f.district), state: opt(f.state), pincode: opt(f.pincode), husbandName: opt(f.husband_name),
+      lang: f.lang, maritalStatus: f.marital_status ?? undefined, addressLine: opt(f.address_line), village: opt(f.village), district: opt(f.district), state: opt(f.state), pincode: opt(f.pincode), husbandName: opt(f.husband_name),
       activePregnancy: f.active_pregnancy, pregnancies: f.pregnancies,
     },
   };

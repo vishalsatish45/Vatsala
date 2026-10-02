@@ -7,7 +7,7 @@ import { ancIntervalWeeks, completeness, expectedComponents } from '@domain/sche
 
 import { COMPLAINTS, NOT_DONE_REASONS } from '@/data/catalogue';
 import { asPregnancyId } from '@/data/ids';
-import { fmtDay, motherOf } from '@/data/selectors';
+import { DATING_NOT_RECORDED, fmtDay, motherOf } from '@/data/selectors';
 import { useDb, type VisitInput } from '@/data/store';
 import type { PregnancyId } from '@/data/types';
 import { OTHER_COMPLAINT, makeVisitSchema, visitRecorded, type VisitForm } from '@/features/care/forms';
@@ -29,7 +29,8 @@ function VisitFormScreen({ id }: { id: PregnancyId }) {
   const by = useActor();
   const p = db.pregnancies.find((x) => x.id === id)!;
   const m = motherOf(db, p.motherId);
-  const ga = gestationalAge(p.edd, now);
+  // Undated (dating not recorded yet): the checklist of the earliest weeks; no visit is planned until she is dated.
+  const ga = p.edd ? gestationalAge(p.edd, now) : { weeks: 0, days: 0, totalDays: 0 };
   const defaultWeeks = ancIntervalWeeks(p.intensity, ga.weeks);
 
   // Rebuilt per render (cheap); the React Compiler memoizes it.
@@ -91,7 +92,7 @@ function VisitFormScreen({ id }: { id: PregnancyId }) {
       <View style={{ gap: 4 }}>
         <AppText variant="display">{m.name}</AppText>
         <AppText tone="secondary">
-          {p.mchId} · {ga.weeks}+{ga.days} weeks · {fmtDay(now)}
+          {p.mchId} · {p.edd ? `${ga.weeks}+${ga.days} weeks` : DATING_NOT_RECORDED} · {fmtDay(now)}
         </AppText>
       </View>
 

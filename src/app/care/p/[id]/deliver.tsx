@@ -5,7 +5,7 @@ import { Controller, useWatch, type Control } from 'react-hook-form';
 import { gestationalAge, formatGA } from '@domain/gestation';
 
 import { asPregnancyId } from '@/data/ids';
-import { fmtDay, fmtTime, motherOf } from '@/data/selectors';
+import { DATING_NOT_RECORDED, fmtDay, fmtTime, motherOf } from '@/data/selectors';
 import { useDb, type DeliveryInput } from '@/data/store';
 import type { PregnancyId } from '@/data/types';
 import {
@@ -91,7 +91,7 @@ function DeliveryFormScreen({ id }: { id: PregnancyId }) {
       <View style={{ gap: 4 }}>
         <AppText variant="display">{m.name}</AppText>
         <AppText tone="secondary">
-          {p.mchId} · {at ? `GA at birth ${formatGA(gestationalAge(p.edd, at))} weeks` : 'Enter the time of birth'}
+          {p.mchId} · {!p.edd ? DATING_NOT_RECORDED : at ? `GA at birth ${formatGA(gestationalAge(p.edd, at))} weeks` : 'Enter the time of birth'}
         </AppText>
       </View>
 

@@ -115,6 +115,12 @@ describe('de-identification', () => {
     // EDD 17 Nov, today 29 Sep → 49 days to go → 231 days → 33+0 weeks.
     expect(composeFacts(raw)[0]!.text).toContain('33+0 weeks');
   });
+
+  it('an undated pregnancy has no EDD and no gestational age in its facts', () => {
+    const text = composeFacts({ ...raw, pregnancy: { ...raw.pregnancy!, edd: null, dating_method: null } })[0]!.text;
+    expect(text).toContain('Dating not recorded.');
+    expect(text).not.toMatch(/EDD|Gestational age/);
+  });
 });
 
 describe('citation ids', () => {
