@@ -28,7 +28,7 @@ export function LearnSection() {
   const withBaby = stage === 'baby';
   const { focus, canSwitch } = useFamilyFocus();
   const [tab, setTab] = useState<Tab>('thisWeek');
-  const week = stage === 'pregnant' && pregnancy ? gestationalAge(pregnancy.edd, localDay(now)).weeks : 0;
+  const week = stage === 'pregnant' && pregnancy?.edd ? gestationalAge(pregnancy.edd, localDay(now)).weeks : 0;
 
   // After delivery "For now" follows the Me / Baby switch: recovery cards for her, newborn cards for the baby.
   const forNow =

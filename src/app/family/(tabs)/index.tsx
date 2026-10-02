@@ -56,7 +56,7 @@ export default function FamilyHome() {
   const focusItems = delivered ? items.filter((i) => i.subject === focus) : items;
   const next = focusItems[0];
   const baby = babies[0];
-  const weekNow = p && stage === 'pregnant' ? gestationalAge(p.edd, today).weeks : undefined;
+  const weekNow = p?.edd && stage === 'pregnant' ? gestationalAge(p.edd, today).weeks : undefined;
   const babyAge = baby && delivered ? age(localDaysBetween(baby.dob, now)) : undefined;
 
   // After a loss, visit reminders set earlier on this phone are cancelled (her own check-ups stay on Home).
@@ -98,7 +98,8 @@ export default function FamilyHome() {
     );
   }
 
-  const ga = gestationalAge(p.edd, today);
+  // Undated until her first check-up: no week counter or due date yet.
+  const ga = p.edd ? gestationalAge(p.edd, today) : undefined;
   const doctorName = p.assignedDoctor?.name;
   const doctorLabel = doctorName ?? t('family.noDoctor');
   const nextMother = items.find((i) => i.subject === 'mother');
@@ -211,6 +212,11 @@ export default function FamilyHome() {
           suffix={` ${t(babyAge.unitKey)}`}
           chips={[fmtShort(baby.dob, lang), `🩺 ${doctorLabel}`]}
         />
+      ) : !ga || !p.edd ? (
+        <GlassSurface strong style={{ padding: space.lg, gap: space.sm, marginTop: space.xl }}>
+          <AppText variant="title">{t('family.dueDateLater')}</AppText>
+          <AppText tone="secondary">🩺 {doctorLabel}</AppText>
+        </GlassSurface>
       ) : (
         <>
           <HeroNumber

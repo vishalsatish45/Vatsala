@@ -44,7 +44,7 @@ export type RawRecord = {
   kind: DraftKind;
   today: string; // YYYY-MM-DD (the app's clock in demo mode)
   pregnancy?: {
-    id: string; registered_on: string; edd: string; gravida: number; para: number; living: number; abortions: number;
+    id: string; registered_on: string; edd: string | null; gravida: number; para: number; living: number; abortions: number;
     status: string; intensity: string; age: number | null; dating_method: string | null;
   };
   baby?: {
@@ -83,13 +83,15 @@ export function composeFacts(r: RawRecord): Fact[] {
   const f: Fact[] = [];
   const p = r.pregnancy;
   if (p) {
-    const ga = 280 - daysBetween(r.today, p.edd);
+    // Undated until the doctor records the dating: no EDD and no gestational age in the facts.
+    const ga = p.edd ? 280 - daysBetween(r.today, p.edd) : -1;
     f.push({
       kind: 'registration',
       id: p.id,
       text:
         `Pregnancy registered ${day(p.registered_on)}. G${p.gravida} P${p.para} L${p.living} A${p.abortions}. ` +
-        `EDD ${day(p.edd)}${p.dating_method ? ` (dated by ${p.dating_method})` : ''}. Status: ${p.status}. ` +
+        (p.edd ? `EDD ${day(p.edd)}${p.dating_method ? ` (dated by ${p.dating_method})` : ''}. ` : 'Dating not recorded. ') +
+        `Status: ${p.status}. ` +
         (p.status === 'active' && ga >= 0 && ga <= 320 ? `Gestational age on ${r.today} (from EDD): ${weeks(ga)} weeks. ` : '') +
         `Follow-up intensity set by the care team: ${p.intensity}. ` +
         (p.age != null ? `Age at registration: ${p.age}. ` : '') +

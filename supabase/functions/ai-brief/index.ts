@@ -44,7 +44,7 @@ async function load(db: SupabaseClient, subject: { pregnancyId?: string; babyId?
     referrals, tasks, callbacks, selfLogs, notes, medications, immunizations, vaccineCat, discharges, deliveries, babies,
     admissions, pickLists, nationalIds,
   ] = await Promise.all([
-    rows(db.from('mothers').select('id,name,husband_name,phone,alt_phone,village,district,state,pincode,emergency_contact,age_at_registration').eq('id', motherId).limit(1)),
+    rows(db.from('mothers').select('id,name,husband_name,husband_phone,phone,alt_phone,email,address_line,aadhaar_last4,village,district,state,pincode,emergency_contact,age_at_registration').eq('id', motherId).limit(1)),
     rows(db.from('caregivers').select('id,name,phone').eq('mother_id', motherId).limit(20)),
     rows(db.from('staff').select('id,name,role').limit(1000)),
     rows(db.from('teams').select('id,name').limit(500)),
@@ -153,9 +153,9 @@ async function load(db: SupabaseClient, subject: { pregnancyId?: string; babyId?
     mother: [mother.name],
     family: [mother.husband_name, ec.name, ...caregivers.map((c) => c.name), ...babies.map((b) => b.name)],
     staff: staff.map((s) => s.name),
-    places: [mother.village, mother.district, mother.state, mother.pincode],
+    places: [mother.address_line, mother.village, mother.district, mother.state, mother.pincode],
     numbers: [
-      preg?.mch_id, baby?.child_id, mother.phone, mother.alt_phone, ec.phone, ...caregivers.map((c) => c.phone), ...babies.map((b) => b.child_id),
+      preg?.mch_id, baby?.child_id, mother.phone, mother.alt_phone, mother.husband_phone, mother.email, mother.aadhaar_last4, ec.phone, ...caregivers.map((c) => c.phone), ...babies.map((b) => b.child_id),
       ...admissions.map((a) => a.ip_no), ...nationalIds.map((i) => i.value),
     ],
   };

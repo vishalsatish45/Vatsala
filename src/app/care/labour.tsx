@@ -4,7 +4,7 @@ import { Baby, BedDouble, ClipboardCheck } from 'lucide-react-native';
 import { daysBetween } from '@domain/gestation';
 
 import { tagLabel } from '@/data/catalogue';
-import { activeTags, fmtDay, fmtTime, gaLabel, motherOf, sexLabel } from '@/data/selectors';
+import { activeTags, byEdd, daysToEdd, fmtDay, fmtTime, gaLabel, motherOf, sexLabel } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import type { Pregnancy } from '@/data/types';
 import { useNow } from '@/lib/clock';
@@ -18,7 +18,8 @@ export default function LabourRoom() {
   const db = useDb();
   const now = useNow();
   const admitted = db.pregnancies.filter((p) => p.status === 'admitted').sort((a, b) => (a.admittedAt?.getTime() ?? 0) - (b.admittedAt?.getTime() ?? 0));
-  const near = db.pregnancies.filter((p) => p.status === 'active' && daysBetween(now, p.edd) <= 21).sort((a, b) => a.edd.getTime() - b.edd.getTime());
+  // Undated pregnancies are never "due within 3 weeks".
+  const near = db.pregnancies.filter((p) => p.status === 'active' && (daysToEdd(p, now) ?? Infinity) <= 21).sort(byEdd);
   // Delivered, with the mother's or a living baby's discharge still open.
   const openDischarge = (subjectId: string) => db.discharges.some((d) => d.subjectId === subjectId && !d.completedAt);
   const awaiting = db.pregnancies
@@ -58,10 +59,10 @@ export default function LabourRoom() {
         key={p.id}
         leading={<Avatar name={m.name} size={40} />}
         title={m.name}
-        subtitle={`${p.mchId} · ${gaLabel(p, now)} · EDD ${fmtDay(p.edd)}`}
+        subtitle={`${p.mchId} · ${gaLabel(p, now)}${p.edd ? ` · EDD ${fmtDay(p.edd)}` : ''}`}
         meta={
           <>
-            <StatusBadge status="upcoming" label={`EDD in ${daysBetween(now, p.edd)} days`} />
+            {p.edd && <StatusBadge status="upcoming" label={`EDD in ${daysBetween(now, p.edd)} days`} />}
             {tags(p)}
           </>
         }

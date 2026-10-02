@@ -25,7 +25,7 @@ export default function Handoff() {
     const li = (x: string) => `<li>${x.replace(/</g, '&lt;')}</li>`;
     const html = `<html><body style="font-family:sans-serif;padding:24px;color:#2E1F2A">
       <h2 style="margin:0">Handoff summary · ${m.name}</h2>
-      <p style="color:#6E5A67">${p.mchId} · ${m.age} y · ${p.status === 'delivered' ? 'Delivered' : gaLabel(p, now)} · EDD ${fmtDay(p.edd)}</p>
+      <p style="color:#6E5A67">${p.mchId} · ${m.age} y · ${p.status === 'delivered' ? 'Delivered' : gaLabel(p, now)}${p.edd ? ` · EDD ${fmtDay(p.edd)}` : ''}</p>
       <h3>Documented</h3><ul>${li(`G/P/L/A ${p.gpla.g}/${p.gpla.p}/${p.gpla.l}/${p.gpla.a}`)}${li(`Tags: ${tagsText}`)}${li(`Conditions: ${p.history.conditions.join(', ') || 'None documented'}`)}${li(`Allergies: ${p.history.allergies.join(', ') || 'None documented'}`)}${li(`Blood group: ${p.history.bloodGroup ?? '—'}`)}</ul>
       <h3>Done</h3><ul>${done.map((i) => li(i.sensitive ? i.label : `${i.label} — ${i.result?.value ?? ''}`)).join('')}</ul>
       <h3>Still due</h3><ul>${due.map((d) => li(`${d.label} — ${d.detail}`)).join('') || li('Nothing pending')}</ul>
@@ -44,7 +44,7 @@ export default function Handoff() {
       <View style={{ gap: 4 }}>
         <AppText variant="display">{m.name}</AppText>
         <AppText tone="secondary">
-          {p.mchId} · {m.age} y · {p.status === 'delivered' ? 'Delivered' : gaLabel(p, now)} · EDD {fmtDay(p.edd)}
+          {p.mchId} · {m.age} y · {p.status === 'delivered' ? 'Delivered' : gaLabel(p, now)}{p.edd ? ` · EDD ${fmtDay(p.edd)}` : ''}
         </AppText>
       </View>
       <Section title="Documented">

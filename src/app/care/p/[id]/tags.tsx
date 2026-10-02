@@ -47,7 +47,7 @@ function TagsForm({ id }: { id: SubjectId }) {
   const intensityChanged = intensity !== (p?.intensity ?? b?.intensity);
   // ANC visits are re-planned only for an ongoing pregnancy (delivered / closed: the intensity is recorded only).
   const replans = !!p && isOngoing(p);
-  const preview = p && replans ? ancVisitDates(p.edd, intensity, now).length : 0;
+  const preview = p?.edd && replans ? ancVisitDates(p.edd, intensity, now).length : 0;
   // app.require_writer: obstetrician for a pregnancy, paediatrician for a baby.
   const canWrite = canWriteSubject(me, b ? 'baby' : 'pregnancy') && p?.status !== 'closed';
 

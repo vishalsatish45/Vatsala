@@ -50,9 +50,18 @@ export const referralStatusLabel = (s: Referral['status']) => REFERRAL_LABEL[s];
 export const referralOpen = (r: Pick<Referral, 'status'>) => !REFERRAL_ENDED.includes(r.status);
 export const activeTags = (db: DbState, subjectId: string) => db.tags.filter((t) => t.subjectId === subjectId && !t.removedAt);
 
-export function gaLabel(p: Pregnancy, now: Date) {
-  return `${formatGA(gestationalAge(p.edd, now))} weeks`;
+/** Shown wherever a gestational age would be, until the doctor records the dating. */
+export const DATING_NOT_RECORDED = 'Dating not recorded';
+
+export function gaLabel(p: Pick<Pregnancy, 'edd'>, now: Date) {
+  return p.edd ? `${formatGA(gestationalAge(p.edd, now))} weeks` : DATING_NOT_RECORDED;
 }
+
+/** Days from `now` to the EDD; undefined while undated (an undated pregnancy is never "due soon"). */
+export const daysToEdd = (p: Pick<Pregnancy, 'edd'>, now: Date) => (p.edd ? daysBetween(now, p.edd) : undefined);
+
+/** Sorts dated pregnancies by EDD, undated ones last. */
+export const byEdd = (a: Pick<Pregnancy, 'edd'>, b: Pick<Pregnancy, 'edd'>) => (a.edd?.getTime() ?? Infinity) - (b.edd?.getTime() ?? Infinity);
 
 export function babyAgeLabel(b: Baby, now: Date) {
   const d = daysBetween(b.dob, now);
@@ -384,7 +393,7 @@ export function continuityEvents(db: DbState, pregnancyId: string, now: Date, au
   const ev: TimelineEvent[] = [{ id: 'reg', at: p.registeredOn, lane: 'mother', kind: 'registered', state: 'past', label: 'Registered', sub: p.mchId }];
 
   for (const v of db.visits.filter((x) => x.pregnancyId === p.id)) {
-    ev.push({ id: v.id, at: v.at, lane: 'mother', kind: 'visit', state: 'past', label: 'ANC visit', sub: `${gestationalAge(p.edd, v.at).weeks} weeks` });
+    ev.push({ id: v.id, at: v.at, lane: 'mother', kind: 'visit', state: 'past', label: 'ANC visit', sub: p.edd ? `${gestationalAge(p.edd, v.at).weeks} weeks` : undefined });
   }
   if (audience === 'care') {
     for (const i of db.investigations.filter((x) => x.subjectId === p.id && x.result)) ev.push({ id: i.id, at: i.result!.at, lane: 'mother', kind: 'test', state: 'past', label: i.label, sub: 'Result documented' });

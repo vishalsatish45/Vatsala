@@ -124,7 +124,7 @@ export function buildSeed(nowIn: Date): DbState {
   };
 
   function ancTask(p: Pregnancy, on: Date): Task {
-    return { id: id('tk'), kind: 'anc_visit', subjectType: 'pregnancy', subjectId: p.id, title: `ANC visit · ${gestationalAge(p.edd, on).weeks} weeks`, dueFrom: addDays(on, -2), dueBy: on, generatedBy: 'protocol', contactAttempts: [] };
+    return { id: id('tk'), kind: 'anc_visit', subjectType: 'pregnancy', subjectId: p.id, title: `ANC visit · ${gestationalAge(p.edd!, on).weeks} weeks`, dueFrom: addDays(on, -2), dueBy: on, generatedBy: 'protocol', contactAttempts: [] };
   }
 
   function add(spec: Spec, opts: { eddOverride?: Date; status?: Pregnancy['status'] } = {}): Pregnancy {
@@ -296,7 +296,7 @@ export function buildSeed(nowIn: Date): DbState {
 
   // ── Deliveries ──
   function deliver(p: Pregnancy, at: Date, mode: string, baby: Omit<Baby, 'id' | 'childId' | 'motherId' | 'pregnancyId' | 'dob' | 'gaAtBirthDays' | 'intensity'>, by = OB) {
-    const b: Baby = { ...baby, id: id('bb'), childId: `${p.mchId}-B1`, motherId: p.motherId, pregnancyId: p.id, dob: at, gaAtBirthDays: gestationalAge(p.edd, at).totalDays, intensity: 'routine' };
+    const b: Baby = { ...baby, id: id('bb'), childId: `${p.mchId}-B1`, motherId: p.motherId, pregnancyId: p.id, dob: at, gaAtBirthDays: gestationalAge(p.edd!, at).totalDays, intensity: 'routine' };
     s.babies.push(b);
     s.deliveries.push({ id: id('dl'), pregnancyId: p.id, at, mode, bloodLossMl: 300, complications: [], medicines: ['Oxytocin'], babyIds: [b.id] });
     s.immunizations.push(...vaccineSchedule(at).map((v) => ({ id: id('im'), babyId: b.id, ...v, givenOn: v.group === 'Birth' ? at : undefined })));

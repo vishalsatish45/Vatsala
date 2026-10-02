@@ -99,7 +99,8 @@ export type RowResult = { index: number; cells: string[]; status: 'valid' | 'war
  * several). Rows are checked one by one; the reasons are the form's own messages.
  */
 export function validate(rows: string[][], mapping: Mapping, known: KnownMother[], now: Date, opts: { units?: readonly string[]; teamId?: string } = {}): RowResult[] {
-  const schema = makeRegisterSchema(now, { units: opts.units });
+  // A register row carries its LMP: the import still dates each pregnancy (the registration form does not).
+  const schema = makeRegisterSchema(now, { units: opts.units, dating: true });
   const firstRow = new Map<string, number>();
   return rows.map((cells, index) => {
     const get = (k: FieldKey) => (mapping[k] !== undefined ? (cells[mapping[k]!] ?? '').trim() : '');
@@ -115,13 +116,21 @@ export function validate(rows: string[][], mapping: Mapping, known: KnownMother[
     const form: RegisterForm = {
       ...blankRegisterForm(now),
       name: get('name'),
+      // A register gives her age, not her date of birth.
+      ageOnly: true,
       age: get('age'),
       phone,
       village: get('village'),
       lang: lang ?? 'English',
       rchId: get('rch'),
+      // A husband's name in the register implies she is married (the server keeps husband details only then).
+      marital: get('husband') ? 'Married' : undefined,
       husbandName: get('husband'),
       method: 'LMP',
+      scanOn: now,
+      scanWeeks: '',
+      scanDays: '',
+      datingNote: '',
       lmp: lmp ? pickerDay(lmp) : undefined,
       g: get('gravida'),
       p: get('para'),

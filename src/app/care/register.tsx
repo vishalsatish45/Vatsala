@@ -3,27 +3,22 @@ import { Alert, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { Controller, useFieldArray, useWatch, type Control } from 'react-hook-form';
 import { Plus, Trash2 } from 'lucide-react-native';
-import { formatGA, gestationalAge } from '@domain/gestation';
 
 import { TAGS } from '@/data/catalogue';
 import { BLOOD_GROUPS, PREVIOUS_MODES, PREVIOUS_OUTCOMES } from '@/data/codes';
-import { eddFor, type MotherDetails } from '@/data/payloads';
+import type { MotherDetails } from '@/data/payloads';
 import { findMother, type MotherMatch } from '@/data/registration';
 import { fmtDay } from '@/data/selectors';
 import { useDb, type RegisterInput } from '@/data/store';
 import {
-  DATING_METHODS,
-  LMP_CERTAINTY,
   MAX_PREVIOUS,
   OTHER_CONDITION,
   REGISTER_STEPS,
   blankPrevious,
   blankRegisterForm,
   calendarDay,
-  gaDaysOn,
   makeRegisterSchema,
   motherFormValues,
-  registerDating,
   type MotherForm,
   type RegisterForm,
 } from '@/features/care/forms';
@@ -40,10 +35,15 @@ import { AppText, Button, Card, Chip, DatePicker, Field, OptionChips, ProgressBa
 
 const CONDITIONS = ['Hypertension', 'Diabetes', 'Heart disease', 'Kidney disease', 'Thyroid disorder', 'Epilepsy', 'Asthma', 'TB', OTHER_CONDITION];
 const BLOOD = [...BLOOD_GROUPS, 'Unknown'];
+const STEPS = ['Mother details', 'Obstetric summary'];
 
 type Lookup = { phone: string; state: 'searching' | 'none' | 'found' | 'error'; match?: MotherMatch; message?: string; decision?: 'same' | 'different' };
 
-/** CT-61…66 Pregnancy registration — creates MCH ID, schedules and tasks (PRD F-11). Obstetricians only (server rule). */
+/**
+ * CT-61…66 Pregnancy registration (PRD F-11): mother details, then the obstetric summary. Creates the MCH ID; there is
+ * no dating step — the doctor records the dating at her first check-up, which schedules the ANC visits and test
+ * windows. Obstetricians only (server rule).
+ */
 export default function Register() {
   const role = useSession((s) => s.account?.care?.role);
   if (role !== 'obstetrician') {
@@ -77,15 +77,13 @@ function RegisterScreen() {
   const lostDraft = draft && !db.pregnancies.some((p) => p.id === draft.pregnancyId) ? draft : undefined;
 
   const values = useWatch({ control }) as RegisterForm;
-  const dating = registerDating(values);
-  const edd = dating && eddFor(dating);
   // "Next" is enabled when the fields this step owns have no issue (the schema is the only rulebook).
   const issues = schema.safeParse(values).error?.issues ?? [];
   const issueIn = (fields: readonly string[]) => issues.find((i) => fields.includes(String(i.path[0])));
   const lookupBlocks = lookup?.phone === values.phone && (lookup.match?.activePregnancy || lookup.decision === 'different' || (lookup.state === 'found' && !lookup.decision));
   const valid = REGISTER_STEPS.map((fields, i) => !issueIn(fields) && (i > 0 || !lookupBlocks));
   const stepIssue = issueIn(REGISTER_STEPS[step]!)?.message;
-  const steps = ['Identity', 'Pregnancy', 'History & tags'];
+  const last = step === STEPS.length - 1;
 
   async function lookUp(phone: string) {
     setLookup({ phone, state: 'searching' });
@@ -96,8 +94,12 @@ function RegisterScreen() {
   /** Prefills what her record holds (fields already typed with nothing on record are kept). */
   function adoptReturning(match: MotherMatch) {
     const f = motherFormValues({ ...match, village: match.village ?? '' });
-    for (const k of ['name', 'age', 'lang', 'village', 'district', 'state', 'pincode', 'husbandName', 'dobText', 'dobEstimated'] as const) {
-      if (f[k] !== '') setValue(k, f[k] as never, { shouldValidate: true, shouldDirty: true });
+    for (const k of ['name', 'dob', 'age', 'lang', 'marital', 'husbandName', 'addressLine', 'village', 'district', 'state', 'pincode'] as const) {
+      if (f[k] !== '' && f[k] !== undefined) setValue(k, f[k] as never, { shouldValidate: true, shouldDirty: true });
+    }
+    if (match.dob || match.age) {
+      setValue('ageOnly', f.ageOnly, { shouldValidate: true });
+      setValue('dobEstimated', f.dobEstimated, { shouldValidate: true });
     }
     setValue('returningId', match.motherId, { shouldValidate: true });
     setLookup((cur) => cur && { ...cur, decision: 'same' });
@@ -108,7 +110,10 @@ function RegisterScreen() {
     useRegisterDraft.getState().keep(getValues(), id);
     const p = useDb.getState().pregnancies.find((x) => x.id === id);
     // In Supabase mode the MCH id is assigned by the server and appears on her record once saved.
-    Alert.alert('Pregnancy registered', `${isRemote ? 'MCH id is being assigned.' : p?.mchId}\nANC visits and test windows have been scheduled.`);
+    Alert.alert(
+      'Pregnancy registered',
+      `${isRemote ? 'MCH id is being assigned.' : p?.mchId}\nRecord the dating at her first check-up: the ANC visits and test windows are scheduled from it.`,
+    );
     router.replace({ pathname: '/care/p/[id]', params: { id } });
   });
 
@@ -124,16 +129,16 @@ function RegisterScreen() {
             </View>
           )}
           <View style={{ flex: 2 }}>
-            {step < 2 ? (
+            {!last ? (
               <Button label="Next" disabled={!valid[step]} onPress={() => setStep((s) => s + 1)} />
             ) : (
-              <Button label="Create & schedule" disabled={busy || !valid.every(Boolean)} onPress={handleSubmit(create)} />
+              <Button label="Register" disabled={busy || !valid.every(Boolean)} onPress={handleSubmit(create)} />
             )}
           </View>
         </View>
       }
     >
-      <ProgressBar progress={(step + 1) / 3} leftCaption={`Step ${step + 1} of 3 · ${steps[step]}`} />
+      <ProgressBar progress={(step + 1) / STEPS.length} leftCaption={`Step ${step + 1} of ${STEPS.length} · ${STEPS[step]}`} />
 
       {lostDraft && (
         <Card style={{ gap: space.sm }}>
@@ -149,57 +154,16 @@ function RegisterScreen() {
       )}
 
       {step === 0 && (
-        <>
-          <MotherFields control={control as unknown as Control<MotherForm, unknown, MotherDetails>} onPhoneComplete={(ph) => void lookUp(ph)} />
-          {lookup?.phone === values.phone && <ReturningCard lookup={lookup} onSame={adoptReturning} onDifferent={() => setLookup({ ...lookup, decision: 'different' })} />}
-        </>
+        <MotherFields
+          control={control as unknown as Control<MotherForm, unknown, MotherDetails>}
+          now={now}
+          onPhoneComplete={(ph) => void lookUp(ph)}
+          afterPhone={lookup?.phone === values.phone && <ReturningCard lookup={lookup} onSame={adoptReturning} onDifferent={() => setLookup({ ...lookup, decision: 'different' })} />}
+        />
       )}
 
       {step === 1 && (
         <>
-          <Card style={{ gap: space.md }}>
-            <AppText variant="title">Dating</AppText>
-            <Controller control={control} name="method" render={({ field }) => <OptionChips label="Date by — you choose" options={Object.keys(DATING_METHODS)} value={field.value} onChange={(v) => v && field.onChange(v)} />} />
-            {values.method === 'LMP' && (
-              <>
-                <AppText variant="label" tone="secondary">
-                  First day of the last menstrual period{values.lmp ? `: ${fmtDay(calendarDay(values.lmp))}` : ' — tap a day'}
-                </AppText>
-                <Controller control={control} name="lmp" render={({ field }) => <DatePicker value={field.value ?? now} onChange={field.onChange} />} />
-                <Controller control={control} name="lmpCertain" render={({ field }) => <OptionChips label="LMP (as documented)" options={[...LMP_CERTAINTY]} value={field.value} onChange={field.onChange} />} />
-              </>
-            )}
-            {values.method === 'Scan' && (
-              <>
-                <AppText variant="label" tone="secondary">
-                  Scan date: {fmtDay(calendarDay(values.scanOn))}
-                </AppText>
-                <Controller control={control} name="scanOn" render={({ field }) => <DatePicker value={field.value} onChange={field.onChange} />} />
-                <View style={styles.row}>
-                  <Controller control={control} name="scanWeeks" render={({ field }) => <Field flex label="GA at scan · weeks" keyboardType="number-pad" maxLength={2} value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
-                  <Controller control={control} name="scanDays" render={({ field }) => <Field flex label="+ days" keyboardType="number-pad" maxLength={1} value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
-                </View>
-              </>
-            )}
-            {values.method === 'Clinician EDD' && (
-              <>
-                <AppText variant="label" tone="secondary">
-                  EDD decided by the clinician{values.eddDecided ? `: ${fmtDay(calendarDay(values.eddDecided))}` : ' — tap a day'}
-                </AppText>
-                <Controller control={control} name="eddDecided" render={({ field }) => <DatePicker value={field.value ?? now} onChange={field.onChange} />} />
-              </>
-            )}
-            <Controller control={control} name="datingNote" render={({ field }) => <Field label="Dating note (optional)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} placeholder="e.g. Dating scan report from district hospital" />} />
-            {edd && (
-              <AppText variant="bodyMedium">
-                EDD {fmtDay(edd)} · GA today {formatGA(gestationalAge(edd, now))}
-                {dating && calendarDay(values.registeredOn).getTime() !== calendarDay(now).getTime() ? ` · ${Math.floor(gaDaysOn(dating, calendarDay(values.registeredOn)) / 7)} weeks at registration` : ''}
-              </AppText>
-            )}
-            <Chip label={`Registered on ${fmtDay(calendarDay(values.registeredOn))}${regOpen ? '' : ' · change (back-entry)'}`} onPress={() => setRegOpen((x) => !x)} />
-            {regOpen && <Controller control={control} name="registeredOn" render={({ field }) => <DatePicker value={field.value} onChange={field.onChange} />} />}
-          </Card>
-
           <Card style={{ gap: space.md }}>
             <AppText variant="title">Obstetric summary</AppText>
             <View style={styles.row}>
@@ -207,11 +171,15 @@ function RegisterScreen() {
                 <Controller key={k} control={control} name={k} render={({ field }) => <Field flex label={k.toUpperCase()} keyboardType="number-pad" maxLength={2} value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
               ))}
             </View>
-            <Controller control={control} name="fetuses" render={({ field }) => <OptionChips label="Fetuses (as documented)" options={['1', '2', '3', '4']} value={field.value} onChange={(v) => v && field.onChange(v)} />} />
+            <AppText variant="caption" tone="secondary">
+              Gravida · Para · Living · Abortions
+            </AppText>
+            <Chip label={`Registered on ${fmtDay(calendarDay(values.registeredOn))}${regOpen ? '' : ' · change (back-entry)'}`} onPress={() => setRegOpen((x) => !x)} />
+            {regOpen && <Controller control={control} name="registeredOn" render={({ field }) => <DatePicker value={field.value} onChange={field.onChange} />} />}
           </Card>
 
           <Card style={{ gap: space.md }}>
-            <AppText variant="title">Previous pregnancies (documented)</AppText>
+            <AppText variant="title">Previous pregnancies (optional)</AppText>
             {lookup?.decision === 'same' && lookup.match && lookup.match.pregnancies > 0 && (
               <AppText variant="caption" tone="secondary">
                 Pregnancies already on her record stay documented; add only ones not yet recorded.
@@ -232,11 +200,7 @@ function RegisterScreen() {
             ))}
             {previous.fields.length < MAX_PREVIOUS && <Chip label="Add a previous pregnancy" icon={Plus} onPress={() => previous.append(blankPrevious())} />}
           </Card>
-        </>
-      )}
 
-      {step === 2 && (
-        <>
           <Card style={{ gap: space.md }}>
             <AppText variant="title">History</AppText>
             <Controller control={control} name="conditions" render={({ field }) => <OptionChips multi label="Documented conditions" options={CONDITIONS} value={field.value} onChange={field.onChange} />} />
@@ -246,12 +210,16 @@ function RegisterScreen() {
             <Controller control={control} name="allergies" render={({ field }) => <Field label="Allergies (comma separated)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
             <Controller control={control} name="medicines" render={({ field }) => <Field label="Current medicines (comma separated, as documented)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
             <Controller control={control} name="blood" render={({ field }) => <OptionChips label="Blood group (if known)" options={BLOOD} value={field.value} onChange={field.onChange} />} />
-            <Controller control={control} name="height" render={({ field }) => <Field label="Height (if measured)" unit="cm" keyboardType="decimal-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+            <View style={styles.row}>
+              <Controller control={control} name="height" render={({ field }) => <Field flex label="Height (if measured)" unit="cm" keyboardType="decimal-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+              <Controller control={control} name="weight" render={({ field }) => <Field flex label="Weight (if measured)" unit="kg" keyboardType="decimal-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+            </View>
           </Card>
+
           <Card style={{ gap: space.md }}>
-            <AppText variant="title">Tags (optional)</AppText>
+            <AppText variant="title">Risk factors (optional)</AppText>
             <AppText variant="caption" tone="secondary">
-              Your choice — nothing is pre-selected.
+              Your choice — nothing is pre-selected or computed.
             </AppText>
             <Controller
               control={control}
@@ -266,7 +234,7 @@ function RegisterScreen() {
               )}
             />
             {values.tags.length > 0 && (
-              <Controller control={control} name="tagNote" render={({ field }) => <Field label="Tag note (optional)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+              <Controller control={control} name="tagNote" render={({ field }) => <Field label="Note (optional)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
             )}
             <AppText variant="label" tone="secondary">
               Follow-up intensity
@@ -304,6 +272,9 @@ function RegisterScreen() {
             </Card>
           )}
           {isRemote && units.length === 0 && <AppText tone="overdue">You are not a member of an obstetric unit, so you cannot register a pregnancy. Ask your hospital admin.</AppText>}
+          <AppText variant="caption" tone="faint">
+            The dating (LMP, scan or your EDD) is recorded at her first check-up from her record; it schedules the ANC visits and test windows.
+          </AppText>
         </>
       )}
 
@@ -324,7 +295,7 @@ function ReturningCard({ lookup, onSame, onDifferent }: { lookup: Lookup; onSame
   if (!m) return null;
   const who = [m.name, m.age ? `${m.age} yrs` : undefined, m.village, m.dob ? `born ${fmtDay(m.dob)}` : undefined].filter(Boolean).join(' · ');
   return (
-    <Card style={{ gap: space.sm }}>
+    <View style={styles.returning}>
       <AppText variant="headline">This number is on record here</AppText>
       <AppText>{who}</AppText>
       <AppText variant="caption" tone="secondary">
@@ -345,7 +316,7 @@ function ReturningCard({ lookup, onSame, onDifferent }: { lookup: Lookup; onSame
           </View>
         </>
       )}
-    </Card>
+    </View>
   );
 }
 
@@ -353,4 +324,5 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' },
   footer: { flexDirection: 'row', gap: space.sm },
   prev: { gap: space.sm, paddingBottom: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.softBorder },
+  returning: { gap: space.sm, padding: space.md, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, borderColor: palette.softBorder },
 });

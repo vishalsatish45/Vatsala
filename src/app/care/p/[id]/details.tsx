@@ -58,7 +58,7 @@ function DetailsForm({ motherId }: { motherId: ReturnType<typeof motherOf>['id']
       footer={<Button label="Save corrections" disabled={busy || !formState.isValid} onPress={save} />}
     >
       <AppText tone="secondary">Correct what is wrong. Only the fields you change are saved, and the change is recorded in the audit trail.</AppText>
-      <MotherFields control={control} moreOpen recorded={{ rchId: m.rchId, abhaNumber: m.abhaNumber, abhaAddress: m.abhaAddress }} phoneHint="She signs in with this number. Changing it moves her login to the new number." />
+      <MotherFields control={control} now={now} recorded={{ rchId: m.rchId, abhaNumber: m.abhaNumber, abhaAddress: m.abhaAddress }} phoneHint="She signs in with this number. Changing it moves her login to the new number." />
       {!!problem && (
         <AppText variant="caption" tone="overdue">
           {problem}

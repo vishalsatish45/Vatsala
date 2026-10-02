@@ -42,9 +42,9 @@ export default function Journey() {
     );
   }
 
-  const ga = gestationalAge(p.edd, localDay(now));
-  // Week counters only while the pregnancy is ongoing (not after a birth or an ended pregnancy).
-  const pregnant = isPregnant(p);
+  // Week counters only while the pregnancy is ongoing (not after a birth or an ended pregnancy) and dated.
+  const pregnant = isPregnant(p) && !!p.edd;
+  const ga = p.edd ? gestationalAge(p.edd, localDay(now)) : { weeks: 0, days: 0 };
   const visits = db.visits.filter((v) => v.pregnancyId === p.id).sort((a, b) => b.at.getTime() - a.at.getTime());
   const last = visits[0];
   const logs = ctx.scopes.logs ? db.selfLogs.filter((l) => l.motherId === ctx.mother!.id).sort((a, b) => b.at.getTime() - a.at.getTime()) : [];
@@ -53,7 +53,7 @@ export default function Journey() {
 
   return (
     <Screen withNav blob="none" header={<TopBar large title={canSwitch ? t('family.tabs.myHealth') : t('family.tabs.journey')} below={<FocusSwitch />} />}>
-      <AppText tone="secondary">{!pregnant ? '' : `${t('family.weeksDays', { w: ga.weeks, d: ga.days })} · `}🩺 {p.assignedDoctor?.name ?? t('family.noDoctor')}</AppText>
+      <AppText tone="secondary">{!pregnant ? (isPregnant(p) ? `${t('family.dueDateLater')} · ` : '') : `${t('family.weeksDays', { w: ga.weeks, d: ga.days })} · `}🩺 {p.assignedDoctor?.name ?? t('family.noDoctor')}</AppText>
       {pregnant && <WeekScrubber week={ga.weeks} label={t('family.weeksDays', { w: ga.weeks, d: ga.days })} />}
 
       <UnderlineTabs
