@@ -383,3 +383,6 @@ export function continuityEvents(db: DbState, pregnancyId: string, now: Date, au
 
 /** A dialable tel: link from a phone number as shown ("080-2222-0000" → "tel:08022220000"). */
 export const telUrl = (phone: string) => `tel:${phone.replace(/[^\d+]/g, '')}`;
+
+/** Baby sex as documented: Girl, Boy, or undetermined at birth. */
+export const sexLabel = (sex: 'F' | 'M' | 'U') => (sex === 'F' ? 'Girl' : sex === 'M' ? 'Boy' : 'Sex undetermined');

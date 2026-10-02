@@ -8,7 +8,7 @@ import { mchIdIn } from '@/data/payloads';
 import { tagLabel } from '@/data/catalogue';
 import { daysBetween } from '@domain/gestation';
 
-import { activeTags, babyAgeLabel, gaLabel, motherOf, nextVisit, fmtDay, patientIds } from '@/data/selectors';
+import { activeTags, babyAgeLabel, gaLabel, motherOf, nextVisit, fmtDay, patientIds, sexLabel } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { useNow } from '@/lib/clock';
 import { AppText, Avatar, Chip, GlassSurface, ListRow, Screen, SegmentedPills, TopBar, families, intensityLabel, palette, space } from '@/ui';
@@ -95,7 +95,7 @@ export default function Patients() {
                 key={b.id}
                 leading={<Avatar name={m.name} size={40} tint="lavender" />}
                 title={`Baby of ${m.name}`}
-                subtitle={`${b.childId} · ${b.deceasedAt ? `died ${fmtDay(b.deceasedAt)}` : babyAgeLabel(b, now)} · ${b.sex === 'F' ? 'Girl' : 'Boy'}`}
+                subtitle={`${b.childId} · ${b.deceasedAt ? `died ${fmtDay(b.deceasedAt)}` : babyAgeLabel(b, now)} · ${sexLabel(b.sex)}`}
                 meta={activeTags(db, b.id).map((t) => <Chip key={t.id} label={tagLabel(t.code)} variant="tag" />)}
                 onPress={() => router.push({ pathname: '/care/b/[id]', params: { id: b.id } })}
               />

@@ -65,12 +65,14 @@ import type {
   Callback,
   ChecklistState,
   Delivery,
+  DeliveryPlace,
   DocumentId,
   Discharge,
   HospitalContact,
   Id,
   Immunization,
   ImmunizationId,
+  LabourOnset,
   Investigation,
   InvestigationId,
   Mother,
@@ -155,7 +157,21 @@ export type RegisterInput = {
 
 export type VisitInput = Omit<Visit, 'id' | 'pregnancyId' | 'at' | 'by'> & { nextVisitOn: Date };
 
-export type BabyInput = { sex: 'F' | 'M'; birthWeightG: number; apgar1?: number; apgar5?: number; outcome: 'live' | 'stillbirth'; birthDoses: boolean };
+export type BabyInput = {
+  sex: 'F' | 'M' | 'U';
+  birthWeightG: number;
+  lengthCm?: number;
+  headCircCm?: number;
+  apgar1?: number;
+  apgar5?: number;
+  outcome: 'live' | 'stillbirth';
+  stillbirthType?: 'fresh' | 'macerated';
+  resuscitation?: boolean;
+  birthDefects?: string;
+  breastfedWithin1h?: boolean;
+  vitaminK?: boolean;
+  birthDoses: boolean;
+};
 
 export type DeliveryInput = {
   at: Date;
@@ -163,7 +179,15 @@ export type DeliveryInput = {
   indication?: string;
   bloodLossMl?: number;
   complications: string[];
+  /** Free text for "Other" complications, as documented. */
+  complicationsNote?: string;
   medicines: string[];
+  medicinesNote?: string;
+  place: DeliveryPlace;
+  labourOnset?: LabourOnset;
+  perineum?: string;
+  maternalCondition?: string;
+  attendedBy?: string;
   babies: BabyInput[];
 };
 
@@ -673,7 +697,11 @@ export const useDb = create<Db>()((set, get) => {
         outcome: b.outcome,
         intensity: 'routine',
       }));
-      const delivery: Delivery = { id: uid('dl'), pregnancyId, at: input.at, mode: input.mode, indication: input.indication, bloodLossMl: input.bloodLossMl, complications: input.complications, medicines: input.medicines, babyIds: babies.map((b) => b.id) };
+      const delivery: Delivery = {
+        id: uid('dl'), pregnancyId, at: input.at, mode: input.mode, indication: input.indication, bloodLossMl: input.bloodLossMl,
+        complications: input.complications, medicines: input.medicines, babyIds: babies.map((b) => b.id),
+        place: input.place, labourOnset: input.labourOnset, perineum: input.perineum, maternalCondition: input.maternalCondition, attendedBy: input.attendedBy,
+      };
       const immunizations: Immunization[] = babies
         .filter((b) => b.outcome === 'live')
         .flatMap((b, i) =>
@@ -697,8 +725,9 @@ export const useDb = create<Db>()((set, get) => {
         codes: labels.flatMap((l) => t.code(l) ?? []),
         other: labels.filter((l) => !t.code(l)).join(', ') || undefined,
       });
-      const comp = coded(input.complications, complicationCodes);
-      const meds = coded(input.medicines, labourMedicineCodes);
+      const comp = coded(input.complications.filter((c) => c !== 'Other'), complicationCodes);
+      const meds = coded(input.medicines.filter((c) => c !== 'Other'), labourMedicineCodes);
+      const note = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(', ') || undefined;
       enqueue(
         'record_delivery',
         {
@@ -709,18 +738,30 @@ export const useDb = create<Db>()((set, get) => {
             mode: deliveryModeCodes.code(input.mode),
             indication: input.indication,
             blood_loss_ml: input.bloodLossMl,
-            complications: comp.codes,
-            complications_note: comp.other,
+            complications: input.complications.includes('Other') ? [...comp.codes, 'other'] : comp.codes,
+            complications_note: note(comp.other, input.complicationsNote),
             medicines: meds.codes,
-            medicines_note: meds.other,
+            medicines_note: note(meds.other, input.medicinesNote),
+            place: input.place,
+            labour_onset: input.labourOnset,
+            perineum: input.perineum,
+            maternal_condition: input.maternalCondition,
+            attended_by: input.attendedBy,
           },
           babies: input.babies.map((b, i) => ({
             id: babies[i]!.id,
             sex: b.sex,
             birth_weight_g: b.birthWeightG,
+            length_cm: b.lengthCm,
+            head_circ_cm: b.headCircCm,
             apgar1: b.apgar1,
             apgar5: b.apgar5,
             outcome: b.outcome,
+            stillbirth_type: b.outcome === 'stillbirth' ? b.stillbirthType : undefined,
+            resuscitation: b.resuscitation,
+            birth_defects: b.birthDefects,
+            breastfed_within_1h: b.outcome === 'live' ? b.breastfedWithin1h : undefined,
+            vitamin_k: b.outcome === 'live' ? b.vitaminK : undefined,
             birth_doses_given: b.birthDoses,
           })),
         },

@@ -6,7 +6,7 @@ import { daysBetween, formatGA } from '@domain/gestation';
 
 import { asBabyId } from '@/data/ids';
 import { tagLabel } from '@/data/catalogue';
-import { activeTags, babyAgeLabel, continuityEvents, fmtDate, fmtDay, motherOf, taskState } from '@/data/selectors';
+import { activeTags, babyAgeLabel, continuityEvents, fmtDate, fmtDay, motherOf, sexLabel, taskState } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { EnteredInErrorSheet, type EieTarget } from '@/features/care/EnteredInErrorSheet';
 import { useActor } from '@/features/care/nav';
@@ -78,7 +78,7 @@ export default function NewbornView() {
       <OverrideBanner motherId={m.id} />
       <View style={{ alignItems: 'center', gap: 4 }}>
         <AppText variant="caption" tone="secondary">
-          Baby of {m.name} · {b.sex === 'F' ? 'Girl' : 'Boy'}
+          Baby of {m.name} · {sexLabel(b.sex)}
         </AppText>
         {died ? (
           <AppText variant="display" align="center">

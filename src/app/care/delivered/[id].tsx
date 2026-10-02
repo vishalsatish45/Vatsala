@@ -3,7 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
 
 import { asPregnancyId } from '@/data/ids';
-import { motherOf } from '@/data/selectors';
+import { motherOf, sexLabel } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { AppText, Button, GlassSurface, Screen, TopBar, palette, space } from '@/ui';
 
@@ -38,7 +38,7 @@ export default function Delivered() {
           <View style={{ flex: 1, gap: 2 }}>
             <AppText variant="headline">{b.childId}</AppText>
             <AppText tone="secondary">
-              {b.sex === 'F' ? 'Girl' : 'Boy'} · {b.birthWeightG} g{b.apgar5 != null ? ` · Apgar ${b.apgar1 ?? '–'}/${b.apgar5}` : ''}
+              {sexLabel(b.sex)} · {b.birthWeightG} g{b.apgar5 != null ? ` · Apgar ${b.apgar1 ?? '–'}/${b.apgar5}` : ''}
             </AppText>
             <AppText variant="caption" tone="secondary">
               {b.outcome === 'live' ? 'Linked to mother · vaccine schedule created · paediatrics notified' : 'Stillbirth recorded · baby reminders suppressed'}

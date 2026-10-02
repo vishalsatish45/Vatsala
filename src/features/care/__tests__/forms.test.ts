@@ -141,23 +141,52 @@ describe('referral schemas', () => {
 });
 
 describe('delivery schema', () => {
-  const schema = makeDeliverySchema(NOW);
-  const baby = { sex: 'F' as const, weight: '2900', apgar1: '8', apgar5: '9', outcome: 'live' as const, birthDoses: true };
-  const base = { when: '3 h ago' as const, mode: 'LSCS (emergency)', indication: ' Fetal distress ', loss: '600', complications: [], medicines: ['Oxytocin'], count: '1' as const, babies: [baby, { ...baby, sex: undefined, weight: '' }] };
+  const EDD = new Date('2026-10-20T00:00:00Z');
+  const schema = makeDeliverySchema(NOW, EDD);
+  const baby = {
+    sex: 'F' as const, weight: '2900', length: '49.5', head: '', apgar1: '8', apgar5: '9', outcome: 'live' as const,
+    resuscitation: false, defects: '', breastfed: true, vitaminK: true, birthDoses: true,
+  };
+  const base = {
+    date: '01-10-2026', time: '22:15', place: 'This facility' as const, onset: 'Induced', mode: 'LSCS (emergency)', indication: ' Fetal distress ',
+    loss: '600', perineum: 'Not applicable (LSCS)', complications: [], complicationsNote: '', medicines: ['Oxytocin'], medicinesNote: '',
+    maternalCondition: ' Stable ', attendedBy: 'Dr. Priya', count: '1' as const, babies: [baby, { ...baby, sex: undefined, weight: '' }],
+  };
 
-  it('builds the delivery input for the chosen number of babies', () => {
+  it('takes the exact time of birth and every documented field', () => {
     const out = schema.parse(base);
-    expect(out.at).toEqual(new Date('2026-10-02T06:00:00Z'));
-    expect(out).toMatchObject({ mode: 'LSCS (emergency)', indication: 'Fetal distress', bloodLossMl: 600 });
-    expect(out.babies).toEqual([{ sex: 'F', birthWeightG: 2900, apgar1: 8, apgar5: 9, outcome: 'live', birthDoses: true }]);
+    expect(out.at).toEqual(new Date(2026, 9, 1, 22, 15));
+    expect(out).toMatchObject({
+      place: 'this_facility', labourOnset: 'induced', mode: 'LSCS (emergency)', indication: 'Fetal distress', bloodLossMl: 600,
+      perineum: 'Not applicable (LSCS)', maternalCondition: 'Stable', attendedBy: 'Dr. Priya',
+    });
+    expect(out.babies).toEqual([
+      { sex: 'F', birthWeightG: 2900, lengthCm: 49.5, headCircCm: undefined, apgar1: 8, apgar5: 9, outcome: 'live', stillbirthType: undefined,
+        resuscitation: false, birthDefects: undefined, breastfedWithin1h: true, vitaminK: true, birthDoses: true },
+    ]);
   });
 
-  it('needs a mode, and sex and a birth weight for each baby', () => {
+  it('refuses an unreadable, impossible or future time', () => {
+    expect(messages(schema.safeParse({ ...base, time: '25:00' }))).toEqual(['time: Enter the date as DD-MM-YYYY and the time as HH:MM (24-hour).']);
+    expect(schema.safeParse({ ...base, date: '31-02-2026' }).success).toBe(false);
+    expect(messages(schema.safeParse({ ...base, date: '03-10-2026' }))).toEqual(['time: The time of birth cannot be in the future.']);
+    expect(messages(schema.safeParse({ ...base, date: '01-01-2026' }))).toEqual(['date: Check the date: it gives a gestation outside 20–46 weeks for this EDD.']);
+  });
+
+  it('needs a mode, sex and a birth weight for each baby, and notes for "Other"', () => {
     expect(messages(schema.safeParse({ ...base, mode: undefined, count: '2' }))).toEqual([
       'mode: Please choose the mode of delivery.',
-      'babies.1.weight: Each baby needs sex and a birth weight between 300 and 6000 g.',
+      'babies.1.sex: Baby 2: choose the sex (or Undetermined).',
+      'babies.1.weight: Baby 2: birth weight 200–7000 g.',
     ]);
-    expect(schema.safeParse({ ...base, babies: [{ ...baby, weight: '250' }] }).success).toBe(false);
+    expect(schema.safeParse({ ...base, babies: [{ ...baby, weight: '150' }] }).success).toBe(false);
+    expect(schema.safeParse({ ...base, complications: ['Other'] }).success).toBe(false);
+    expect(schema.parse({ ...base, complications: ['Other'], complicationsNote: ' Shoulder dystocia ' }).complicationsNote).toBe('Shoulder dystocia');
+  });
+
+  it('keeps stillbirth details and drops newborn-care fields for a stillborn baby', () => {
+    const out = schema.parse({ ...base, babies: [{ ...baby, sex: 'U' as const, outcome: 'stillbirth' as const, stillbirthType: 'macerated' as const }] });
+    expect(out.babies[0]).toMatchObject({ sex: 'U', outcome: 'stillbirth', stillbirthType: 'macerated', breastfedWithin1h: undefined, vitaminK: undefined, birthDoses: false });
   });
 });
 

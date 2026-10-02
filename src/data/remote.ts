@@ -682,7 +682,7 @@ function requesterLabel(label: string, mother: string | undefined) {
 }
 
 /** The app records only F / M at birth; an undetermined sex is never created by this app. */
-const babySex = (sex: 'F' | 'M' | 'U'): Baby['sex'] => (sex === 'M' ? 'M' : 'F');
+const babySex = (sex: 'F' | 'M' | 'U'): Baby['sex'] => sex;
 
 const SELF_LOG_KINDS: readonly string[] = ['bp', 'weight', 'movements', 'contractions', 'feeding', 'note'];
 function selfLog(lid: string, motherId: string, babyId: string | null | undefined, kind: string, value: string, at: string, by: string): SelfLog {

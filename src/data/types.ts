@@ -216,7 +216,8 @@ export type Baby = {
   motherId: MotherId;
   pregnancyId: PregnancyId;
   dob: Date;
-  sex: 'F' | 'M';
+  /** 'U': sex undetermined at birth (as documented). */
+  sex: 'F' | 'M' | 'U';
   birthWeightG: number;
   gaAtBirthDays: number;
   apgar1?: number;
@@ -237,7 +238,16 @@ export type Delivery = {
   complications: string[];
   medicines: string[];
   babyIds: BabyId[];
+  /** As documented (server pick-list codes for place and onset). */
+  place?: DeliveryPlace;
+  labourOnset?: LabourOnset;
+  perineum?: string;
+  maternalCondition?: string;
+  attendedBy?: string;
 };
+
+export type DeliveryPlace = 'this_facility' | 'other_facility' | 'home' | 'in_transit';
+export type LabourOnset = 'spontaneous' | 'induced' | 'no_labour';
 
 export type Immunization = { id: ImmunizationId; babyId: BabyId; code: string; label: string; group: string; dueOn: Date; givenOn?: Date };
 

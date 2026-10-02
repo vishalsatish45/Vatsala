@@ -283,6 +283,7 @@
       "logFeeding": "Record baby's feeding",
       "girl": "Girl",
       "boy": "Boy",
+      "undetermined": "Sex undetermined",
       "twin": "Baby {{n}}"
     },
     "tl": {

@@ -227,52 +227,126 @@ export const referSchema = z
 
 // ── CT-56/57 Delivery record ─────────────────────────────────────────────────────
 
-export const BIRTH_TIMES = { Now: 0, '1 h ago': 1, '3 h ago': 3, '6 h ago': 6 } as const;
+/** Pick-list labels → server codes (deliveries.place, deliveries.labour_onset). */
+export const BIRTH_PLACES = { 'This facility': 'this_facility', 'Other facility': 'other_facility', Home: 'home', 'In transit': 'in_transit' } as const;
+export const LABOUR_ONSETS = { Spontaneous: 'spontaneous', Induced: 'induced', 'No labour (elective LSCS)': 'no_labour' } as const;
+export const PERINEUM = ['Intact', '1st degree tear', '2nd degree tear', '3rd degree tear', '4th degree tear', 'Episiotomy', 'Not applicable (LSCS)'] as const;
+export const MAX_BABIES = 4;
 
 const babyFields = z.object({
-  sex: z.enum(['F', 'M']).optional(),
+  sex: z.enum(['F', 'M', 'U']).optional(),
   weight: text,
+  length: text,
+  head: text,
   apgar1: text,
   apgar5: text,
   outcome: z.enum(['live', 'stillbirth']),
+  stillbirthType: z.enum(['fresh', 'macerated']).optional(),
+  resuscitation: z.boolean(),
+  defects: text,
+  breastfed: z.boolean(),
+  vitaminK: z.boolean(),
   birthDoses: z.boolean(),
 });
-export const blankBaby = (): z.input<typeof babyFields> => ({ weight: '', apgar1: '', apgar5: '', outcome: 'live', birthDoses: true });
+export const blankBaby = (): z.input<typeof babyFields> => ({
+  weight: '', length: '', head: '', apgar1: '', apgar5: '', outcome: 'live', resuscitation: false, defects: '', breastfed: false, vitaminK: true, birthDoses: true,
+});
 
-/** Time of birth as chosen ("Now", "3 h ago" …), relative to `now`. */
-export const birthTime = (when: keyof typeof BIRTH_TIMES, now: Date) => new Date(now.getTime() - BIRTH_TIMES[when] * 3_600_000);
+const pad = (n: number) => String(n).padStart(2, '0');
+/** The form's date and time text for an instant: "02-10-2026", "14:05" (the phone's local time). */
+export const dateText = (d: Date) => `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}`;
+export const timeText = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
-export function makeDeliverySchema(now: Date) {
+/** Exact time of birth from "DD-MM-YYYY" and "HH:MM" (24-hour, the phone's local time); undefined if unreadable. */
+export function birthTime(date: string, time: string): Date | undefined {
+  const d = date.trim().match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  const t = time.trim().match(/^(\d{1,2})[:.](\d{2})$/);
+  if (!d || !t) return undefined;
+  const [day, month, year, hour, minute] = [Number(d[1]), Number(d[2]), Number(d[3]), Number(t[1]), Number(t[2])];
+  if (hour > 23 || minute > 59) return undefined;
+  const at = new Date(year, month - 1, day, hour, minute);
+  // reject 31-02 and the like (Date would roll it over into March)
+  return at.getFullYear() === year && at.getMonth() === month - 1 && at.getDate() === day ? at : undefined;
+}
+
+const num = (s: string) => (s.trim() ? Number(s) : undefined);
+const inRange = (s: string, lo: number, hi: number) => !s.trim() || (Number(s) >= lo && Number(s) <= hi);
+
+/**
+ * CT-56/57: everything the server's record_delivery accepts, as documented. `edd` bounds the time of birth to the
+ * server's 20–46 weeks of gestation; a birth cannot be in the future.
+ */
+export function makeDeliverySchema(now: Date, edd: Date) {
   return z
     .object({
-      when: z.enum(['Now', '1 h ago', '3 h ago', '6 h ago']),
+      date: text,
+      time: text,
+      place: z.enum(Object.keys(BIRTH_PLACES) as [keyof typeof BIRTH_PLACES, ...(keyof typeof BIRTH_PLACES)[]]),
+      onset: choice,
       mode: choice,
       indication: text,
       loss: text,
+      perineum: choice,
       complications: list,
+      complicationsNote: text,
       medicines: list,
-      count: z.enum(['1', '2']),
+      medicinesNote: text,
+      maternalCondition: text,
+      attendedBy: text,
+      count: z.enum(['1', '2', '3', '4']),
       babies: z.array(babyFields),
     })
     .superRefine((v, ctx) => {
+      const at = birthTime(v.date, v.time);
+      if (!at) ctx.addIssue({ code: 'custom', path: ['time'], message: 'Enter the date as DD-MM-YYYY and the time as HH:MM (24-hour).' });
+      else if (at.getTime() > now.getTime() + 10 * 60_000) ctx.addIssue({ code: 'custom', path: ['time'], message: 'The time of birth cannot be in the future.' });
+      else {
+        const gaDays = 280 - Math.round((edd.getTime() - at.getTime()) / 86_400_000);
+        if (gaDays < 140 || gaDays > 320) ctx.addIssue({ code: 'custom', path: ['date'], message: 'Check the date: it gives a gestation outside 20–46 weeks for this EDD.' });
+      }
       if (!v.mode) ctx.addIssue({ code: 'custom', path: ['mode'], message: 'Please choose the mode of delivery.' });
-      const bad = v.babies.slice(0, Number(v.count)).findIndex((b) => !b.sex || !(Number(b.weight) >= 300 && Number(b.weight) <= 6000));
-      if (bad >= 0) ctx.addIssue({ code: 'custom', path: ['babies', bad, 'weight'], message: 'Each baby needs sex and a birth weight between 300 and 6000 g.' });
+      if (!inRange(v.loss, 0, 10000)) ctx.addIssue({ code: 'custom', path: ['loss'], message: 'Check value: blood loss 0–10000 ml.' });
+      if (v.complications.includes('Other') && !v.complicationsNote.trim()) {
+        ctx.addIssue({ code: 'custom', path: ['complicationsNote'], message: 'Describe the other complication as documented.' });
+      }
+      if (v.medicines.includes('Other') && !v.medicinesNote.trim()) ctx.addIssue({ code: 'custom', path: ['medicinesNote'], message: 'Name the other medicine as documented.' });
+      v.babies.slice(0, Number(v.count)).forEach((b, i) => {
+        const at = (field: string, message: string) => ctx.addIssue({ code: 'custom', path: ['babies', i, field], message: `Baby ${i + 1}: ${message}` });
+        if (!b.sex) at('sex', 'choose the sex (or Undetermined).');
+        if (!(Number(b.weight) >= 200 && Number(b.weight) <= 7000)) at('weight', 'birth weight 200–7000 g.');
+        if (!inRange(b.length, 20, 70)) at('length', 'check value: length 20–70 cm.');
+        if (!inRange(b.head, 15, 50)) at('head', 'check value: head circumference 15–50 cm.');
+        if (!inRange(b.apgar1, 0, 10) || !inRange(b.apgar5, 0, 10)) at('apgar1', 'Apgar scores are 0–10.');
+      });
     })
     .transform(
       (v): DeliveryInput => ({
-        at: birthTime(v.when, now),
+        at: birthTime(v.date, v.time)!,
+        place: BIRTH_PLACES[v.place],
+        labourOnset: v.onset ? LABOUR_ONSETS[v.onset as keyof typeof LABOUR_ONSETS] : undefined,
         mode: v.mode ?? '',
         indication: trimmedOrUndefined(v.indication),
-        bloodLossMl: v.loss ? Number(v.loss) : undefined,
+        bloodLossMl: num(v.loss),
+        perineum: v.perineum,
         complications: v.complications,
+        complicationsNote: v.complications.includes('Other') ? trimmedOrUndefined(v.complicationsNote) : undefined,
         medicines: v.medicines,
+        medicinesNote: v.medicines.includes('Other') ? trimmedOrUndefined(v.medicinesNote) : undefined,
+        maternalCondition: trimmedOrUndefined(v.maternalCondition),
+        attendedBy: trimmedOrUndefined(v.attendedBy),
         babies: v.babies.slice(0, Number(v.count)).map((b) => ({
-          sex: b.sex ?? 'F',
+          sex: b.sex ?? 'U',
           birthWeightG: Number(b.weight),
-          apgar1: b.apgar1 ? Number(b.apgar1) : undefined,
-          apgar5: b.apgar5 ? Number(b.apgar5) : undefined,
+          lengthCm: num(b.length),
+          headCircCm: num(b.head),
+          apgar1: num(b.apgar1),
+          apgar5: num(b.apgar5),
           outcome: b.outcome,
+          stillbirthType: b.outcome === 'stillbirth' ? b.stillbirthType : undefined,
+          resuscitation: b.resuscitation,
+          birthDefects: trimmedOrUndefined(b.defects),
+          breastfedWithin1h: b.outcome === 'live' ? b.breastfed : undefined,
+          vitaminK: b.outcome === 'live' ? b.vitaminK : undefined,
           birthDoses: b.outcome === 'live' && b.birthDoses,
         })),
       }),

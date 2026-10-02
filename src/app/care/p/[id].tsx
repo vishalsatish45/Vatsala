@@ -8,7 +8,7 @@ import { gestationalAge } from '@domain/gestation';
 import { tagLabel } from '@/data/catalogue';
 import { endReasonCodes } from '@/data/codes';
 import { asPregnancyId } from '@/data/ids';
-import { activeTags, ago, continuityEvents, fmtDate, fmtDay, fmtTime, invState, motherOf, nextVisit, patientIds, stillDue, type DueItem } from '@/data/selectors';
+import { activeTags, ago, continuityEvents, fmtDate, fmtDay, fmtTime, invState, motherOf, nextVisit, patientIds, sexLabel, stillDue, type DueItem } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { REFERRAL_STEPS, type Pregnancy, type StaffMember } from '@/data/types';
 import { EnteredInErrorSheet, type EieTarget } from '@/features/care/EnteredInErrorSheet';
@@ -189,7 +189,7 @@ export default function PatientView() {
           {babies.length > 0 && (
             <Section title="Baby">
               {babies.map((b) => (
-                <ListRow key={b.id} leading={<Baby size={22} color={palette.lav600} />} title={b.childId} subtitle={`${b.sex === 'F' ? 'Girl' : 'Boy'} · ${b.birthWeightG} g at birth · born ${fmtDay(b.dob)}`} onPress={() => router.push({ pathname: '/care/b/[id]', params: { id: b.id } })} />
+                <ListRow key={b.id} leading={<Baby size={22} color={palette.lav600} />} title={b.childId} subtitle={`${sexLabel(b.sex)} · ${b.birthWeightG} g at birth · born ${fmtDay(b.dob)}`} onPress={() => router.push({ pathname: '/care/b/[id]', params: { id: b.id } })} />
               ))}
             </Section>
           )}
