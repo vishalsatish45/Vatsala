@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, View } from 'react-native';
 import { Stack } from 'expo-router';
 
+import { confirmSignOut } from '@/features/auth/confirmSignOut';
 import { SyncGate } from '@/features/sync/SyncGate';
 import { canUseDeviceLock, unlock } from '@/lib/device';
 import { useCareLock } from '@/state/careLock';
@@ -67,7 +68,7 @@ export default function CareLayout() {
             body={`Care Team session paused after 10 minutes without activity. Unlock to continue as ${name}.`}
             unlockLabel="Unlock"
             onUnlock={tryUnlock}
-            secondary={{ label: 'Sign out', onPress: () => { release(); signOut(); } }}
+            secondary={{ label: 'Sign out', onPress: () => confirmSignOut(() => { release(); signOut(); }) }}
           />
         )}
       </View>

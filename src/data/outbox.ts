@@ -7,11 +7,21 @@
  * A refused intent (role, not visible, stale version, invalid input) is dropped and reported; the store is
  * then reloaded from the server, which undoes the optimistic change on screen.
  *
+ * A version-checked intent carries the version its edit was based on, frozen into its payload at enqueue (or, for a
+ * follow-up of this phone's own queued write to the same record, at its first attempt) and resent unchanged on every
+ * retry: the idempotency hash covers it, and a reload in between never re-bases an offline edit on someone else's
+ * newer change.
+ *
+ * Unsent writes belong to the account that made them. A lost session (the server ended it) signs out but keeps
+ * them saved for the same account's next sign-in; only an explicit sign-out — or another account signing in —
+ * deletes them. A network failure never does.
+ *
  * An intent may carry a follow-up upload (a voice note, a paper-record photo): once the RPC has answered with the
  * server-chosen storage path, the local file is uploaded there (private bucket, never overwriting). The intent
  * stays at the head of the queue — persisted, encrypted — until the upload is done, and is retried like an RPC.
  */
 import { randomUUID } from 'expo-crypto';
+import { isAuthApiError, isAuthSessionMissingError } from '@supabase/supabase-js';
 import { create } from 'zustand';
 
 import { isOnline, useNetwork } from '@/lib/network';
@@ -37,6 +47,10 @@ export type Intent = {
   entityId?: string;
   /** Send the record's last known version, so a write over someone else's newer change is refused. */
   withVersion?: boolean;
+  /** True once the version check is frozen into `payload` (see above); every retry resends it unchanged. */
+  stamped?: boolean;
+  /** Other rows whose server version this write also bumps (e.g. the test of a withdrawn result): forgotten on success. */
+  alsoInvalidate?: string[];
   upload?: Upload;
   /** The RPC has been applied; only the upload remains. */
   rpcDone?: boolean;
@@ -59,18 +73,32 @@ export const useOutbox = create<OutboxState>()((set) => ({
   dismissFailure: () => set({ failure: undefined }),
 }));
 
-/** RPCs that take no idempotency key (they are naturally repeatable). */
-const NO_KEY = new Set(['log_access', 'register_push_token', 'unregister_push_token', 'mark_notifications_read']);
+/** RPCs that take no idempotency key (they are naturally repeatable, or allow only their own keys). */
+const NO_KEY = new Set(['log_access', 'register_push_token', 'unregister_push_token', 'mark_notifications_read', 'reset_demo']);
 
 /** Unsent writes hold patient data, so they are kept encrypted. */
 const STORE_KEY = 'outbox.v1';
+type Stored = { owner?: string; queue: Intent[] };
 let saving = Promise.resolve();
+/** The account whose writes are queued (set by restoreOutbox when an account is signed in). */
+let owner: string | undefined;
+/** Bumped on every sign-out: a request still in flight from the previous session is ignored when it answers. */
+let epoch = 0;
+/** Bumped on every enqueue, so a reload that started before a write can tell its snapshot is stale. */
+let writes = 0;
+
+/** How many writes this phone has queued so far (a counter, compared before and after a reload). */
+export const writeCount = () => writes;
+
+/** Writes made on this phone that the server has not confirmed yet. */
+export const pendingWrites = () => useOutbox.getState().queue.length;
 
 function persist() {
-  const queue = useOutbox.getState().queue;
+  const { queue } = useOutbox.getState();
+  const stored: Stored = { owner, queue };
   // Serialised: a later save never lands before an earlier one.
   saving = saving
-    .then(() => (queue.length ? secureStorage.setItem(STORE_KEY, JSON.stringify(queue)) : secureStorage.removeItem(STORE_KEY)))
+    .then(() => (queue.length ? secureStorage.setItem(STORE_KEY, JSON.stringify(stored)) : secureStorage.removeItem(STORE_KEY)))
     .catch(() => {
       /* keystore unavailable: the queue still lives in memory for this session */
     });
@@ -81,18 +109,42 @@ function markPending() {
   useNetwork.setState({ pending: ids });
 }
 
+/** The payload with its version check frozen in: the known version, or none (an unchecked write). */
+function stampVersion(payload: Record<string, unknown>, version: number | undefined): Record<string, unknown> {
+  const { version: _old, ...rest } = payload;
+  return typeof version === 'number' ? { ...rest, version } : rest;
+}
+
+const touches = (i: Intent, id: string) => i.entityId === id || !!i.alsoInvalidate?.includes(id);
+
 /** Queue a write. In mock mode the on-device store is the backend, so nothing is sent. */
-export function enqueue(rpc: string, payload: Record<string, unknown>, opts: { entityId?: string; withVersion?: boolean; upload?: Upload } = {}) {
+export function enqueue(
+  rpc: string,
+  payload: Record<string, unknown>,
+  opts: { entityId?: string; withVersion?: boolean; upload?: Upload; alsoInvalidate?: string[] } = {},
+) {
   if (!isRemote) return;
   const id = randomUUID();
-  const intent: Intent = { id, rpc, payload: NO_KEY.has(rpc) ? payload : { ...payload, idempotency_key: id }, attempts: 0, ...opts };
+  const { queue, versions } = useOutbox.getState();
+  let body = NO_KEY.has(rpc) ? payload : { ...payload, idempotency_key: id };
+  let stamped = false;
+  // The version this edit was made against. A follow-up of this phone's own queued write to the same record is
+  // stamped when it is first sent instead, with the version that earlier write comes back with.
+  const entity = opts.entityId;
+  if (opts.withVersion && entity && !queue.some((i) => touches(i, entity))) {
+    body = stampVersion(body, versions[entity]);
+    stamped = true;
+  }
+  const intent: Intent = { id, rpc, payload: body, attempts: 0, ...opts, ...(stamped ? { stamped } : {}) };
+  writes++;
   useOutbox.setState((s) => ({ queue: [...s.queue, intent] }));
   persist();
   markPending();
   void drain();
 }
 
-let draining = false;
+/** The running drain loop, tagged with its session: a hung request of a previous session never blocks the next. */
+let active: { epoch: number } | undefined;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let onDrained: (() => void) | undefined;
 let onFailure: (() => void) | undefined;
@@ -142,29 +194,61 @@ function classify(status: number, message: string): Exclude<Outcome, 'ok'> {
   return 'refused';
 }
 
-function shift(after: (s: OutboxState) => Partial<OutboxState> = () => ({})) {
-  useOutbox.setState((s) => ({ queue: s.queue.slice(1), ...after(s) }));
+/**
+ * True only when the server has definitively ended the session (refresh token revoked, expired or unknown; no
+ * session stored). A network failure, a timeout, a server error or a refresh raced by another caller is not: the
+ * account and its unsent writes stay, and the refresh is tried again later.
+ */
+export function isSessionGone(error: unknown): boolean {
+  if (!error) return false;
+  if (isAuthSessionMissingError(error)) return true;
+  if (!isAuthApiError(error)) return false;
+  const status = error.status;
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
+/** Remove one intent by id — never "whatever is first now": the queue may have changed while a request was out. */
+function remove(id: string, after: (s: OutboxState) => Partial<OutboxState> = () => ({})) {
+  useOutbox.setState((s) => ({ queue: s.queue.filter((i) => i.id !== id), ...after(s) }));
   persist();
   markPending();
 }
 
-export async function drain(): Promise<void> {
-  if (!isRemote || draining) return;
-  draining = true;
+function replace(next: Intent) {
+  useOutbox.setState((s) => ({ queue: s.queue.map((i) => (i.id === next.id ? next : i)) }));
+  persist();
+}
+
+function retryLater(head: Intent) {
+  replace({ ...head, attempts: head.attempts + 1 });
+  const wait = Math.min(60_000, 1000 * 2 ** Math.min(head.attempts, 6));
   clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => void drain(), wait);
+}
+
+export async function drain(): Promise<void> {
+  if (!isRemote || (active && active.epoch === epoch)) return;
+  const me = { epoch };
+  active = me;
+  clearTimeout(retryTimer);
+  let stale = false;
+  let refreshedFor: string | undefined;
   try {
     for (;;) {
-      const head = useOutbox.getState().queue[0];
+      let head = useOutbox.getState().queue[0];
       if (!head || !isOnline(useNetwork.getState())) break;
-      const { versions } = useOutbox.getState();
-      const payload = head.withVersion && head.entityId && versions[head.entityId] != null ? { ...head.payload, version: versions[head.entityId] } : head.payload;
+      if (head.withVersion && head.entityId && !head.stamped && !head.rpcDone) {
+        // First attempt of a follow-up write: freeze the version it is checked against, for every retry.
+        head = { ...head, stamped: true, payload: stampVersion(head.payload, useOutbox.getState().versions[head.entityId]) };
+        replace(head);
+      }
 
       let status = 0;
       let message = '';
       let data: unknown;
       if (!head.rpcDone) {
         try {
-          const res = await supabase().rpc(head.rpc, { p: payload });
+          const res = await supabase().rpc(head.rpc, { p: head.payload });
           status = res.status;
           data = res.data;
           message = res.error?.message ?? '';
@@ -172,33 +256,43 @@ export async function drain(): Promise<void> {
         } catch (e) {
           message = String(e);
         }
+        if (me.epoch !== epoch) {
+          stale = true;
+          break;
+        }
         // The write is applied; keep the intent (persisted) until its file is uploaded too.
         const path = status === 200 && head.upload ? uploadPath(head.upload, data) : undefined;
         if (path && head.upload) {
-          const next: Intent = { ...head, rpcDone: true, attempts: 0, upload: { ...head.upload, path } };
-          useOutbox.setState((s) => ({ queue: [next, ...s.queue.slice(1)] }));
-          persist();
+          replace({ ...head, rpcDone: true, attempts: 0, upload: { ...head.upload, path } });
           continue;
         }
       } else if (head.upload?.path) {
         ({ status, message } = await sendUpload({ ...head.upload, path: head.upload.path }));
+        if (me.epoch !== epoch) {
+          stale = true;
+          break;
+        }
       } else {
         status = 200;
       }
 
       if (status === 200) {
         const next = (data as { version?: number } | null)?.version;
-        shift((s) => {
-          if (!head.entityId) return {};
+        const done = head;
+        remove(done.id, (s) => {
+          if (!done.entityId && !done.alsoInvalidate?.length) return {};
           const v = { ...s.versions };
           // A response that names the new version keeps the check alive; otherwise the next write goes unchecked
           // (it is this phone's own follow-up) until the next reload brings fresh versions.
-          if (typeof next === 'number') v[head.entityId] = next;
-          else delete v[head.entityId];
+          if (done.entityId) {
+            if (typeof next === 'number') v[done.entityId] = next;
+            else delete v[done.entityId];
+          }
+          for (const other of done.alsoInvalidate ?? []) delete v[other];
           return { versions: v };
         });
-        if (head.entityId) {
-          const id = head.entityId;
+        if (done.entityId) {
+          const id = done.entityId;
           useNetwork.setState((s) => ({ justSynced: [...s.justSynced, id] }));
           setTimeout(() => useNetwork.setState((s) => ({ justSynced: s.justSynced.filter((x) => x !== id) })), 4000);
         }
@@ -207,45 +301,90 @@ export async function drain(): Promise<void> {
 
       const outcome = classify(status, message);
       if (outcome === 'auth') {
-        const { error } = await supabase().auth.refreshSession();
-        if (!error) continue;
-        onSessionLost?.();
+        if (refreshedFor !== head.id) {
+          refreshedFor = head.id;
+          const { error } = await supabase().auth.refreshSession();
+          if (me.epoch !== epoch) {
+            stale = true;
+            break;
+          }
+          if (!error) continue;
+          if (isSessionGone(error)) {
+            onSessionLost?.();
+            break;
+          }
+        }
+        // Offline, a timeout, or still refused with a fresh token: keep the write and try again later.
+        retryLater(head);
         break;
       }
       if (outcome === 'retry') {
-        useOutbox.setState((s) => ({ queue: [{ ...head, attempts: head.attempts + 1 }, ...s.queue.slice(1)] }));
-        const wait = Math.min(60_000, 1000 * 2 ** Math.min(head.attempts, 6));
-        retryTimer = setTimeout(() => void drain(), wait);
+        retryLater(head);
         break;
       }
-      shift(() => ({ failure: { rpc: head.rpc, message } }));
+      const refused = head;
+      remove(refused.id, () => ({ failure: { rpc: refused.rpc, message } }));
       onFailure?.();
     }
   } finally {
-    draining = false;
+    if (active === me) active = undefined;
+  }
+  if (stale) {
+    // Signed out while a request was out: its answer belongs to nobody. The next account's writes go now.
+    if (useOutbox.getState().queue.length) void drain();
+    return;
   }
   if (useOutbox.getState().queue.length === 0) onDrained?.();
 }
 
-/** Restore intents saved before the app was closed. */
-export async function restoreOutbox() {
+/**
+ * Restore the writes saved on this phone for the signed-in account (after a restart, or a sign-in after a lost
+ * session). Writes saved by another account are deleted: nothing of one user is ever sent under another login.
+ */
+export async function restoreOutbox(accountId: string) {
   if (!isRemote) return;
+  owner = accountId;
   try {
     const raw = await secureStorage.getItem(STORE_KEY);
-    const queue = raw ? (JSON.parse(raw) as Intent[]) : [];
-    if (Array.isArray(queue) && queue.length) useOutbox.setState((s) => ({ queue: [...queue, ...s.queue] }));
+    const parsed = raw ? (JSON.parse(raw) as unknown) : undefined;
+    if (owner !== accountId) return; // signed out meanwhile
+    // The first format stored a bare array (always the signed-in account's); now {owner, queue}.
+    const stored: Stored | undefined = Array.isArray(parsed) ? { queue: parsed as Intent[] } : (parsed as Stored | undefined);
+    if (stored?.owner && stored.owner !== accountId) {
+      if (!useOutbox.getState().queue.length) await secureStorage.removeItem(STORE_KEY);
+    } else if (Array.isArray(stored?.queue) && stored.queue.length) {
+      const have = new Set(useOutbox.getState().queue.map((i) => i.id));
+      const saved = stored.queue.filter((i) => !have.has(i.id));
+      useOutbox.setState((s) => ({ queue: [...saved, ...s.queue] }));
+      persist();
+    }
   } catch {
     /* unreadable: start empty */
   }
   markPending();
 }
 
-/** Sign-out: nothing of the previous user may be sent later under another login. */
-export function clearOutbox() {
+function forget() {
+  epoch++;
+  owner = undefined;
+  active = undefined;
   clearTimeout(retryTimer);
   useOutbox.setState({ queue: [], versions: {}, failure: undefined });
-  persist();
   useNetwork.setState({ pending: [], justSynced: [] });
+}
+
+/** Explicit sign-out: the unsent writes are deleted — nothing of this user may be sent later under another login. */
+export function clearOutbox() {
+  forget();
+  persist();
+}
+
+/**
+ * Lost session (the server ended it): stop sending and forget the writes in memory, but keep them saved on the phone
+ * for this account's next sign-in (restoreOutbox). They are never sent without a session of the same account.
+ */
+export function suspendOutbox() {
+  forget();
 }
 
 /** Resume sending when the phone is back online. */

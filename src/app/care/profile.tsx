@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { BarChart3, BedDouble, ScanLine, ScrollText } from 'lucide-react-native';
 
 import { useDb } from '@/data/store';
+import { confirmSignOut } from '@/features/auth/confirmSignOut';
 import { env } from '@/lib/env';
 import { useClock } from '@/lib/clock';
 import { useNetwork } from '@/lib/network';
@@ -68,7 +69,7 @@ export default function CareProfile() {
         </Card>
       )}
 
-      <Button variant="secondary" label="Sign out" onPress={signOut} />
+      <Button variant="secondary" label="Sign out" onPress={() => confirmSignOut(signOut)} />
     </Screen>
   );
 }

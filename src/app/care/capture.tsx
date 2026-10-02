@@ -6,7 +6,7 @@ import { Camera, Check, FileImage, Pencil, ScanText } from 'lucide-react-native'
 
 import { asPregnancyId } from '@/data/ids';
 import { gaLabel, motherOf } from '@/data/selectors';
-import { useDb } from '@/data/store';
+import { CAPTURE_CHOICES, captureVisit, useDb } from '@/data/store';
 import type { CaptureField, DocumentId, Pregnancy, PregnancyId } from '@/data/types';
 import { captureAndTranscribe } from '@/features/ai/capture';
 import { captureSchema } from '@/features/care/forms';
@@ -91,10 +91,17 @@ function CaptureForm({ p }: { p: Pregnancy }) {
   const [editing, setEditing] = useState<string>();
   const [documentId, setDocumentId] = useState<DocumentId>();
   const [reading, setReading] = useState(false);
+  /** The value as read from the card, by field key — still shown after a recorded value was chosen for it. */
+  const [read, setRead] = useState<Record<string, string>>({});
   const { control, handleSubmit, reset } = useZodForm(captureSchema, { defaultValues: { fields: [] } });
   const { busy, once } = useSubmitOnce();
   const fields = useWatch({ control, name: 'fields' }) as CaptureField[];
   const confirmed = fields.filter((f) => f.confirmed).length;
+
+  function load(next: CaptureField[]) {
+    setRead(Object.fromEntries(next.map((f) => [f.key, f.value])));
+    reset({ fields: next });
+  }
 
   async function shoot(source: 'camera' | 'library') {
     try {
@@ -104,7 +111,7 @@ function CaptureForm({ p }: { p: Pregnancy }) {
       setSample(false);
       setDocumentId(undefined);
       if (!isRemote) {
-        reset({ fields: demoTranscribe() });
+        load(demoTranscribe());
         return;
       }
       // Supabase mode: the photo is uploaded and read by Claude; the clinician still confirms every field.
@@ -113,7 +120,7 @@ function CaptureForm({ p }: { p: Pregnancy }) {
       try {
         const out = await captureAndTranscribe(p.id, u);
         setDocumentId(out.documentId);
-        reset({ fields: out.fields });
+        load(out.fields);
       } catch (e) {
         Alert.alert('Could not transcribe', e instanceof Error ? e.message : String(e));
       } finally {
@@ -127,7 +134,20 @@ function CaptureForm({ p }: { p: Pregnancy }) {
   const save = handleSubmit(
     once((v) => {
       db.saveCapture({ subjectId: p.id, uri, fields: v.fields, at: now, by, documentId }, now);
-      Alert.alert('Saved', `${confirmed} confirmed field${confirmed === 1 ? '' : 's'} added to ${motherOf(db, p.motherId).name}'s record as a visit (from paper). Unconfirmed fields were discarded.`);
+      // Say exactly what happened to each confirmed field: a visit value, or kept on the paper record only.
+      const { recorded, documentOnly } = captureVisit(v.fields);
+      const labels = (keys: string[]) => keys.map((k) => v.fields.find((f) => f.key === k)?.label ?? k).join(', ');
+      const plural = (n: number) => `${n} confirmed field${n === 1 ? '' : 's'}`;
+      Alert.alert(
+        'Saved',
+        [
+          recorded.length ? `${plural(recorded.length)} added to ${motherOf(db, p.motherId).name}'s record as a visit (from paper): ${labels(recorded)}.` : 'No field was added as a visit value.',
+          documentOnly.length ? `${plural(documentOnly.length)} kept on the saved paper record only: ${labels(documentOnly)}.` : undefined,
+          'Unconfirmed fields were discarded.',
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+      );
       router.back();
     }),
   );
@@ -163,7 +183,7 @@ function CaptureForm({ p }: { p: Pregnancy }) {
               setSample(true);
               setUri(undefined);
               setDocumentId(undefined);
-              reset({ fields: demoTranscribe() });
+              load(demoTranscribe());
             }}
           />
           {reading && (
@@ -182,13 +202,34 @@ function CaptureForm({ p }: { p: Pregnancy }) {
           <GlassSurface strong style={{ padding: space.sm }}>{uri ? <Image source={{ uri }} style={styles.photo} resizeMode="cover" /> : sample ? <SamplePaper /> : null}</GlassSurface>
           <Card style={{ gap: space.sm }}>
             <ProgressBar progress={confirmed / fields.length} leftCaption={`${confirmed} of ${fields.length} confirmed`} rightCaption={documentId ? 'Transcription · AI' : 'Transcription · demo'} />
-            {fields.map((f, i) => (
+            {fields.map((f, i) => {
+              // Urine albumin / sugar are recorded on a fixed scale: the clinician picks the value the card shows.
+              const choices = CAPTURE_CHOICES[f.key];
+              const chosen = !choices || choices.includes(f.value);
+              return (
               <View key={f.key} style={styles.field}>
                 <View style={{ flex: 1, gap: 2 }}>
                   <AppText variant="label" tone="secondary">
                     {f.label} · {Math.round(f.confidence * 100)}% sure
                   </AppText>
-                  {editing === f.key ? (
+                  {choices ? (
+                    <>
+                      <AppText variant="caption" tone="secondary">
+                        Card reads “{read[f.key] ?? f.value}”{chosen ? '' : ' — choose the value to record'}
+                      </AppText>
+                      <Controller
+                        control={control}
+                        name={`fields.${i}.value`}
+                        render={({ field }) => (
+                          <View style={styles.choices}>
+                            {choices.map((c) => (
+                              <Chip key={c} label={c} variant={field.value === c ? 'selected' : 'soft'} onPress={() => field.onChange(c)} />
+                            ))}
+                          </View>
+                        )}
+                      />
+                    </>
+                  ) : editing === f.key ? (
                     <Controller
                       control={control}
                       name={`fields.${i}.value`}
@@ -209,14 +250,22 @@ function CaptureForm({ p }: { p: Pregnancy }) {
                     <AppText variant="headline">{f.value}</AppText>
                   )}
                 </View>
-                <Chip label="Edit" icon={Pencil} onPress={() => setEditing(f.key)} />
+                {!choices && <Chip label="Edit" icon={Pencil} onPress={() => setEditing(f.key)} />}
                 <Controller
                   control={control}
                   name={`fields.${i}.confirmed`}
-                  render={({ field }) => <Chip label={field.value ? 'Confirmed' : 'Confirm'} icon={Check} variant={field.value ? 'selected' : 'soft'} onPress={() => field.onChange(!field.value)} />}
+                  render={({ field }) => (
+                    <Chip
+                      label={field.value ? 'Confirmed' : 'Confirm'}
+                      icon={Check}
+                      variant={field.value ? 'selected' : 'soft'}
+                      onPress={() => (field.value || chosen ? field.onChange(!field.value) : Alert.alert(f.label, `Choose ${choices?.join(', ')} first.`))}
+                    />
+                  )}
                 />
               </View>
-            ))}
+              );
+            })}
           </Card>
         </>
       )}
@@ -229,6 +278,7 @@ const styles = StyleSheet.create({
   paper: { backgroundColor: '#FFFDF6', borderRadius: radius.md, padding: space.lg, gap: 8, borderWidth: 1, borderColor: '#EFE6CF', transform: [{ rotate: '-1.2deg' }] },
   paperLine: { flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#E8DEC4', paddingBottom: 4 },
   hand: { color: '#35507A' },
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
   field: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: palette.divider },
   input: { fontFamily: families.latin.semibold, fontSize: 17, color: palette.ink, borderBottomWidth: 1.5, borderBottomColor: palette.rose300, paddingVertical: 2 },
 });
