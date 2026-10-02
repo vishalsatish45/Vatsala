@@ -128,3 +128,12 @@ describe('mother details payloads', () => {
     expect(motherUpdatePayload(mother, { ...mother, dob: day('2002-05-01') })).toEqual({ dob: '2002-05-01', age: undefined });
   });
 });
+
+describe('dating arithmetic uses the calendar day that is sent', () => {
+  it('a scan "now" just after midnight IST gives an EDD consistent with the scan date sent', () => {
+    const scanOn = new Date('2026-10-02T19:00:00Z'); // 00:30 IST on 3 Oct
+    const p = registerDatingPayload({ method: 'scan', scanOn, gaAtScanDays: 91 }) as { scan_on: string; edd: string };
+    const sent = new Date(`${p.scan_on}T00:00:00Z`);
+    expect(p.edd).toBe(new Date(sent.getTime() + (280 - 91) * 86_400_000).toISOString().slice(0, 10));
+  });
+});

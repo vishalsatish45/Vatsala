@@ -18,15 +18,22 @@ export type RedateInput =
   | { method: 'scan'; scanOn: Date; gaAtScanDays: number; note?: string }
   | { method: 'clinician'; edd: Date; note?: string };
 
+/**
+ * The calendar day the server is sent for a date (`isoDay`), as a UTC-midnight date. A picker or "now" may carry a
+ * time of day; between 00:00 and 05:30 IST its UTC date is the day before, so arithmetic must start from this day —
+ * otherwise the EDD sent is a day off the dates sent with it and the server refuses the dating.
+ */
+const asDay = (d: Date) => new Date(`${isoDay(d)}T00:00:00Z`);
+
 /** The EDD a dating gives, by calendar arithmetic only (LMP + 280 days; scan date + days remaining). */
 export function eddFor(input: RedateInput): Date {
   switch (input.method) {
     case 'lmp':
-      return eddFromLmp(input.lmp);
+      return eddFromLmp(asDay(input.lmp));
     case 'scan':
-      return addDays(input.scanOn, PREGNANCY_DAYS - input.gaAtScanDays);
+      return addDays(asDay(input.scanOn), PREGNANCY_DAYS - input.gaAtScanDays);
     case 'clinician':
-      return input.edd;
+      return asDay(input.edd);
   }
 }
 
