@@ -21,7 +21,7 @@ export default function AddCaregiver() {
   const [name, setName] = useState('');
   const [relation, setRelation] = useState<string>();
   const [phone, setPhone] = useState('');
-  const [scopes, setScopes] = useState<CaregiverScopes>({ schedule: true, baby: true, logs: false });
+  const [scopes, setScopes] = useState<CaregiverScopes>({ schedule: true, baby: true, logs: false, tests: false });
   const valid = name.trim().length > 1 && !!relation && /^[6-9]\d{9}$/.test(phone);
 
   function save() {
@@ -47,7 +47,7 @@ export default function AddCaregiver() {
           </View>
         ))}
         <AppText variant="caption" tone="faint">
-          {t('family.me.never')}
+          {t('family.me.neverSensitive')}
         </AppText>
       </Card>
     </Screen>

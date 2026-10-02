@@ -20,14 +20,27 @@ export default function Learn() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const now = useNow();
-  const { pregnancy } = useFamily();
-  const delivered = pregnancy?.status === 'delivered';
+  const { pregnancy, babies } = useFamily();
+  const delivered = pregnancy?.status === 'delivered' || pregnancy?.endReason === 'delivered';
+  // A pregnancy that ended without a birth, or no baby with the family: nothing week-by-week or newborn is pushed.
+  const ended = pregnancy?.status === 'closed' && !delivered;
+  const noBaby = babies.length === 0;
   const { focus, canSwitch } = useFamilyFocus();
   const [tab, setTab] = useState<Tab>('thisWeek');
   const week = pregnancy && !delivered ? gestationalAge(pregnancy.edd, now).weeks : 0;
 
   // After delivery "For now" follows the Me / Baby switch: recovery cards for her, newborn cards for the baby.
-  const forNow = LEARN.filter((c) => (delivered ? (canSwitch ? c.stage === (focus === 'baby' ? 'newborn' : 'afterBirth') : c.stage !== 'pregnancy') : c.stage === 'pregnancy' && (!c.weeks || (week >= c.weeks[0] && week <= c.weeks[1]))));
+  const forNow = ended
+    ? []
+    : LEARN.filter((c) =>
+        delivered
+          ? noBaby
+            ? c.stage === 'afterBirth'
+            : canSwitch
+              ? c.stage === (focus === 'baby' ? 'newborn' : 'afterBirth')
+              : c.stage !== 'pregnancy'
+          : c.stage === 'pregnancy' && (!c.weeks || (week >= c.weeks[0] && week <= c.weeks[1])),
+      );
   const list = tab === 'thisWeek' ? forNow : LEARN.filter((c) => c.stage === tab);
   const open = (slug: string) => router.push({ pathname: '/family/learn/[slug]', params: { slug } });
 
@@ -53,7 +66,7 @@ export default function Learn() {
           <ListRow key={c.slug} title={learnText(c, lang).title} subtitle={learnText(c, lang).summary} onPress={() => open(c.slug)} />
         ))}
       </View>
-      {(tab === 'newborn' || (tab === 'thisWeek' && delivered && (!canSwitch || focus === 'baby'))) && (
+      {(tab === 'newborn' || (tab === 'thisWeek' && delivered && !noBaby && (!canSwitch || focus === 'baby'))) && (
         <ListRow leading={<Baby size={22} color={palette.lav600} />} title={t('family.guide.title')} onPress={() => router.push('/family/newborn-guide')} />
       )}
       <AppText variant="caption" tone="faint" align="center">

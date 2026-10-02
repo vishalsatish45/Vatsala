@@ -8,6 +8,7 @@ import { useDb } from '@/data/store';
 import { REFERRAL_STEPS, type ReferralStatus } from '@/data/types';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
+import { useSession } from '@/state/session';
 import { AppText, Button, Card, Chip, Field, InfoRow, OptionChips, Screen, Sheet, TopBar, palette, space } from '@/ui';
 
 const NEXT: Partial<Record<ReferralStatus, { to: ReferralStatus; label: string }>> = {
@@ -35,6 +36,7 @@ export default function ReferralDetail() {
   const now = useNow();
   const by = useActor();
   const r = db.referrals.find((x) => x.id === id);
+  const role = useSession((s) => s.account?.care?.role);
   const [sheet, setSheet] = useState(false);
   const [inDays, setInDays] = useState('3');
   const [recs, setRecs] = useState('');
@@ -43,6 +45,12 @@ export default function ReferralDetail() {
   const m = motherOf(db, p.motherId);
   const next = NEXT[r.status];
   const stepIndex = REFERRAL_STEPS.indexOf(r.status);
+  // The referring (treating) team shares; the receiving specialist reads what was shared.
+  const referrer = role !== 'specialist';
+  const shared = new Set(db.sharedResults.filter((x) => x.referralId === r.id).map((x) => x.investigationId));
+  const results = db.investigations
+    .filter((i) => i.subjectId === r.pregnancyId && i.result && (referrer || shared.has(i.id)))
+    .sort((a, b) => Number(b.sensitive) - Number(a.sensitive) || a.label.localeCompare(b.label));
 
   function advance() {
     if (!next) return;
@@ -108,6 +116,33 @@ export default function ReferralDetail() {
         ))}
       </Card>
 
+      <Card style={{ gap: 8 }}>
+        <AppText variant="headline">{referrer ? 'Share results with this department' : 'Results shared with you'}</AppText>
+        {referrer && (
+          <AppText variant="caption" tone="secondary">
+            The department sees this referral’s question, not the whole record. Private tests (HIV, syphilis, HBsAg) reach it only if you share them here.
+          </AppText>
+        )}
+        {results.length === 0 && <AppText tone="secondary">{referrer ? 'No results recorded yet.' : 'None shared.'}</AppText>}
+        {results.map((i) => {
+          const isShared = shared.has(i.id);
+          return (
+            <View key={i.id} style={styles.result}>
+              <View style={{ flex: 1 }}>
+                <AppText variant="bodyMedium">
+                  {i.label}
+                  {i.sensitive ? ' · private' : ''}
+                </AppText>
+                <AppText variant="caption" tone="secondary">
+                  {`${i.result!.value}${i.result!.unit ? ` ${i.result!.unit}` : ''} · ${fmtDay(i.result!.at)} (as entered)`}
+                </AppText>
+              </View>
+              {referrer && (isShared ? <Chip label="Shared" variant="selected" /> : <Chip label="Share" onPress={() => db.shareResult(r.id, i.id, by, now)} />)}
+            </View>
+          );
+        })}
+      </Card>
+
       <Button variant="secondary" label={`Open ${m.name}`} onPress={() => router.push({ pathname: '/care/p/[id]', params: { id: p.id } })} />
 
       <Sheet visible={sheet} onClose={() => setSheet(false)} title={next?.to === 'scheduled' ? 'Schedule appointment' : 'Recommendations'} footer={<Button label="Confirm" onPress={confirmSheet} />}>
@@ -129,4 +164,5 @@ const styles = StyleSheet.create({
   stepper: { flexDirection: 'row', gap: 4 },
   stepCol: { flex: 1, gap: 6 },
   bar: { height: 5, borderRadius: 3 },
+  result: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: 4 },
 });

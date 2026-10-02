@@ -6,6 +6,7 @@ import { addDays, gestationalAge, lmpFromEdd, toDateOnly } from '@domain/gestati
 import { GRACE_DAYS, POSTNATAL_STANDARD, TAG_TEMPLATES, ancVisitDates, investigationWindows, vaccineSchedule, type Intensity } from '@domain/schedules';
 
 import { DEPARTMENTS, DISCHARGE_BABY, DISCHARGE_MOTHER } from './catalogue';
+import { previousLabel } from './codes';
 import type { DbState } from './store';
 import type { Baby, Investigation, Pregnancy, Task, Visit } from './types';
 
@@ -85,6 +86,10 @@ export function buildSeed(nowIn: Date): DbState {
     ],
     teams: DEPARTMENTS.map((name) => ({ id: `team_${name.toLowerCase().replace(/\W+/g, '_')}`, name, kind: 'department' as const, specialty: name === 'Paediatrics' ? 'paediatrics' : 'other' })),
     prescriptions: [],
+    facts: [],
+    overrides: [],
+    notifications: [],
+    sharedResults: [],
     mchSeq: 1244,
   };
 
@@ -207,7 +212,7 @@ export function buildSeed(nowIn: Date): DbState {
     },
     { id: id('rf'), pregnancyId: lakshmi.id, department: 'Anaesthesia', urgency: 'routine', reason: 'Previous caesarean — pre-delivery review', question: 'Anaesthesia review before 36 weeks', status: 'requested', createdBy: OB, events: [{ status: 'requested', at: hoursAgo(now, 5), by: OB }] },
   );
-  s.caregivers.push({ id: id('cg'), motherId: lakshmi.motherId, name: 'Ravi K', relation: 'Husband', phone: '9000000004', scopes: { schedule: true, baby: true, logs: false }, addedAt: addDays(lakshmi.registeredOn, 1) });
+  s.caregivers.push({ id: id('cg'), motherId: lakshmi.motherId, name: 'Ravi K', relation: 'Husband', phone: '9000000004', scopes: { schedule: true, baby: true, logs: false, tests: false }, addedAt: addDays(lakshmi.registeredOn, 1) });
   s.callbacks.push({ id: id('cb'), motherId: lakshmi.motherId, requestedBy: 'Lakshmi K (mother)', channel: 'app', signs: ['Baby moving less'], note: 'Voice note (0:18)', at: hoursAgo(now, 0.2) });
   s.notes.push(
     { id: id('nt'), subjectId: lakshmi.id, author: OB, body: 'Palpitations reported at 28 weeks. Cardiology opinion requested.', at: addDays(now, -20), kind: 'note' },
@@ -299,6 +304,17 @@ export function buildSeed(nowIn: Date): DbState {
       id: id('tk'), kind: f.key.startsWith('tpl') ? 'template' : baby ? 'nb_visit' : 'pn_visit', subjectType: baby ? 'baby' : 'pregnancy', subjectId, title: f.label,
       dueFrom: addDays(rekhaAt, f.dayFrom), dueBy, completedAt: done ? dueBy : undefined, generatedBy: f.key.startsWith('tpl') ? 'template' : 'protocol', contactAttempts: [],
     });
+  }
+
+  // Row ids the server would hold: each shown result, and each documented history fact (entered-in-error needs them).
+  for (const i of s.investigations) if (i.result) i.resultId = id('rs');
+  for (const p of s.pregnancies) {
+    p.previous = p.previous.map((x) => ({ ...x, id: id('pp') }));
+    s.facts.push(
+      ...p.history.conditions.map((label) => ({ id: id('dc'), motherId: p.motherId, kind: 'condition' as const, label })),
+      ...p.history.allergies.map((label) => ({ id: id('al'), motherId: p.motherId, kind: 'allergy' as const, label })),
+      ...p.previous.map((x) => ({ id: x.id!, motherId: p.motherId, kind: 'previous_pregnancy' as const, label: previousLabel(x) })),
+    );
   }
 
   s.audit.sort((a, b) => b.at.getTime() - a.at.getTime());

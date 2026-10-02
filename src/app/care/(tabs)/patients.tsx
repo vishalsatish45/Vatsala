@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { StyleSheet, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
-import { Search } from 'lucide-react-native';
+import { Search, ShieldAlert } from 'lucide-react-native';
+
+import { mchIdIn } from '@/data/payloads';
 
 import { tagLabel } from '@/data/catalogue';
 import { daysBetween } from '@domain/gestation';
@@ -93,13 +95,20 @@ export default function Patients() {
                 key={b.id}
                 leading={<Avatar name={m.name} size={40} tint="lavender" />}
                 title={`Baby of ${m.name}`}
-                subtitle={`${b.childId} · ${babyAgeLabel(b, now)} · ${b.sex === 'F' ? 'Girl' : 'Boy'}`}
+                subtitle={`${b.childId} · ${b.deceasedAt ? `died ${fmtDay(b.deceasedAt)}` : babyAgeLabel(b, now)} · ${b.sex === 'F' ? 'Girl' : 'Boy'}`}
                 meta={activeTags(db, b.id).map((t) => <Chip key={t.id} label={tagLabel(t.code)} variant="tag" />)}
                 onPress={() => router.push({ pathname: '/care/b/[id]', params: { id: b.id } })}
               />
             );
           })}
         {filter === 'pregnant' && pregnant.length === 0 && <AppText tone="secondary">No active pregnancies.</AppText>}
+      </View>
+      <View style={{ flexDirection: 'row' }}>
+        <Chip
+          label="Patient not in my list"
+          icon={ShieldAlert}
+          onPress={() => router.push({ pathname: '/care/emergency', params: mchIdIn(q) ? { mch: mchIdIn(q) } : {} })}
+        />
       </View>
     </Screen>
   );

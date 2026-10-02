@@ -126,3 +126,23 @@ export function splitComplaints(labels: string[]): { codes: string[]; note?: str
   }
   return { codes, note: free.length ? free.join('; ') : undefined };
 }
+
+/**
+ * How a pregnancy episode ends (supabase `pregnancies.end_reason`). The clinician chooses; the app never infers one.
+ * 'delivered' closes a delivered episode once postnatal care is done.
+ */
+export const END_REASONS = [
+  ['miscarriage', 'Miscarriage'],
+  ['induced_abortion', 'Induced abortion (MTP)'],
+  ['ectopic', 'Ectopic pregnancy'],
+  ['molar', 'Molar pregnancy'],
+  ['maternal_death', 'Maternal death'],
+  ['transferred_out', 'Transferred to another facility'],
+  ['lost_to_follow_up', 'Lost to follow-up'],
+  ['other', 'Other'],
+] as const;
+export type EndReason = (typeof END_REASONS)[number][0] | 'delivered';
+export const endReasonCodes = table([...END_REASONS, ['delivered', 'Delivered · episode closed']]);
+
+/** "2024 · Live birth · LSCS" — how a previous pregnancy is listed in the documented history. */
+export const previousLabel = (x: { year: number; outcome: string; mode?: string; note?: string }) => [String(x.year), x.outcome, x.mode, x.note].filter(Boolean).join(' · ');

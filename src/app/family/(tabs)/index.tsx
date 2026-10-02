@@ -8,6 +8,7 @@ import { medSlots } from '@/data/catalogue';
 import { useDb } from '@/data/store';
 import { FocusSwitch, useFamilyFocus } from '@/features/family/FocusSwitch';
 import { MedicinesView } from '@/features/family/MedicinesView';
+import { familyNotificationRows } from '@/features/family/serverNotifications';
 import { familyItems, useFamily, type FamilyItem } from '@/features/family/useFamily';
 import { fmtShort, itemTitle, itemWhen } from '@/features/family/itemText';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
@@ -40,7 +41,9 @@ export default function FamilyHome() {
   const { mother, pregnancy: p, babies, isCaregiver, accountName } = ctx;
   const { focus } = useFamilyFocus();
   const items = familyItems(db, ctx, now);
-  const delivered = p?.status === 'delivered' && babies.length > 0;
+  // A delivered episode stays "delivered" for the family after the hospital closes it at the end of postnatal care.
+  const birthHappened = p?.status === 'delivered' || p?.endReason === 'delivered';
+  const delivered = birthHappened && babies.length > 0;
   // After delivery Home follows the Me / Baby switch; before it, everything is the mother's.
   const focusItems = delivered ? items.filter((i) => i.subject === focus) : items;
   const next = focusItems[0];
@@ -68,7 +71,7 @@ export default function FamilyHome() {
       right={
         <>
           <ReadAloudButton text={readAloud} />
-          <GlassIconButton icon={Bell} accessibilityLabel="Notifications" badge={items.filter((i) => i.status === 'missed' || i.status === 'due').length} onPress={() => router.push('/family/notifications')} />
+          <GlassIconButton icon={Bell} accessibilityLabel="Notifications" badge={items.filter((i) => i.status === 'missed' || i.status === 'due').length + familyNotificationRows(db.notifications, babies).filter((n) => n.unread).length} onPress={() => router.push('/family/notifications')} />
         </>
       }
     />
@@ -83,7 +86,8 @@ export default function FamilyHome() {
   }
 
   const ga = gestationalAge(p.edd, now);
-  const loss = p.status === 'delivered' && babies.length === 0;
+  // No live baby after a birth, or a pregnancy that ended without one: no week counter, no cheerful content.
+  const loss = (birthHappened || p.status === 'closed') && babies.length === 0;
   const doctorName = p.assignedDoctor?.name;
   const doctorLabel = doctorName ?? t('family.noDoctor');
   const nextMother = items.find((i) => i.subject === 'mother');

@@ -14,10 +14,14 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 import { CARD_FIELDS } from './catalogue';
-import { callbackOutcomeCodes, complaintCodes, complicationCodes, contactOutcomeCodes, deliveryModeCodes, dischargeLabel, followUpCodes, labourMedicineCodes, previousModeCodes, previousOutcomeCodes, signLabel } from './codes';
+import { callbackOutcomeCodes, complaintCodes, complicationCodes, contactOutcomeCodes, deliveryModeCodes, dischargeLabel, followUpCodes, labourMedicineCodes, previousLabel, previousModeCodes, previousOutcomeCodes, signLabel } from './codes';
 import type { DbState } from './store';
 import type {
+  AccessOverride,
+  AppNotification,
   AuditEntry,
+  DocumentedFact,
+  SharedResult,
   Baby,
   Callback,
   Caregiver,
@@ -60,7 +64,8 @@ export function emptyState(): DbState {
   return {
     mothers: [], pregnancies: [], tags: [], visits: [], tasks: [], investigations: [], referrals: [], callbacks: [], selfLogs: [],
     deliveries: [], babies: [], immunizations: [], discharges: [], audit: [], caregivers: [], cardFields: {}, notes: [],
-    newbornObs: [], medDoses: [], captures: [], staff: [], teams: [], prescriptions: [], mchSeq: 0,
+    newbornObs: [], medDoses: [], captures: [], staff: [], teams: [], prescriptions: [], facts: [], overrides: [], notifications: [],
+    sharedResults: [], mchSeq: 0,
   };
 }
 
@@ -78,6 +83,8 @@ const intensity = z.enum(['routine', 'enhanced', 'close']);
 const slot = z.enum(['morning', 'afternoon', 'night']);
 const referralStatus = z.enum(['requested', 'accepted', 'scheduled', 'seen', 'recommendations', 'closed', 'declined', 'cancelled']);
 const emergencyContact = z.strictObject({ name: str.optional(), relation: str.optional(), phone: str }).nullable();
+const endReason = z.enum(['delivered', 'miscarriage', 'induced_abortion', 'ectopic', 'molar', 'maternal_death', 'transferred_out', 'lost_to_follow_up', 'other']);
+const notificationTarget = z.enum(['pregnancy', 'baby', 'callback', 'referral', 'task', 'investigation']);
 const captureField = z.strictObject({ key: str, label: str, value: str, confidence: num, confirmed: bool });
 
 /** One strict schema per table read: its keys are the columns requested. */
@@ -90,7 +97,7 @@ const T = {
   }),
   pregnancies: z.strictObject({
     id, mch_id: str, mother_id: id, registered_on: str, edd: str, gravida: num, para: num, living: num, abortions: num,
-    status: z.enum(['active', 'delivered', 'closed']), intensity, version: num,
+    status: z.enum(['active', 'delivered', 'closed']), intensity, ended_on: nstr, end_reason: endReason.nullable(), version: num,
   }),
   pregnancy_datings: z.strictObject({ id, pregnancy_id: id, method: z.enum(['lmp', 'scan', 'clinician']), lmp: nstr }),
   admissions: z.strictObject({ id, pregnancy_id: id, mother_id: id, ip_no: str, admitted_at: str, discharged_at: nstr }),
@@ -98,8 +105,8 @@ const T = {
   documented_conditions: z.strictObject({ id, mother_id: id, label: str }),
   allergies: z.strictObject({ id, mother_id: id, substance: str }),
   medications: z.strictObject({
-    id, mother_id: id, pregnancy_id: nid, kind: z.enum(['statement', 'prescription']), name: str, dose: nstr, slots: z.array(slot),
-    instructions: nstr, status: str,
+    id, mother_id: id, pregnancy_id: nid, baby_id: nid, kind: z.enum(['statement', 'prescription']), name: str, dose: nstr, slots: z.array(slot),
+    instructions: nstr, status: str, version: num,
   }),
   previous_pregnancies: z.strictObject({ id, mother_id: id, year: num, outcome: str, mode: nstr, note: nstr }),
   observations: z.strictObject({ id, encounter_id: id, code: str, value_num: nnum, value_text: nstr, at: str }),
@@ -140,14 +147,14 @@ const T = {
   }),
   babies: z.strictObject({
     id, child_id: str, mother_id: id, pregnancy_id: id, dob: str, sex: z.enum(['F', 'M', 'U']), birth_weight_g: nnum, ga_at_birth_days: nnum,
-    apgar1: nnum, apgar5: nnum, outcome: z.enum(['live', 'stillbirth']), intensity, version: num,
+    apgar1: nnum, apgar5: nnum, outcome: z.enum(['live', 'stillbirth']), intensity, deceased_at: nstr, version: num,
   }),
   immunizations: z.strictObject({ id, baby_id: nid, code: str, due_on: str, given_on: nstr, status: str, version: num }),
   vaccine_catalogue: z.strictObject({ code: str, label: str, grp: str }),
   discharges: z.strictObject({ id, pregnancy_id: nid, baby_id: nid, completed_at: nstr, completed_by: nid, version: num }),
   discharge_items: z.strictObject({ discharge_id: id, key: str, state: z.enum(['done', 'na', 'deferred']).nullable(), reason: nstr }),
   caregivers: z.strictObject({
-    id, mother_id: id, name: str, relation: str, phone: nstr, scope_schedule: bool, scope_baby: bool, scope_logs: bool,
+    id, mother_id: id, name: str, relation: str, phone: nstr, scope_schedule: bool, scope_baby: bool, scope_logs: bool, scope_tests: bool,
     added_at: str, revoked_at: nstr, version: num,
   }),
   care_notes: z.strictObject({ id, pregnancy_id: nid, baby_id: nid, author: id, body: str, kind: z.enum(['note', 'ai_verified']), at: str }),
@@ -155,6 +162,12 @@ const T = {
   audit_log: z.strictObject({ id: num, at: str, actor_label: nstr, role: nstr, action: str, entity_type: str }),
   documents: z.strictObject({
     id, pregnancy_id: nid, baby_id: nid, storage_path: nstr, fields: z.array(captureField).nullable(), captured_at: str, captured_by: id,
+  }),
+  access_overrides: z.strictObject({ id, staff_id: id, mother_id: id, reason: str, granted_at: str, expires_at: str, ended_at: nstr }),
+  referral_shared_results: z.strictObject({ referral_id: id, investigation_id: id }),
+  // Own rows only (RLS). `params` is reserved for localised text and is not shown.
+  notifications: z.strictObject({
+    id, kind: str, params: z.record(z.string(), z.unknown()), target_type: notificationTarget.nullable(), target_id: nid, at: str, read_at: nstr,
   }),
 };
 type TableName = keyof typeof T;
@@ -229,6 +242,7 @@ const KEYS: Partial<Record<TableName, string[]>> = {
   discharge_items: ['discharge_id', 'key'],
   investigation_catalogue: ['code'],
   vaccine_catalogue: ['code'],
+  referral_shared_results: ['referral_id', 'investigation_id'],
 };
 
 /** Every visible row of a table, paged (PostgREST returns at most 1000 rows per request), each one parsed. */
@@ -271,7 +285,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
     staff, teams, mothers, pregnancies, datings, admissions, assignments, conditions, allergies, medications, previous,
     observations, encounters, checklist, tags, tasks, contacts, investigations, catalogue, results, referrals, refEvents,
     callbacks, selfLogs, deliveries, babies, immunizations, vaccines, discharges, dischargeItems, caregivers, notes, doses,
-    audit, documents,
+    audit, documents, overrides, shared, notifications,
   ] = await Promise.all([
     all(db, 'staff', (q) => q.eq('active', true)),
     all(db, 'teams', (q) => q.eq('active', true)),
@@ -317,10 +331,14 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
         return parse(z.array(T.audit_log), data, 'audit_log');
       }),
     all(db, 'documents'),
+    // Only overrides still in force (RLS: the clinician's own, and any on mothers whose whole record she holds).
+    all(db, 'access_overrides', (q) => q.is('ended_at', null).gt('expires_at', new Date().toISOString())),
+    all(db, 'referral_shared_results'),
+    notificationTail(db),
   ]);
 
   const versions: Versions = {};
-  for (const rows of [mothers, pregnancies, tasks, investigations, referrals, callbacks, babies, immunizations, discharges, caregivers]) {
+  for (const rows of [mothers, pregnancies, tasks, investigations, referrals, callbacks, babies, immunizations, discharges, caregivers, medications]) {
     for (const r of rows as { id: string; version: number }[]) versions[r.id] = r.version;
   }
 
@@ -366,7 +384,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
       .sort((a, b) => b.at.localeCompare(a.at))[0];
 
   const datingOf = new Map(datings.map((d) => [d.pregnancy_id, d]));
-  const openAdm = new Set(admissions.filter((a) => !a.discharged_at).map((a) => a.pregnancy_id));
+  const openAdm = new Map(admissions.filter((a) => !a.discharged_at).map((a) => [a.pregnancy_id, a.id]));
   const obAssign = new Map(assignments.filter((a) => a.specialty === 'obstetrics' && a.pregnancy_id).map((a) => [a.pregnancy_id!, a]));
   const condByMother = groupBy(conditions, (c) => c.mother_id);
   const allergyByMother = groupBy(allergies, (a) => a.mother_id);
@@ -391,6 +409,9 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
       // 'Admitted' is an open admission, not a stored status.
       status: g.status === 'active' && openAdm.has(g.id) ? 'admitted' : g.status,
       intensity: g.intensity,
+      endReason: opt(g.end_reason),
+      endedOn: dayOpt(g.ended_on),
+      admissionId: openAdm.get(g.id),
       assignedDoctor: doctor ? { name: nameOf(doctor) } : undefined,
       history: {
         conditions: (condByMother.get(g.mother_id) ?? []).map((c) => c.label),
@@ -400,6 +421,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
         heightCm: opt(ht?.value_num),
       },
       previous: (prevByMother.get(g.mother_id) ?? []).map((x) => ({
+        id: x.id,
         year: x.year,
         outcome: previousOutcomeCodes.label(x.outcome),
         mode: x.mode ? previousModeCodes.label(x.mode) : undefined,
@@ -407,6 +429,17 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
       })),
     };
   });
+
+  s.facts = [
+    ...conditions.map((c): DocumentedFact => ({ id: c.id, motherId: c.mother_id, kind: 'condition', label: c.label })),
+    ...allergies.map((a): DocumentedFact => ({ id: a.id, motherId: a.mother_id, kind: 'allergy', label: a.substance })),
+    ...previous.map((x): DocumentedFact => ({
+      id: x.id,
+      motherId: x.mother_id,
+      kind: 'previous_pregnancy',
+      label: previousLabel({ year: x.year, outcome: previousOutcomeCodes.label(x.outcome), mode: x.mode ? previousModeCodes.label(x.mode) : undefined, note: opt(x.note) }),
+    })),
+  ];
 
   const subjectOf = (r: { pregnancy_id: string | null; baby_id: string | null }) => (r.pregnancy_id ?? r.baby_id)!;
 
@@ -488,6 +521,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
       status: i.status === 'collected' ? 'ordered' : i.status === 'not_applicable' ? 'not_done' : i.status,
       orderedAt: tsOpt(i.ordered_at),
       result: r ? { value: r.value_text ?? String(r.value_num), unit: opt(r.unit), at: new Date(r.reported_at), note: opt(r.note) } : undefined,
+      resultId: r?.id,
       review: i.reviewed_at ? { by: nameOf(i.reviewed_by), at: new Date(i.reviewed_at), followUp: followUpCodes.label(i.follow_up ?? '') } : undefined,
       notDoneReason: opt(i.not_done_reason),
     };
@@ -549,6 +583,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
   s.babies = babies.map((b): Baby => ({
     id: b.id, childId: b.child_id, motherId: b.mother_id, pregnancyId: b.pregnancy_id, dob: new Date(b.dob), sex: babySex(b.sex),
     birthWeightG: b.birth_weight_g ?? 0, gaAtBirthDays: b.ga_at_birth_days ?? 0, apgar1: opt(b.apgar1), apgar5: opt(b.apgar5), outcome: b.outcome, intensity: b.intensity,
+    deceasedAt: tsOpt(b.deceased_at),
   }));
 
   const vaccine = new Map(vaccines.map((v) => [v.code, v]));
@@ -570,14 +605,16 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
 
   s.caregivers = caregivers.map((c): Caregiver => ({
     id: c.id, motherId: c.mother_id, name: c.name, relation: c.relation, phone: localPhone(c.phone),
-    scopes: { schedule: c.scope_schedule, baby: c.scope_baby, logs: c.scope_logs }, addedAt: new Date(c.added_at), revokedAt: tsOpt(c.revoked_at),
+    scopes: { schedule: c.scope_schedule, baby: c.scope_baby, logs: c.scope_logs, tests: c.scope_tests }, addedAt: new Date(c.added_at), revokedAt: tsOpt(c.revoked_at),
   }));
 
   s.notes = notes.map((n): Note => ({ id: n.id, subjectId: subjectOf(n), author: nameOf(n.author), body: n.body, at: new Date(n.at), kind: n.kind }));
 
   s.prescriptions = medications
     .filter((m) => m.kind === 'prescription' && m.status === 'active')
-    .map((m): Prescription => ({ id: m.id, motherId: m.mother_id, name: m.name, dose: opt(m.dose), slots: m.slots, instructions: opt(m.instructions) }));
+    .map((m): Prescription => ({
+      id: m.id, motherId: m.mother_id, pregnancyId: opt(m.pregnancy_id), babyId: opt(m.baby_id), name: m.name, dose: opt(m.dose), slots: m.slots, instructions: opt(m.instructions),
+    }));
   const medName = new Map(medications.map((m) => [m.id, m.name]));
   s.medDoses = doses.map((d): MedDose => ({ id: d.id, motherId: d.mother_id, med: medName.get(d.medication_id) ?? '', medicationId: d.medication_id, date: d.date, slot: d.slot, status: d.status, at: new Date(d.at) }));
 
@@ -590,7 +627,27 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
       : [],
   );
 
+  s.overrides = overrides.map((o): AccessOverride => ({
+    id: o.id, staffId: o.staff_id, motherId: o.mother_id, reason: o.reason, grantedAt: new Date(o.granted_at), expiresAt: new Date(o.expires_at),
+  }));
+  s.sharedResults = shared.map((r): SharedResult => ({ referralId: r.referral_id, investigationId: r.investigation_id }));
+  s.notifications = notifications;
+
   return { state: s, versions };
+}
+
+/** The signed-in person's latest notifications (own rows by RLS), bounded. */
+async function notificationTail(db: SupabaseClient): Promise<AppNotification[]> {
+  const { data, error } = await db
+    .from('notifications')
+    .select(Object.keys(T.notifications.shape).join(','))
+    .order('at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(100);
+  if (error) throw new RemoteError(`notifications: ${error.message}`, error.code);
+  return parse(z.array(T.notifications), data, 'notifications').map((n) => ({
+    id: n.id, kind: n.kind, targetType: opt(n.target_type), targetId: opt(n.target_id), at: new Date(n.at), readAt: tsOpt(n.read_at),
+  }));
 }
 
 /** 'mother' | 'caregiver: Ravi (husband)' → what the care team reads. */
@@ -637,7 +694,7 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
   const isMother = ctx.role === 'mother';
   const sc = ctx.scopes;
 
-  const [schedule, tests, readings, medicines, callbacks, caregivers, babies] = await Promise.all([
+  const [schedule, tests, readings, medicines, callbacks, caregivers, babies, notifications] = await Promise.all([
     rpc(db, 'family_schedule', F.schedule, forMother),
     sc.tests ? rpc(db, 'family_tests', F.tests, forMother) : Promise.resolve([]),
     sc.logs ? rpc(db, 'family_readings', F.readings, forMother) : Promise.resolve({ hospital: null, home: [] }),
@@ -645,6 +702,8 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
     rpc(db, 'family_callbacks', F.callbacks, forMother),
     isMother ? rpc(db, 'family_caregivers', F.caregivers) : Promise.resolve([]),
     sc.baby ? Promise.all((ctx.babies ?? []).map((b) => rpc(db, 'family_baby', F.baby, { ...forMother, baby_id: b.id }))) : Promise.resolve([]),
+    // The one table a family reads directly: her own notification rows (RLS).
+    notificationTail(db),
   ]);
 
   const s = emptyState();
@@ -675,6 +734,8 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
       eddSource: 'lmp',
       gpla: { g: 0, p: 0, l: 0, a: 0 },
       status: g.status,
+      endReason: opt(g.end_reason),
+      endedOn: dayOpt(g.ended_on),
       // Families see only whether follow-up is closer than routine, never the clinician's grading.
       intensity: g.closer_follow_up ? 'enhanced' : 'routine',
       history: { conditions: card?.conditions ?? [], allergies: card?.allergies ?? [], medicines: prescriptions.map((p) => p.name), bloodGroup: opt(card?.blood_group) },
@@ -742,10 +803,11 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
   s.caregivers = isMother
     ? caregivers.map((c): Caregiver => ({
         id: c.id, motherId, name: c.name, relation: c.relation, phone: localPhone(c.phone),
-        scopes: { schedule: c.scopes.schedule, baby: c.scopes.baby, logs: c.scopes.logs }, addedAt: new Date(c.added_at),
+        scopes: { schedule: c.scopes.schedule, baby: c.scopes.baby, logs: c.scopes.logs, tests: c.scopes.tests }, addedAt: new Date(c.added_at),
       }))
-    : [{ id: 'me', motherId, name: who.name, relation: '', phone: who.phone, scopes: { schedule: sc.schedule, baby: sc.baby, logs: sc.logs }, addedAt: new Date(0) }];
+    : [{ id: 'me', motherId, name: who.name, relation: '', phone: who.phone, scopes: { schedule: sc.schedule, baby: sc.baby, logs: sc.logs, tests: sc.tests }, addedAt: new Date(0) }];
   for (const c of caregivers) versions[c.id] = c.version;
+  s.notifications = notifications;
 
   s.prescriptions = prescriptions;
   s.medDoses = medicines.flatMap((m) =>
