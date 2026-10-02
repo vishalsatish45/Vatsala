@@ -2,6 +2,7 @@
 import { addDays } from '@domain/gestation';
 
 import { dischargePlan } from '../discharge';
+import { asStaffId, asTeamId } from '../ids';
 import { isoDay } from '../remote';
 import { useDb, type BabyInput } from '../store';
 
@@ -178,5 +179,55 @@ describe('isoDay', () => {
     expect(isoDay(new Date(Date.UTC(2026, 9, 3)))).toBe('2026-10-03');
     expect(isoDay(new Date(2026, 9, 3, 0, 30))).toBe('2026-10-03');
     expect(isoDay(new Date(2026, 9, 3, 23, 59))).toBe('2026-10-03');
+  });
+});
+
+describe('mock-mode registration, details and care teams', () => {
+  const details = (name: string) => ({ ...db().mothers.find((x) => x.name === name)! });
+  const base = {
+    registeredOn: now,
+    dating: { method: 'lmp' as const, lmp: new Date('2026-07-01T00:00:00Z') },
+    gpla: { g: 2, p: 1, l: 1, a: 0 },
+    history: { conditions: [], allergies: [], medicines: [] },
+    previous: [],
+    tagCodes: [],
+    intensity: 'routine' as const,
+  };
+
+  it('registers with the chosen unit and the paediatric unit, the registering doctor named', () => {
+    const id = db().registerPregnancy({ ...base, mother: { name: 'New Mother', age: 25, phone: '9822200301', lang: 'en', village: '', emergencyContact: { name: '', relation: '', phone: '' } }, teamId: asTeamId('team_ob_unit_b') }, by, now);
+    const a = db().assignments.filter((x) => x.subjectId === id);
+    expect(a.map((x) => [x.specialty, x.teamId])).toEqual([['obstetrics', 'team_ob_unit_b'], ['paediatrics', 'team_paediatrics_unit']]);
+    expect(db().pregnancies.find((p) => p.id === id)!.eddSource).toBe('lmp');
+  });
+
+  it('a confirmed returning mother keeps one record, corrected only where the form entered something', () => {
+    const rekha = details('Rekha V');
+    const before = db().mothers.length;
+    const id = db().registerPregnancy({ ...base, existingMotherId: rekha.id, mother: { ...rekha, village: '', district: 'New District', emergencyContact: { name: '', relation: '', phone: '' } } }, by, now);
+    expect(db().mothers).toHaveLength(before);
+    const after = db().mothers.find((m) => m.id === rekha.id)!;
+    expect(after).toMatchObject({ village: rekha.village, district: 'New District', emergencyContact: rekha.emergencyContact });
+    expect(db().pregnancies.find((p) => p.id === id)!.motherId).toBe(rekha.id);
+  });
+
+  it('corrects a mother\'s details (only when something changed)', () => {
+    const m = details('Lakshmi K');
+    const audit = db().audit.length;
+    db().updateMother(m.id, { ...m }, by, now);
+    expect(db().audit).toHaveLength(audit);
+    db().updateMother(m.id, { ...m, phone: '9822200302', pincode: '560001', emergencyContact: { name: 'Ravi K', relation: 'Husband', phone: '9000000004' } }, by, now);
+    expect(db().mothers.find((x) => x.id === m.id)).toMatchObject({ phone: '9822200302', pincode: '560001', ipNo: m.ipNo });
+    expect(db().audit[0]!.action).toMatch(/^update_mother \(phone, pincode, emergency_contact\)$/);
+  });
+
+  it('reassigns a pregnancy to a team without a named doctor, and a baby to its paediatric team', () => {
+    const p = pregnancyOf('Lakshmi K');
+    db().assignCare(p.id, 'obstetrics', asTeamId('team_ob_unit_b'), undefined, 'Moved near Unit B', by, now);
+    expect(db().assignments.filter((a) => a.subjectId === p.id && a.specialty === 'obstetrics')).toEqual([{ subjectId: p.id, specialty: 'obstetrics', teamId: 'team_ob_unit_b', staffId: undefined }]);
+    expect(db().pregnancies.find((x) => x.id === p.id)!.assignedDoctor).toBeUndefined();
+    const b = db().babies[0]!;
+    db().assignCare(b.id, 'paediatrics', asTeamId('team_paediatrics_unit'), asStaffId('staff_arjun'), 'Follow-up', by, now);
+    expect(db().assignments.filter((a) => a.subjectId === b.id)).toEqual([{ subjectId: b.id, specialty: 'paediatrics', teamId: 'team_paediatrics_unit', staffId: 'staff_arjun' }]);
   });
 });

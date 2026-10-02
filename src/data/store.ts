@@ -8,7 +8,7 @@
  */
 import { randomUUID } from 'expo-crypto';
 import { create } from 'zustand';
-import { addDays, daysBetween, gestationalAge, localDay, toDateOnly } from '@domain/gestation';
+import { addDays, gestationalAge, localDay, toDateOnly } from '@domain/gestation';
 import { ancVisitDates, investigationWindows, vaccineSchedule, type Intensity } from '@domain/schedules';
 
 import { DISCHARGE_BABY, DISCHARGE_MOTHER } from './catalogue';
@@ -21,9 +21,7 @@ import {
   deliveryModeCodes,
   followUpCodes,
   labourMedicineCodes,
-  previousModeCodes,
   previousLabel,
-  previousOutcomeCodes,
   signLabel,
   splitComplaints,
 } from './codes';
@@ -33,10 +31,14 @@ import {
   datingPayload,
   eddFor,
   eiePayload,
+  motherUpdatePayload,
   notificationsReadPayload,
   prescribePayload,
+  registerPayload,
+  type MotherDetails,
   type PrescriptionInput,
   type RedateInput,
+  type RegisterInput,
   type Subject,
 } from './payloads';
 import { e164, emptyState, isoDay } from './remote';
@@ -44,7 +46,7 @@ import { useNetwork } from '@/lib/network';
 import { isRemote } from '@/lib/supabase';
 import { useSession } from '@/state/session';
 
-import { asPregnancyId, type IdKind, type IdOf } from './ids';
+import { asPregnancyId, asStaffId, type IdKind, type IdOf } from './ids';
 import { buildSeed } from './seed';
 import type { CardField } from './catalogue';
 import type {
@@ -54,6 +56,8 @@ import type {
   BabyId,
   CallbackId,
   CaptureDoc,
+  CareAssignment,
+  CareSpecialty,
   CaregiverId,
   Caregiver,
   CaregiverScopes,
@@ -93,6 +97,8 @@ import type {
   Tag,
   Task,
   TaskId,
+  TeamId,
+  TeamMember,
   TeamRef,
   Visit,
   VisitId,
@@ -121,8 +127,12 @@ export type DbState = {
   captures: CaptureDoc[];
   /** Care Team of the signed-in clinician's hospital (assignment picker). */
   staff: StaffMember[];
-  /** Hospital departments and units (referral destinations). */
+  /** Hospital departments and units (referral destinations; units hold patients). */
   teams: TeamRef[];
+  /** Current unit memberships (who can be named on a unit's patients). */
+  teamMembers: TeamMember[];
+  /** Current care-team assignment of each visible pregnancy and baby, per specialty. */
+  assignments: CareAssignment[];
   prescriptions: Prescription[];
   /** The mother's documented conditions, allergies and previous pregnancies, by row (entered-in-error needs ids). */
   facts: DocumentedFact[];
@@ -144,17 +154,7 @@ export function uid(_kind?: string): Id {
   return randomUUID();
 }
 
-export type RegisterInput = {
-  mother: Omit<Mother, 'id'>;
-  lmp?: Date;
-  edd: Date;
-  eddSource: Pregnancy['eddSource'];
-  gpla: Pregnancy['gpla'];
-  history: Pregnancy['history'];
-  previous: Pregnancy['previous'];
-  tagCodes: string[];
-  intensity: Intensity;
-};
+export type { MotherDetails, RegisterInput };
 
 export type VisitInput = Omit<Visit, 'id' | 'pregnancyId' | 'at' | 'by'> & { nextVisitOn: Date };
 
@@ -220,7 +220,10 @@ type Actions = {
   recordVisit: (pregnancyId: PregnancyId, input: VisitInput, by: string, at: Date) => VisitId;
   setTags: (subjectId: SubjectId, codes: string[], note: string | undefined, by: string, now: Date) => void;
   setIntensity: (subjectId: SubjectId, intensity: Intensity, by: string, now: Date) => void;
-  assignDoctor: (pregnancyId: PregnancyId, doctor: { name: string; staffId?: StaffId }, reason: string, by: string, now: Date) => void;
+  /** Correct a mother's details (update_mother: the changed fields only, version-checked). */
+  updateMother: (motherId: MotherId, details: MotherDetails, by: string, now: Date) => void;
+  /** Reassign a pregnancy's or a baby's care team, with or without a named doctor (assign_care). */
+  assignCare: (subjectId: SubjectId, specialty: CareSpecialty, teamId: TeamId, staffId: StaffId | undefined, reason: string, by: string, now: Date) => void;
   orderInvestigation: (id: InvestigationId, by: string, now: Date) => void;
   enterResult: (id: InvestigationId, value: string, unit: string | undefined, note: string | undefined, by: string, now: Date) => void;
   reviewResult: (id: InvestigationId, followUp: string, by: string, now: Date) => void;
@@ -249,6 +252,7 @@ type Actions = {
   logDose: (d: Omit<MedDose, 'id'>) => void;
   /** `documentId`: the capture already opened on the server for transcription (Supabase mode, ai/capture.ts). */
   saveCapture: (doc: Omit<CaptureDoc, 'id' | 'visitId'> & { documentId?: DocumentId }, now: Date) => VisitId;
+  /** Demo mode only: register import rows on the phone (Supabase mode sends them at once, src/data/registration.ts). */
   importRegister: (rows: RegisterInput[], by: string, now: Date) => PregnancyId[];
   /** A clinician-entered prescription for a pregnancy (obstetrics) or a baby (paediatrics). */
   prescribe: (subject: Subject, input: PrescriptionInput, by: string, now: Date) => Id;
@@ -291,19 +295,23 @@ function regenerateAnc(s: DbState, p: Pregnancy, from: Date, firstOn?: Date): Re
   const cancelled = s.tasks.filter(isFutureOpen);
   const kept = s.tasks.filter((t) => !isFutureOpen(t));
   const start = firstOn ?? from;
-  const dates = [...(firstOn ? [firstOn] : []), ...ancVisitDates(p.edd, p.intensity, start)];
-  const fresh: Task[] = dates.map((d) => ({
+  const fresh = ancTasks(p.id, p.edd, [...(firstOn ? [firstOn] : []), ...ancVisitDates(p.edd, p.intensity, start)]);
+  return { tasks: [...kept, ...fresh], cancelled, fresh };
+}
+
+/** Planned ANC visits on the given days. */
+function ancTasks(pregnancyId: PregnancyId, edd: Date, dates: Date[]): Task[] {
+  return dates.map((d) => ({
     id: uid('tk'),
     kind: 'anc_visit',
     subjectType: 'pregnancy',
-    subjectId: p.id,
-    title: `ANC visit · ${gestationalAge(p.edd, d).weeks} weeks`,
+    subjectId: pregnancyId,
+    title: `ANC visit · ${gestationalAge(edd, d).weeks} weeks`,
     dueFrom: addDays(d, -2),
     dueBy: d,
     generatedBy: 'protocol',
     contactAttempts: [],
   }));
-  return { tasks: [...kept, ...fresh], cancelled, fresh };
 }
 
 const taskRows = (tasks: Task[]) => tasks.map((t) => ({ id: t.id, kind: t.kind, title: t.title, due_from: t.dueFrom && isoDay(t.dueFrom), due_by: isoDay(t.dueBy) }));
@@ -343,75 +351,56 @@ function resultValue(value: string, unit?: string) {
   return m ? { value_num: Number(m[1]), unit: unit ?? m[2]?.trim() } : { value_text: value.trim(), unit };
 }
 
-/** The signed-in obstetrician's own unit: where a newly registered pregnancy is cared for. */
+/** The signed-in obstetrician's first obstetric unit (when the form did not ask: she has only one). */
 function myObstetricUnit() {
   return useSession.getState().account?.care?.teams?.find((t) => t.kind === 'unit' && t.specialty === 'obstetrics')?.id;
 }
 
-function registerPayload(input: RegisterInput, p: Pregnancy, motherId: MotherId, inv: Investigation[], tasks: Task[], now: Date) {
-  const m = input.mother;
-  const ec = m.emergencyContact;
-  const scanDays = 280 - daysBetween(now, input.edd);
-  const dating =
-    input.eddSource === 'lmp' && input.lmp
-      ? { method: 'lmp', lmp: isoDay(input.lmp), edd: isoDay(input.edd) }
-      : input.eddSource === 'scan' && scanDays >= 28 && scanDays <= 300
-        ? { method: 'scan', scan_on: isoDay(now), ga_at_scan_days: scanDays, lmp: input.lmp && isoDay(input.lmp), edd: isoDay(input.edd) }
-        : { method: 'clinician', edd: isoDay(input.edd) };
-  return {
-    mother: {
-      id: motherId,
-      phone: e164(m.phone),
-      name: m.name,
-      age: m.age,
-      lang: m.lang,
-      village: m.village && m.village !== '—' ? m.village : undefined,
-      emergency_contact: /^[6-9]\d{9}$/.test(ec.phone) ? { name: ec.name, relation: ec.relation, phone: e164(ec.phone) } : undefined,
-    },
-    pregnancy: { id: p.id, registered_on: now.toISOString(), gravida: p.gpla.g, para: p.gpla.p, living: p.gpla.l, abortions: p.gpla.a },
-    dating,
-    history: {
-      conditions: input.history.conditions,
-      allergies: input.history.allergies,
-      medicines: input.history.medicines,
-      blood_group: input.history.bloodGroup,
-      height_cm: input.history.heightCm,
-      previous: input.previous.map((x) => ({
-        year: x.year,
-        outcome: previousOutcomeCodes.code(x.outcome) ?? 'live_birth',
-        mode: x.mode ? previousModeCodes.code(x.mode) : undefined,
-        note: x.note,
-      })),
-    },
-    team_id: myObstetricUnit(),
-    intensity: input.intensity,
-    tags: input.tagCodes,
-    investigations: inv.map((i) => ({ id: i.id, code: i.code, due_from: isoDay(i.dueFrom), due_by: isoDay(i.dueBy), late: i.late })),
-    tasks: taskRows(tasks),
-    ga_days: gestationalAge(input.edd, now).totalDays,
-  };
+/**
+ * What a registration creates, planned on the phone (ids, the ANC visits, the test windows) and its RPC payload —
+ * nothing is saved yet. Dates only: the plan comes from shared/domain, never from a reading.
+ */
+export function planRegistration(input: RegisterInput, now: Date) {
+  const motherId = input.existingMotherId ?? uid('mo');
+  const pregnancyId = uid('pg');
+  const edd = eddFor(input.dating);
+  const rhNegative = /-|neg/i.test(input.history.bloodGroup ?? '') || input.tagCodes.includes('rh_neg');
+  const investigations: Investigation[] = investigationWindows(edd, now, { rhNegative }).map((w) => ({ id: uid('iv'), subjectId: pregnancyId, status: 'due', ...w }));
+  const tasks = ancTasks(pregnancyId, edd, ancVisitDates(edd, input.intensity, now));
+  const teamId = input.teamId ?? myObstetricUnit();
+  const payload = registerPayload({ ...input, teamId }, { motherId, pregnancyId, investigations, tasks });
+  return { motherId, pregnancyId, edd, investigations, tasks, teamId, payload };
+}
+
+/** A returning mother's record corrected with what the form entered (blank fields keep her value, as on the server). */
+function withEntered(m: Mother, d: MotherDetails): Mother {
+  const entered = Object.fromEntries(Object.entries(d).filter(([, v]) => v !== undefined && v !== ''));
+  return { ...m, ...entered, emergencyContact: d.emergencyContact.phone ? d.emergencyContact : m.emergencyContact };
 }
 
 const initial = (): DbState => (isRemote ? emptyState() : buildSeed(new Date()));
 
 export const useDb = create<Db>()((set, get) => {
-  /** Registration on the phone; returns the RPC payload so a register import can send all rows in one call. */
+  /** Registration on the phone (optimistic in Supabase mode); returns the RPC payload. */
   function registerLocal(input: RegisterInput, by: string, now: Date) {
     const s = get();
-    const motherId = uid('mo');
+    const plan = planRegistration(input, now);
+    const motherId = plan.motherId;
     const seq = s.mchSeq + 1;
     const p: Pregnancy = {
-      id: uid('pg'),
+      id: plan.pregnancyId,
       // In Supabase mode the server assigns the MCH id; it appears once the record is saved.
       mchId: isRemote ? 'MCH id pending' : `MCH-${now.getFullYear()}-${String(seq).padStart(6, '0')}`,
       motherId,
-      registeredOn: now,
-      lmp: input.lmp,
-      edd: input.edd,
-      eddSource: input.eddSource,
+      registeredOn: input.registeredOn,
+      lmp: input.dating.method === 'lmp' ? input.dating.lmp : undefined,
+      edd: plan.edd,
+      eddSource: input.dating.method,
       gpla: input.gpla,
       status: 'active',
       intensity: input.intensity,
+      // The registering obstetrician is her doctor (the server does the same).
+      assignedDoctor: { name: by },
       history: input.history,
       // Supabase mode: the server's row ids arrive with the next load.
       previous: input.previous.map((x) => ({ ...x, id: isRemote ? undefined : uid('pp') })),
@@ -423,23 +412,29 @@ export const useDb = create<Db>()((set, get) => {
           ...input.history.allergies.map((label) => ({ id: uid('al'), motherId, kind: 'allergy' as const, label })),
           ...p.previous.map((x) => ({ id: x.id!, motherId, kind: 'previous_pregnancy' as const, label: previousLabel(x) })),
         ];
-    const rhNegative = /-|neg/i.test(input.history.bloodGroup ?? '') || input.tagCodes.includes('rh_neg');
-    const inv: Investigation[] = investigationWindows(p.edd, now, { rhNegative }).map((w) => ({ id: uid('iv'), subjectId: p.id, status: 'due', ...w }));
-    const tags: Tag[] = input.tagCodes.map((code) => ({ id: uid('tg'), subjectId: p.id, code, setBy: by, setAt: now }));
-    const ipNo = isRemote ? undefined : (input.mother.ipNo ?? `IP-${now.getFullYear()}-${String(seq).padStart(6, '0')}`);
-    const base: DbState = { ...s, mothers: [...s.mothers, { id: motherId, ...input.mother, ipNo }], pregnancies: [...s.pregnancies, p], mchSeq: seq };
-    const plan = regenerateAnc(base, p, now);
+    const tags: Tag[] = input.tagCodes.map((code) => ({ id: uid('tg'), subjectId: p.id, code, note: input.tagNote, setBy: by, setAt: now }));
+    const returning = s.mothers.find((m) => m.id === input.existingMotherId);
+    const mothers = returning
+      ? s.mothers.map((m) => (m.id === returning.id ? withEntered(m, input.mother) : m))
+      : [...s.mothers, { id: motherId, ...input.mother, ipNo: isRemote ? undefined : `IP-${now.getFullYear()}-${String(seq).padStart(6, '0')}` }];
+    const me = useSession.getState().account?.care?.staffId;
+    const paeds = s.teams.find((t) => t.kind === 'unit' && t.specialty === 'paediatrics')?.id;
+    const assignments: CareAssignment[] = [
+      ...(plan.teamId ? [{ subjectId: p.id, specialty: 'obstetrics' as const, teamId: plan.teamId, staffId: me ? asStaffId(me) : undefined }] : []),
+      ...(paeds ? [{ subjectId: p.id, specialty: 'paediatrics' as const, teamId: paeds }] : []),
+    ];
     set({
-      mothers: base.mothers,
-      pregnancies: base.pregnancies,
+      mothers,
+      pregnancies: [...s.pregnancies, p],
       mchSeq: seq,
       tags: [...s.tags, ...tags],
       facts: [...s.facts, ...facts],
-      investigations: [...s.investigations, ...inv],
-      tasks: plan.tasks,
+      investigations: [...s.investigations, ...plan.investigations],
+      tasks: [...s.tasks, ...plan.tasks],
+      assignments: [...s.assignments, ...assignments],
       audit: audit(s, by, 'register_pregnancy', p.mchId, now),
     });
-    return { id: p.id, payload: registerPayload(input, p, motherId, inv, plan.fresh, now) };
+    return { id: p.id, payload: plan.payload };
   }
 
   return {
@@ -533,13 +528,31 @@ export const useDb = create<Db>()((set, get) => {
       enqueue('set_intensity', { baby_id: subjectId, intensity, at: now.toISOString() }, { entityId: subjectId, withVersion: true });
     },
 
-    assignDoctor: (pregnancyId, doctor, reason, by, now) => {
+    updateMother: (motherId, details, by, now) => {
       const s = get();
+      const m = s.mothers.find((x) => x.id === motherId);
+      if (!m) return;
+      const changed = motherUpdatePayload(m, details);
+      if (!Object.keys(changed).length) return;
       set({
-        pregnancies: s.pregnancies.map((p) => (p.id === pregnancyId ? { ...p, assignedDoctor: { name: doctor.name } } : p)),
-        audit: audit(s, by, `assign_doctor (${doctor.name})`, pregnancyId, now),
+        mothers: s.mothers.map((x) => (x.id === motherId ? { ...details, id: x.id, ipNo: x.ipNo } : x)),
+        audit: audit(s, by, `update_mother (${Object.keys(changed).join(', ')})`, motherId, now),
       });
-      enqueue('assign_care', { pregnancy_id: pregnancyId, specialty: 'obstetrics', primary_staff_id: doctor.staffId, reason, at: now.toISOString() }, { entityId: pregnancyId });
+      enqueue('update_mother', { mother_id: motherId, ...changed }, { entityId: motherId, withVersion: true });
+    },
+
+    assignCare: (subjectId, specialty, teamId, staffId, reason, by, now) => {
+      const s = get();
+      const doctor = staffId ? s.staff.find((x) => x.id === staffId) : undefined;
+      const team = s.teams.find((t) => t.id === teamId)?.name ?? 'team';
+      set({
+        assignments: [...s.assignments.filter((a) => !(a.subjectId === subjectId && a.specialty === specialty)), { subjectId, specialty, teamId, staffId }],
+        pregnancies:
+          specialty === 'obstetrics' ? s.pregnancies.map((p) => (p.id === subjectId ? { ...p, assignedDoctor: doctor ? { name: doctor.name } : undefined } : p)) : s.pregnancies,
+        audit: audit(s, by, `reassign ${specialty} → ${team}${doctor ? ` · ${doctor.name}` : ''}`, subjectId, now),
+      });
+      const subject = s.babies.some((b) => b.id === subjectId) ? { baby_id: subjectId } : { pregnancy_id: subjectId };
+      enqueue('assign_care', { ...subject, specialty, team_id: teamId, primary_staff_id: staffId, reason, at: now.toISOString() }, { entityId: subjectId });
     },
 
     orderInvestigation: (id, by, now) => {
@@ -998,10 +1011,11 @@ export const useDb = create<Db>()((set, get) => {
     },
 
     importRegister: (rows, by, now) => {
+      // Supabase mode never imports optimistically: the server answers row by row (src/data/registration.ts).
+      if (isRemote) throw new Error('Register import is sent with importRows (src/data/registration.ts)');
       const done = rows.map((r) => registerLocal(r, by, now));
       const s = get();
       set({ audit: audit(s, by, `import_register (${done.length} rows)`, 'register.csv', now) });
-      enqueue('confirm_import', { file_name: 'register.csv', rows: done.map((d) => d.payload) });
       return done.map((d) => d.id);
     },
 

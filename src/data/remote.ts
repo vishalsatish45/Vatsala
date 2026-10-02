@@ -97,7 +97,7 @@ export function emptyState(): DbState {
     mothers: [], pregnancies: [], tags: [], visits: [], tasks: [], investigations: [], referrals: [], callbacks: [], selfLogs: [],
     deliveries: [], babies: [], immunizations: [], discharges: [], audit: [], caregivers: [], cardFields: {}, notes: [],
     newbornObs: [], medDoses: [], captures: [], staff: [], teams: [], prescriptions: [], facts: [], overrides: [], notifications: [],
-    sharedResults: [], mchSeq: 0,
+    sharedResults: [], teamMembers: [], assignments: [], mchSeq: 0,
   };
 }
 
@@ -127,21 +127,25 @@ const T = {
   mothers: z.strictObject({
     id, phone: nstr, name: str, dob: nstr, age_at_registration: nnum, lang: z.enum(['en', 'kn', 'hi']), village: nstr,
     emergency_contact: emergencyContact, card_fields: z.array(z.enum(CARD_FIELDS)), version: num,
+    alt_phone: nstr, husband_name: nstr, dob_estimated: bool, district: nstr, state: nstr, pincode: nstr,
   }),
+  // Her national ids as documented (RCH register, ABHA); the hospital MRN is not read here.
+  patient_identifiers: z.strictObject({ id, mother_id: id, system: z.enum(['rch', 'abha_number', 'abha_address']), value: str }),
+  team_members: z.strictObject({ id, team_id: id, staff_id: id }),
   pregnancies: z.strictObject({
     id, mch_id: str, mother_id: id, registered_on: str, edd: str, gravida: num, para: num, living: num, abortions: num,
     status: z.enum(['active', 'delivered', 'closed']), intensity, ended_on: nstr, end_reason: endReason.nullable(), version: num,
   }),
   pregnancy_datings: z.strictObject({ id, pregnancy_id: id, method: z.enum(['lmp', 'scan', 'clinician']), lmp: nstr }),
   admissions: z.strictObject({ id, pregnancy_id: id, mother_id: id, ip_no: str, admitted_at: str, reason: nstr, discharged_at: nstr }),
-  care_assignments: z.strictObject({ id, pregnancy_id: nid, baby_id: nid, specialty: z.enum(['obstetrics', 'paediatrics']), primary_staff_id: nid }),
+  care_assignments: z.strictObject({ id, pregnancy_id: nid, baby_id: nid, specialty: z.enum(['obstetrics', 'paediatrics']), team_id: id, primary_staff_id: nid }),
   documented_conditions: z.strictObject({ id, mother_id: id, label: str }),
   allergies: z.strictObject({ id, mother_id: id, substance: str }),
   medications: z.strictObject({
     id, mother_id: id, pregnancy_id: nid, baby_id: nid, kind: z.enum(['statement', 'prescription']), name: str, dose: nstr, slots: z.array(slot),
     instructions: nstr, status: str, version: num,
   }),
-  previous_pregnancies: z.strictObject({ id, mother_id: id, year: num, outcome: str, mode: nstr, note: nstr }),
+  previous_pregnancies: z.strictObject({ id, mother_id: id, year: num, outcome: str, mode: nstr, gestation_weeks: nnum, complications: texts, note: nstr }),
   observations: z.strictObject({ id, encounter_id: id, code: str, value_num: nnum, value_text: nstr, at: str }),
   encounters: z.strictObject({
     id, pregnancy_id: nid, baby_id: nid, kind: str, at: str, by_staff: id, complaints: texts, complaints_note: nstr, note: nstr, document_id: nid,
@@ -325,7 +329,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
     staff, teams, mothers, pregnancies, datings, admissions, assignments, conditions, allergies, medications, previous,
     observations, encounters, checklist, tags, tasks, contacts, investigations, catalogue, results, referrals, refEvents,
     callbacks, selfLogs, deliveries, babies, immunizations, vaccines, discharges, dischargeItems, caregivers, notes, doses,
-    audit, documents, overrides, shared, notifications,
+    audit, documents, overrides, shared, notifications, identifiers, teamMembers,
   ] = await Promise.all([
     all(db, 'staff', (q) => q.eq('active', true)),
     all(db, 'teams', (q) => q.eq('active', true)),
@@ -375,6 +379,8 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
     all(db, 'access_overrides', (q) => q.is('ended_at', null).gt('expires_at', new Date().toISOString())),
     all(db, 'referral_shared_results'),
     notificationTail(db),
+    all(db, 'patient_identifiers', (q) => q.is('baby_id', null).in('system', ['rch', 'abha_number', 'abha_address'])),
+    all(db, 'team_members', (q) => q.is('to_at', null)),
   ]);
 
   const versions: Versions = {};
@@ -389,6 +395,14 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
   const s = emptyState();
   s.staff = staff.map((x) => ({ ...x, id: asStaffId(x.id) }));
   s.teams = teams.map((x) => ({ ...x, id: asTeamId(x.id) }));
+  s.teamMembers = teamMembers.map((x) => ({ teamId: asTeamId(x.team_id), staffId: asStaffId(x.staff_id) }));
+  s.assignments = assignments.map((a) => ({
+    subjectId: asSubjectId((a.pregnancy_id ?? a.baby_id)!),
+    specialty: a.specialty,
+    teamId: asTeamId(a.team_id),
+    staffId: a.primary_staff_id ? asStaffId(a.primary_staff_id) : undefined,
+  }));
+  const idOf = (motherId: string, system: string) => identifiers.find((i) => i.mother_id === motherId && i.system === system)?.value;
 
   // Mothers: the IP number of her latest admission (open first).
   const admByMother = groupBy(admissions, (a) => a.mother_id);
@@ -406,6 +420,16 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
       village: m.village ?? '',
       ipNo: adm?.ip_no,
       emergencyContact: { name: ec?.name ?? '', relation: ec?.relation ?? '', phone: localPhone(ec?.phone) },
+      altPhone: m.alt_phone ? localPhone(m.alt_phone) : undefined,
+      husbandName: opt(m.husband_name),
+      dob: dayOpt(m.dob),
+      dobEstimated: m.dob ? m.dob_estimated : undefined,
+      district: opt(m.district),
+      state: opt(m.state),
+      pincode: opt(m.pincode),
+      rchId: idOf(m.id, 'rch'),
+      abhaNumber: idOf(m.id, 'abha_number'),
+      abhaAddress: idOf(m.id, 'abha_address'),
     };
   });
   for (const m of mothers) s.cardFields[m.id] = m.card_fields;
@@ -467,6 +491,8 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
         year: x.year,
         outcome: previousOutcomeCodes.label(x.outcome),
         mode: x.mode ? previousModeCodes.label(x.mode) : undefined,
+        gestationWeeks: opt(x.gestation_weeks),
+        complications: x.complications.length ? x.complications : undefined,
         note: opt(x.note),
       })),
     };
@@ -479,7 +505,10 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
       id: x.id,
       motherId: asMotherId(x.mother_id),
       kind: 'previous_pregnancy',
-      label: previousLabel({ year: x.year, outcome: previousOutcomeCodes.label(x.outcome), mode: x.mode ? previousModeCodes.label(x.mode) : undefined, note: opt(x.note) }),
+      label: previousLabel({
+        year: x.year, outcome: previousOutcomeCodes.label(x.outcome), mode: x.mode ? previousModeCodes.label(x.mode) : undefined,
+        gestationWeeks: opt(x.gestation_weeks), complications: x.complications, note: opt(x.note),
+      }),
     })),
   ];
 

@@ -54,6 +54,7 @@ export function SyncFailureBanner() {
         <CircleAlert size={18} color={palette.overdue} />
         <AppText variant="label" style={{ flex: 1 }}>
           Not saved: {failure.message}
+          {failure.rpc === 'register_pregnancy' ? ' — open Register pregnancy to restore what you typed.' : ''}
         </AppText>
         <Pressable onPress={dismiss} accessibilityRole="button" accessibilityLabel="Dismiss" hitSlop={12}>
           <X size={18} color={palette.inkSoft} />
