@@ -6,6 +6,10 @@
  *
  * A refused intent (role, not visible, stale version, invalid input) is dropped and reported; the store is
  * then reloaded from the server, which undoes the optimistic change on screen.
+ *
+ * An intent may carry a follow-up upload (a voice note, a paper-record photo): once the RPC has answered with the
+ * server-chosen storage path, the local file is uploaded there (private bucket, never overwriting). The intent
+ * stays at the head of the queue — persisted, encrypted — until the upload is done, and is retried like an RPC.
  */
 import { randomUUID } from 'expo-crypto';
 import { create } from 'zustand';
@@ -13,6 +17,17 @@ import { create } from 'zustand';
 import { isOnline, useNetwork } from '@/lib/network';
 import { secureStorage } from '@/lib/secureStorage';
 import { isRemote, supabase } from '@/lib/supabase';
+
+/** A file to upload after the RPC succeeds, to the path the server named in its response. */
+export type Upload = {
+  bucket: 'voice-notes' | 'documents';
+  /** Response field holding the server-chosen path ('<bucket>/<mother>/<id>.<ext>'); null → nothing to upload. */
+  pathFrom: string;
+  localUri: string;
+  contentType: string;
+  /** Set once the RPC has answered: the object name inside the bucket. */
+  path?: string;
+};
 
 export type Intent = {
   id: string;
@@ -22,6 +37,9 @@ export type Intent = {
   entityId?: string;
   /** Send the record's last known version, so a write over someone else's newer change is refused. */
   withVersion?: boolean;
+  upload?: Upload;
+  /** The RPC has been applied; only the upload remains. */
+  rpcDone?: boolean;
   attempts: number;
 };
 
@@ -42,7 +60,7 @@ export const useOutbox = create<OutboxState>()((set) => ({
 }));
 
 /** RPCs that take no idempotency key (they are naturally repeatable). */
-const NO_KEY = new Set(['log_access', 'register_push_token', 'mark_notifications_read']);
+const NO_KEY = new Set(['log_access', 'register_push_token', 'unregister_push_token', 'mark_notifications_read']);
 
 /** Unsent writes hold patient data, so they are kept encrypted. */
 const STORE_KEY = 'outbox.v1';
@@ -64,7 +82,7 @@ function markPending() {
 }
 
 /** Queue a write. In mock mode the on-device store is the backend, so nothing is sent. */
-export function enqueue(rpc: string, payload: Record<string, unknown>, opts: { entityId?: string; withVersion?: boolean } = {}) {
+export function enqueue(rpc: string, payload: Record<string, unknown>, opts: { entityId?: string; withVersion?: boolean; upload?: Upload } = {}) {
   if (!isRemote) return;
   const id = randomUUID();
   const intent: Intent = { id, rpc, payload: NO_KEY.has(rpc) ? payload : { ...payload, idempotency_key: id }, attempts: 0, ...opts };
@@ -88,6 +106,35 @@ export function setOutboxHooks(h: { drained: () => void; failed: () => void; ses
 }
 
 type Outcome = 'ok' | 'retry' | 'auth' | 'refused';
+
+/**
+ * The object name inside the bucket, from the RPC response: 'voice-notes/<m>/<id>.m4a' → '<m>/<id>.m4a'.
+ * Undefined when the response names no file (e.g. a capture without a photo). Never shown on screen.
+ */
+export function uploadPath(upload: Pick<Upload, 'bucket' | 'pathFrom'>, response: unknown): string | undefined {
+  const v = response && typeof response === 'object' ? (response as Record<string, unknown>)[upload.pathFrom] : undefined;
+  if (typeof v !== 'string' || !v) return undefined;
+  const prefix = `${upload.bucket}/`;
+  return v.startsWith(prefix) ? v.slice(prefix.length) : v;
+}
+
+/** Upload the intent's file. 'ok' also when an earlier attempt already stored it (the response was lost). */
+async function sendUpload(u: Upload & { path: string }): Promise<{ status: number; message: string }> {
+  try {
+    const { File } = await import('expo-file-system');
+    const file = new File(u.localUri);
+    if (!file.exists) return { status: 422, message: 'The recording or photo is no longer on this phone.' };
+    const bytes = await file.arrayBuffer();
+    const { error } = await supabase().storage.from(u.bucket).upload(u.path, bytes, { contentType: u.contentType, upsert: false });
+    if (!error) return { status: 200, message: '' };
+    const e = error as { message: string; statusCode?: string | number; status?: number };
+    const status = Number(e.statusCode ?? e.status ?? 0) || 0;
+    if (status === 409 || /already exists|duplicate/i.test(e.message)) return { status: 200, message: '' };
+    return { status: status || 400, message: e.message };
+  } catch (e) {
+    return { status: 0, message: String(e) };
+  }
+}
 
 function classify(status: number, message: string): Exclude<Outcome, 'ok'> {
   if (status === 0 || status === 408 || status === 429 || status >= 500 || /network request failed|fetch failed|timeout/i.test(message)) return 'retry';
@@ -115,14 +162,28 @@ export async function drain(): Promise<void> {
       let status = 0;
       let message = '';
       let data: unknown;
-      try {
-        const res = await supabase().rpc(head.rpc, { p: payload });
-        status = res.status;
-        data = res.data;
-        message = res.error?.message ?? '';
-        if (!res.error) status = 200;
-      } catch (e) {
-        message = String(e);
+      if (!head.rpcDone) {
+        try {
+          const res = await supabase().rpc(head.rpc, { p: payload });
+          status = res.status;
+          data = res.data;
+          message = res.error?.message ?? '';
+          if (!res.error) status = 200;
+        } catch (e) {
+          message = String(e);
+        }
+        // The write is applied; keep the intent (persisted) until its file is uploaded too.
+        const path = status === 200 && head.upload ? uploadPath(head.upload, data) : undefined;
+        if (path && head.upload) {
+          const next: Intent = { ...head, rpcDone: true, attempts: 0, upload: { ...head.upload, path } };
+          useOutbox.setState((s) => ({ queue: [next, ...s.queue.slice(1)] }));
+          persist();
+          continue;
+        }
+      } else if (head.upload?.path) {
+        ({ status, message } = await sendUpload({ ...head.upload, path: head.upload.path }));
+      } else {
+        status = 200;
       }
 
       if (status === 200) {

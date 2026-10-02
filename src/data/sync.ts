@@ -16,6 +16,7 @@ import { emptyState, loadCareSnapshot, loadFamilySnapshot, NeedsConsent, RemoteE
 import { clearOutbox, drain, enqueue, restoreOutbox, setOutboxHooks, useOutbox } from './outbox';
 import { useDb } from './store';
 import { authService } from '@/features/auth/service';
+import { registerPush, unregisterPush } from '@/features/push/register';
 import type { Account } from '@/features/auth/types';
 import { isRemote, supabase } from '@/lib/supabase';
 import { purposesFor, useSession } from '@/state/session';
@@ -190,9 +191,11 @@ if (isRemote) {
     if (s.account && s.account.id !== prev.account?.id && s.account.family?.consentPurposes) {
       s.adoptServerConsent(s.account.id, s.account.family.consentPurposes);
     }
+    if (s.hydrated && prev.hydrated && s.account && s.account.id !== prev.account?.id) void registerPush(); // signed in
     if (!s.account && prev.account) {
       close();
-      void authService.signOut();
+      // Remove this phone's push token while the session still exists, then end the session.
+      void unregisterPush().finally(() => authService.signOut());
       return;
     }
     if (!s.hydrated || !s.account || !s.face) return;
@@ -224,4 +227,5 @@ async function boot() {
   if (!data.session) return useSession.getState().signOut();
   if (face) open(account, face);
   void drain();
+  void registerPush();
 }

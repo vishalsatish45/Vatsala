@@ -211,6 +211,12 @@ const VITAL_CODES: [keyof Visit['vitals'], string][] = [
   ['oedema', 'oedema'],
 ];
 
+/** Content type of a photographed paper record, from its file name (the picker saves JPEG unless told otherwise). */
+function photoMime(uri: string) {
+  const ext = uri.split('?')[0].split('.').pop()?.toLowerCase();
+  return ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+}
+
 function observationRows(vitals: Visit['vitals']) {
   return VITAL_CODES.flatMap(([k, code]) => {
     const v = vitals[k];
@@ -495,9 +501,20 @@ export const useDb = create<Db>()((set, get) => {
       const cb: Callback = { id: uid('cb'), motherId, requestedBy, channel, signs: signs.map(signLabel), note, voiceUri: voice?.uri, voiceSeconds: voice?.seconds, at: now };
       useNetwork.getState().markPending(cb.id);
       set({ callbacks: [...s.callbacks, cb], audit: audit(s, requestedBy, 'request_callback', motherId, now) });
-      // Voice notes stay on the phone until upload to Storage is built; the team is told one exists.
-      const voiceLine = voice ? `Voice note recorded (${voice.seconds} s) — kept on the family's phone` : undefined;
-      enqueue('request_callback', { id: cb.id, mother_id: motherId, signs, note: [note, voiceLine].filter(Boolean).join('\n') || undefined, at: now.toISOString() }, { entityId: cb.id });
+      // A voice note goes to the private voice-notes bucket, at the path the server names in its response
+      // (voice-notes/<mother>/<call-back>.m4a), right after the request is saved (src/data/outbox.ts).
+      enqueue(
+        'request_callback',
+        {
+          id: cb.id,
+          mother_id: motherId,
+          signs,
+          note: note || undefined,
+          voice_seconds: voice ? Math.min(300, Math.max(1, Math.round(voice.seconds))) : undefined,
+          at: now.toISOString(),
+        },
+        { entityId: cb.id, upload: voice ? { bucket: 'voice-notes', pathFrom: 'voice_path', localUri: voice.uri, contentType: 'audio/mp4' } : undefined },
+      );
       return cb.id;
     },
 
@@ -767,19 +784,24 @@ export const useDb = create<Db>()((set, get) => {
       };
       const cap: CaptureDoc = { ...doc, id: uid('cp'), visitId: visit.id };
       set({ visits: [...s.visits, visit], captures: [...s.captures, cap], audit: audit(s, doc.by, `capture_confirmed (${doc.fields.filter((f) => f.confirmed).length} fields)`, doc.subjectId, now) });
-      // Only clinician-confirmed fields are saved, as an ANC encounter (the photo itself stays on the phone until Storage, S2).
-      const p = s.pregnancies.find((x) => x.id === doc.subjectId);
+      // 1. open the capture: the server chooses the photo's path, and the outbox uploads the photo there;
+      // 2. confirm: the checked transcription is kept on the document and ONLY confirmed fields become an ANC visit.
+      const mime = doc.uri ? photoMime(doc.uri) : undefined;
+      enqueue(
+        'create_document',
+        { id: cap.id, pregnancy_id: doc.subjectId, kind: 'anc_card', mime },
+        { entityId: cap.id, upload: doc.uri && mime ? { bucket: 'documents', pathFrom: 'storage_path', localUri: doc.uri, contentType: mime } : undefined },
+      );
       const checklistKeys = new Set(['bp', 'weight', 'urine_albumin', 'fhr']);
       enqueue(
-        'record_visit',
+        'confirm_capture',
         {
+          document_id: cap.id,
           encounter_id: visit.id,
-          pregnancy_id: doc.subjectId,
           at: now.toISOString(),
-          ga_days: p ? gestationalAge(p.edd, now).totalDays : undefined,
+          fields: doc.fields.map((f) => ({ key: f.key, label: f.label, value: f.value, confidence: f.confidence, confirmed: f.confirmed })),
           observations: observationRows(visit.vitals),
           checklist: Object.keys(visit.checklist).filter((k) => checklistKeys.has(k)).map((component) => ({ component, state: 'done' })),
-          note: visit.note,
         },
         { entityId: visit.id },
       );
