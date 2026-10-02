@@ -7,12 +7,14 @@ import { Camera, Check, FileImage, Pencil, ScanText } from 'lucide-react-native'
 import { asPregnancyId } from '@/data/ids';
 import { gaLabel, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
-import type { CaptureField, Pregnancy, PregnancyId } from '@/data/types';
+import type { CaptureField, DocumentId, Pregnancy, PregnancyId } from '@/data/types';
+import { captureAndTranscribe } from '@/features/ai/capture';
 import { captureSchema } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
 import { pickPhoto } from '@/lib/device';
 import { useNow } from '@/lib/clock';
 import { useZodForm } from '@/lib/forms';
+import { isRemote } from '@/lib/supabase';
 import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Chip, GlassSurface, ProgressBar, Screen, TopBar, families, palette, radius, space } from '@/ui';
 
@@ -87,6 +89,8 @@ function CaptureForm({ p }: { p: Pregnancy }) {
   const [uri, setUri] = useState<string>();
   const [sample, setSample] = useState(false);
   const [editing, setEditing] = useState<string>();
+  const [documentId, setDocumentId] = useState<DocumentId>();
+  const [reading, setReading] = useState(false);
   const { control, handleSubmit, reset } = useZodForm(captureSchema, { defaultValues: { fields: [] } });
   const { busy, once } = useSubmitOnce();
   const fields = useWatch({ control, name: 'fields' }) as CaptureField[];
@@ -95,10 +99,25 @@ function CaptureForm({ p }: { p: Pregnancy }) {
   async function shoot(source: 'camera' | 'library') {
     try {
       const u = await pickPhoto(source);
-      if (u) {
-        setUri(u);
-        setSample(false);
+      if (!u) return;
+      setUri(u);
+      setSample(false);
+      setDocumentId(undefined);
+      if (!isRemote) {
         reset({ fields: demoTranscribe() });
+        return;
+      }
+      // Supabase mode: the photo is uploaded and read by Claude; the clinician still confirms every field.
+      reset({ fields: [] });
+      setReading(true);
+      try {
+        const out = await captureAndTranscribe(p.id, u);
+        setDocumentId(out.documentId);
+        reset({ fields: out.fields });
+      } catch (e) {
+        Alert.alert('Could not transcribe', e instanceof Error ? e.message : String(e));
+      } finally {
+        setReading(false);
       }
     } catch {
       /* alert already shown */
@@ -107,7 +126,7 @@ function CaptureForm({ p }: { p: Pregnancy }) {
 
   const save = handleSubmit(
     once((v) => {
-      db.saveCapture({ subjectId: p.id, uri, fields: v.fields, at: now, by }, now);
+      db.saveCapture({ subjectId: p.id, uri, fields: v.fields, at: now, by, documentId }, now);
       Alert.alert('Saved', `${confirmed} confirmed field${confirmed === 1 ? '' : 's'} added to ${motherOf(db, p.motherId).name}'s record as a visit (from paper). Unconfirmed fields were discarded.`);
       router.back();
     }),
@@ -130,10 +149,10 @@ function CaptureForm({ p }: { p: Pregnancy }) {
         <>
           <View style={{ flexDirection: 'row', gap: space.sm }}>
             <View style={{ flex: 1 }}>
-              <Button label="Take photo" icon={Camera} onPress={() => shoot('camera')} />
+              <Button label="Take photo" icon={Camera} disabled={reading} onPress={() => shoot('camera')} />
             </View>
             <View style={{ flex: 1 }}>
-              <Button variant="secondary" label="Gallery" icon={FileImage} onPress={() => shoot('library')} />
+              <Button variant="secondary" label="Gallery" icon={FileImage} disabled={reading} onPress={() => shoot('library')} />
             </View>
           </View>
           <Button
@@ -143,9 +162,15 @@ function CaptureForm({ p }: { p: Pregnancy }) {
             onPress={() => {
               setSample(true);
               setUri(undefined);
+              setDocumentId(undefined);
               reset({ fields: demoTranscribe() });
             }}
           />
+          {reading && (
+            <AppText variant="label" tone="secondary">
+              Reading the card…
+            </AppText>
+          )}
           <AppText variant="caption" tone="faint">
             AI copies the visible text into a draft form. It does not interpret values. You confirm every field.
           </AppText>
@@ -156,7 +181,7 @@ function CaptureForm({ p }: { p: Pregnancy }) {
         <>
           <GlassSurface strong style={{ padding: space.sm }}>{uri ? <Image source={{ uri }} style={styles.photo} resizeMode="cover" /> : sample ? <SamplePaper /> : null}</GlassSurface>
           <Card style={{ gap: space.sm }}>
-            <ProgressBar progress={confirmed / fields.length} leftCaption={`${confirmed} of ${fields.length} confirmed`} rightCaption="Transcription · demo" />
+            <ProgressBar progress={confirmed / fields.length} leftCaption={`${confirmed} of ${fields.length} confirmed`} rightCaption={documentId ? 'Transcription · AI' : 'Transcription · demo'} />
             {fields.map((f, i) => (
               <View key={f.key} style={styles.field}>
                 <View style={{ flex: 1, gap: 2 }}>

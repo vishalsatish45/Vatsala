@@ -65,6 +65,7 @@ import type {
   Callback,
   ChecklistState,
   Delivery,
+  DocumentId,
   Discharge,
   Id,
   Immunization,
@@ -197,7 +198,8 @@ type Actions = {
   addNote: (subjectId: SubjectId, body: string, author: string, kind: Note['kind'], now: Date) => void;
   addNewbornObs: (obs: Omit<NewbornObs, 'id'>) => void;
   logDose: (d: Omit<MedDose, 'id'>) => void;
-  saveCapture: (doc: Omit<CaptureDoc, 'id' | 'visitId'>, now: Date) => VisitId;
+  /** `documentId`: the capture already opened on the server for transcription (Supabase mode, ai/capture.ts). */
+  saveCapture: (doc: Omit<CaptureDoc, 'id' | 'visitId'> & { documentId?: DocumentId }, now: Date) => VisitId;
   importRegister: (rows: RegisterInput[], by: string, now: Date) => PregnancyId[];
   /** A clinician-entered prescription for a pregnancy (obstetrics) or a baby (paediatrics). */
   prescribe: (subject: Subject, input: PrescriptionInput, by: string, now: Date) => Id;
@@ -273,7 +275,7 @@ const VITAL_CODES: [keyof Visit['vitals'], string][] = [
 ];
 
 /** Content type of a photographed paper record, from its file name (the picker saves JPEG unless told otherwise). */
-function photoMime(uri: string) {
+export function photoMime(uri: string) {
   const ext = uri.split('?')[0].split('.').pop()?.toLowerCase();
   return ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
 }
@@ -854,12 +856,13 @@ export const useDb = create<Db>()((set, get) => {
         complaints: [],
         note: 'Transcribed from paper record — each field confirmed by clinician',
       };
-      const cap: CaptureDoc = { ...doc, id: uid('cp'), visitId: visit.id };
+      const { documentId, ...rest } = doc;
+      const cap: CaptureDoc = { ...rest, id: documentId ?? uid('cp'), visitId: visit.id };
       set({ visits: [...s.visits, visit], captures: [...s.captures, cap], audit: audit(s, doc.by, `capture_confirmed (${doc.fields.filter((f) => f.confirmed).length} fields)`, doc.subjectId, now) });
       // 1. open the capture: the server chooses the photo's path, and the outbox uploads the photo there;
       // 2. confirm: the checked transcription is kept on the document and ONLY confirmed fields become an ANC visit.
       const mime = doc.uri ? photoMime(doc.uri) : undefined;
-      enqueue(
+      if (!documentId) enqueue(
         'create_document',
         { id: cap.id, pregnancy_id: doc.subjectId, kind: 'anc_card', mime },
         { entityId: cap.id, upload: doc.uri && mime ? { bucket: 'documents', pathFrom: 'storage_path', localUri: doc.uri, contentType: mime } : undefined },

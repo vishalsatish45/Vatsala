@@ -119,7 +119,7 @@ export function uploadPath(upload: Pick<Upload, 'bucket' | 'pathFrom'>, response
 }
 
 /** Upload the intent's file. 'ok' also when an earlier attempt already stored it (the response was lost). */
-async function sendUpload(u: Upload & { path: string }): Promise<{ status: number; message: string }> {
+export async function sendUpload(u: Upload & { path: string }): Promise<{ status: number; message: string }> {
   try {
     const { File } = await import('expo-file-system');
     const file = new File(u.localUri);

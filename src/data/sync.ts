@@ -35,6 +35,8 @@ const LIVE_TABLES = [
   'babies', 'immunizations', 'discharges', 'pregnancies', 'tags', 'admissions', 'care_assignments', 'notifications',
 ];
 const FAMILY_POLL_MS = 60_000;
+/** Backstop for a missed Realtime event (a cold channel, a dropped socket): the Care Team also reloads every 2 minutes. */
+const CARE_POLL_MS = 120_000;
 
 let loadedFor: string | undefined; // `${account id}:${face}` whose data is on screen
 let refreshing = false;
@@ -110,6 +112,9 @@ function startLive(account: Account, face: 'care' | 'family') {
     let c = supabase().channel(`care:${account.id}`);
     for (const table of LIVE_TABLES) c = c.on('postgres_changes', { event: '*', schema: 'public', table }, refreshSoon);
     channel = c.subscribe();
+    poll = setInterval(() => {
+      if (AppState.currentState === 'active') void refresh();
+    }, CARE_POLL_MS);
   } else {
     // Families read no tables; their own notifications (appointment booked, baby arrived) are the live signal.
     channel = supabase()
