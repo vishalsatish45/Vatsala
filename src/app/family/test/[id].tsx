@@ -3,6 +3,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { CalendarClock, FlaskConical, MapPin, Package } from 'lucide-react-native';
 
+import { asInvestigationId } from '@/data/ids';
 import { useDb } from '@/data/store';
 import { useFamily } from '@/features/family/useFamily';
 import { fmtShort } from '@/features/family/itemText';
@@ -14,7 +15,7 @@ const TEST_KEYS = ['ogtt', 'hb1', 'hb2', 'hb3', 'anomaly', 'dating', 'bg', 'urin
 
 /** Family test detail: what the test is, when/where, result status. No clinical interpretation. */
 export default function FamilyTestDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asInvestigationId(useLocalSearchParams<{ id: string }>().id);
   const { t, i18n } = useTranslation();
   const now = useNow();
   const db = useDb();

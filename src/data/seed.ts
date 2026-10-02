@@ -6,6 +6,7 @@ import { addDays, gestationalAge, lmpFromEdd, toDateOnly } from '@domain/gestati
 import { GRACE_DAYS, POSTNATAL_STANDARD, TAG_TEMPLATES, ancVisitDates, investigationWindows, vaccineSchedule, type Intensity } from '@domain/schedules';
 
 import { DEPARTMENTS, DISCHARGE_BABY, DISCHARGE_MOTHER } from './catalogue';
+import { asStaffId, asTeamId, mint, type IdKind } from './ids';
 import type { DbState } from './store';
 import type { Baby, Investigation, Pregnancy, Task, Visit } from './types';
 
@@ -29,7 +30,8 @@ const RESULTS: Record<string, string> = {
 };
 
 let n = 0;
-const id = (p: string) => `${p}_seed${(n++).toString(36)}`;
+/** A readable demo id, typed by its kind (src/data/ids.ts). */
+const id = <K extends IdKind>(p: K) => mint(p, `${p}_seed${(n++).toString(36)}`);
 const hoursAgo = (now: Date, h: number) => new Date(now.getTime() - h * 3_600_000);
 
 type Spec = {
@@ -78,12 +80,12 @@ export function buildSeed(nowIn: Date): DbState {
     medDoses: [],
     captures: [],
     staff: [
-      { id: 'staff_priya', name: OB, role: 'obstetrician' },
-      { id: 'staff_meera', name: 'Dr. Meera S', role: 'obstetrician' },
-      { id: 'staff_arjun', name: PAED, role: 'paediatrician' },
-      { id: 'staff_kiran', name: 'Dr. Kiran Shah', role: 'specialist' },
+      { id: asStaffId('staff_priya'), name: OB, role: 'obstetrician' },
+      { id: asStaffId('staff_meera'), name: 'Dr. Meera S', role: 'obstetrician' },
+      { id: asStaffId('staff_arjun'), name: PAED, role: 'paediatrician' },
+      { id: asStaffId('staff_kiran'), name: 'Dr. Kiran Shah', role: 'specialist' },
     ],
-    teams: DEPARTMENTS.map((name) => ({ id: `team_${name.toLowerCase().replace(/\W+/g, '_')}`, name, kind: 'department' as const, specialty: name === 'Paediatrics' ? 'paediatrics' : 'other' })),
+    teams: DEPARTMENTS.map((name) => ({ id: asTeamId(`team_${name.toLowerCase().replace(/\W+/g, '_')}`), name, kind: 'department' as const, specialty: name === 'Paediatrics' ? 'paediatrics' : 'other' })),
     prescriptions: [],
     mchSeq: 1244,
   };

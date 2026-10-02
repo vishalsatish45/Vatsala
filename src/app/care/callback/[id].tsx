@@ -1,13 +1,19 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy } from 'react';
 import { Linking, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Controller } from 'react-hook-form';
 import { Phone } from 'lucide-react-native';
 
 import { CALLBACK_OUTCOMES } from '@/data/catalogue';
+import { asCallbackId } from '@/data/ids';
 import { ago, gaLabel, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
+import type { Callback } from '@/data/types';
+import { closeCallbackSchema } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
+import { useZodForm } from '@/lib/forms';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Chip, Field, InfoRow, OptionChips, Screen, StatusBadge, TopBar, space } from '@/ui';
 
 const VoicePlayer = lazy(() => import('@/features/device/VoicePlayer'));
@@ -17,13 +23,10 @@ const VoicePlayer = lazy(() => import('@/features/device/VoicePlayer'));
  * reported. The clinical judgement is made by the person on the call.
  */
 export default function CallbackDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asCallbackId(useLocalSearchParams<{ id: string }>().id);
   const db = useDb();
   const now = useNow();
-  const by = useActor();
   const c = db.callbacks.find((x) => x.id === id);
-  const [outcome, setOutcome] = useState<string>();
-  const [note, setNote] = useState('');
   if (!c) return <Screen header={<TopBar back title="Call-back" />}><AppText>Not found.</AppText></Screen>;
   const m = motherOf(db, c.motherId);
   const p = db.pregnancies.find((x) => x.motherId === m.id);
@@ -67,23 +70,32 @@ export default function CallbackDetail() {
 
       <Button label={`Call ${m.phone}`} icon={Phone} onPress={() => Linking.openURL(`tel:${m.phone}`)} />
 
-      {!c.closedAt && (
-        <Card style={{ gap: space.md }}>
-          <AppText variant="title">After the call</AppText>
-          <OptionChips options={CALLBACK_OUTCOMES} value={outcome} onChange={setOutcome} />
-          <Field label="Note" value={note} onChangeText={setNote} multiline placeholder="What was discussed" />
-          <Button
-            label="Close call-back"
-            onPress={() => {
-              if (!outcome) return;
-              db.closeCallback(c.id, outcome, note.trim() || undefined, by, now);
-              router.back();
-            }}
-          />
-        </Card>
-      )}
+      {!c.closedAt && <CloseForm key={c.id} callback={c} />}
 
       {p && <Chip label={`Open ${m.name}`} onPress={() => router.push({ pathname: '/care/p/[id]', params: { id: p.id } })} />}
     </Screen>
+  );
+}
+
+/** CT-42 "After the call": the outcome the person on the call chose, and their note. */
+function CloseForm({ callback }: { callback: Callback }) {
+  const db = useDb();
+  const now = useNow();
+  const by = useActor();
+  const { control, handleSubmit } = useZodForm(closeCallbackSchema, { defaultValues: { outcome: undefined, note: '' } });
+  const { busy, once } = useSubmitOnce();
+  const save = handleSubmit(
+    once((v) => {
+      db.closeCallback(callback.id, v.outcome, v.note, by, now);
+      router.back();
+    }),
+  );
+  return (
+    <Card style={{ gap: space.md }}>
+      <AppText variant="title">After the call</AppText>
+      <Controller control={control} name="outcome" render={({ field }) => <OptionChips options={CALLBACK_OUTCOMES} value={field.value} onChange={field.onChange} />} />
+      <Controller control={control} name="note" render={({ field }) => <Field label="Note" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} multiline placeholder="What was discussed" />} />
+      <Button label="Close call-back" disabled={busy} onPress={save} />
+    </Card>
   );
 }

@@ -1,26 +1,28 @@
-import { useState } from 'react';
 import { Linking, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Controller, useWatch } from 'react-hook-form';
 import { Phone, MessageCircle } from 'lucide-react-native';
 import { addDays } from '@domain/gestation';
 
 import { MISSED_OUTCOMES } from '@/data/catalogue';
+import { asTaskId } from '@/data/ids';
 import { ago, fmtDay, motherOf, taskState } from '@/data/selectors';
 import { useDb } from '@/data/store';
+import type { Task } from '@/data/types';
+import { taskOutcomeSchema } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
 import { comingSoon } from '@/lib/comingSoon';
 import { useNow } from '@/lib/clock';
+import { useZodForm } from '@/lib/forms';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Chip, InfoRow, IntensityPill, OptionChips, Screen, StatusBadge, TopBar, space } from '@/ui';
 
 /** CT-96 Task / missed-visit recovery: call, remind, reschedule, log outcome (PRD F-23). */
 export default function TaskDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asTaskId(useLocalSearchParams<{ id: string }>().id);
   const db = useDb();
   const now = useNow();
-  const by = useActor();
   const t = db.tasks.find((x) => x.id === id);
-  const [outcome, setOutcome] = useState<string>();
-  const [inDays, setInDays] = useState<string>();
   if (!t) return <Screen header={<TopBar back title="Task" />}><AppText>Not found.</AppText></Screen>;
 
   const baby = t.subjectType === 'baby' ? db.babies.find((b) => b.id === t.subjectId) : undefined;
@@ -57,21 +59,7 @@ export default function TaskDetail() {
         </View>
       </View>
 
-      <Card style={{ gap: space.md }}>
-        <AppText variant="title">Log outcome</AppText>
-        <OptionChips options={MISSED_OUTCOMES} value={outcome} onChange={setOutcome} />
-        {outcome === 'Rescheduled' && <OptionChips label="New date in (days)" options={['1', '2', '3', '7']} value={inDays} onChange={setInDays} />}
-        <Button
-          label="Save outcome"
-          onPress={() => {
-            if (!outcome) return;
-            db.logContact(t.id, outcome, by, now);
-            if (outcome === 'Rescheduled' && inDays) db.rescheduleTask(t.id, addDays(now, Number(inDays)), 'Rescheduled after contact', by, now);
-            if (['Delivered elsewhere', 'Moved away', 'Declined'].includes(outcome)) db.cancelTask(t.id, outcome, by, now);
-            router.back();
-          }}
-        />
-      </Card>
+      <OutcomeForm key={t.id} task={t} />
 
       {t.contactAttempts.length > 0 && (
         <Card style={{ gap: 6 }}>
@@ -86,5 +74,34 @@ export default function TaskDetail() {
 
       {p && <Chip label={`Open ${m?.name}`} onPress={() => router.push({ pathname: '/care/p/[id]', params: { id: p.id } })} />}
     </Screen>
+  );
+}
+
+/** CT-96 "Log outcome": one contact attempt, plus the reschedule / cancel it implies. */
+function OutcomeForm({ task }: { task: Task }) {
+  const db = useDb();
+  const now = useNow();
+  const by = useActor();
+  const { control, handleSubmit } = useZodForm(taskOutcomeSchema, { defaultValues: { outcome: undefined, inDays: undefined } });
+  const { busy, once } = useSubmitOnce();
+  const outcome = useWatch({ control, name: 'outcome' });
+  const save = handleSubmit(
+    once((v) => {
+      if (!v.outcome) return;
+      db.logContact(task.id, v.outcome, by, now);
+      if (v.outcome === 'Rescheduled' && v.inDays) db.rescheduleTask(task.id, addDays(now, Number(v.inDays)), 'Rescheduled after contact', by, now);
+      if (['Delivered elsewhere', 'Moved away', 'Declined'].includes(v.outcome)) db.cancelTask(task.id, v.outcome, by, now);
+      router.back();
+    }),
+  );
+  return (
+    <Card style={{ gap: space.md }}>
+      <AppText variant="title">Log outcome</AppText>
+      <Controller control={control} name="outcome" render={({ field }) => <OptionChips options={MISSED_OUTCOMES} value={field.value} onChange={field.onChange} />} />
+      {outcome === 'Rescheduled' && (
+        <Controller control={control} name="inDays" render={({ field }) => <OptionChips label="New date in (days)" options={['1', '2', '3', '7']} value={field.value} onChange={field.onChange} />} />
+      )}
+      <Button label="Save outcome" disabled={busy} onPress={save} />
+    </Card>
   );
 }

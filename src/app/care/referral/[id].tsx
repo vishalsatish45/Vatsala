@@ -1,13 +1,18 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Controller, useWatch } from 'react-hook-form';
 import { addDays } from '@domain/gestation';
 
+import { asReferralId } from '@/data/ids';
 import { ago, fmtDay, gaLabel, motherOf } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { REFERRAL_STEPS, type ReferralStatus } from '@/data/types';
+import { referralStepSchema } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
+import { useZodForm } from '@/lib/forms';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Chip, Field, InfoRow, OptionChips, Screen, Sheet, TopBar, palette, space } from '@/ui';
 
 const NEXT: Partial<Record<ReferralStatus, { to: ReferralStatus; label: string }>> = {
@@ -30,14 +35,16 @@ const LABEL: Record<ReferralStatus, string> = {
 
 /** CT-52 Referral detail — full lifecycle between departments (PRD F-17). */
 export default function ReferralDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asReferralId(useLocalSearchParams<{ id: string }>().id);
   const db = useDb();
   const now = useNow();
   const by = useActor();
   const r = db.referrals.find((x) => x.id === id);
   const [sheet, setSheet] = useState(false);
-  const [inDays, setInDays] = useState('3');
-  const [recs, setRecs] = useState('');
+  const { control, handleSubmit } = useZodForm(referralStepSchema, { defaultValues: { inDays: '3', recs: '' } });
+  const inDays = useWatch({ control, name: 'inDays' });
+  // Each step is one intent: the lock lifts when the referral's status moves on.
+  const { busy, once } = useSubmitOnce(r?.status);
   if (!r) return <Screen header={<TopBar back title="Referral" />}><AppText>Not found.</AppText></Screen>;
   const p = db.pregnancies.find((x) => x.id === r.pregnancyId)!;
   const m = motherOf(db, p.motherId);
@@ -47,14 +54,16 @@ export default function ReferralDetail() {
   function advance() {
     if (!next) return;
     if (next.to === 'scheduled' || next.to === 'recommendations') return setSheet(true);
-    db.advanceReferral(r!.id, next.to, {}, by, now);
+    once(() => db.advanceReferral(r!.id, next.to, {}, by, now))();
   }
 
-  function confirmSheet() {
-    if (next?.to === 'scheduled') db.advanceReferral(r!.id, 'scheduled', { scheduledAt: addDays(now, Number(inDays)), place: `Block C · ${r!.department} OPD` }, by, now);
-    if (next?.to === 'recommendations') db.advanceReferral(r!.id, 'recommendations', { recommendations: recs.trim() || 'Documented in notes' }, by, now);
-    setSheet(false);
-  }
+  const confirmSheet = handleSubmit(
+    once((v) => {
+      if (next?.to === 'scheduled') db.advanceReferral(r!.id, 'scheduled', { scheduledAt: addDays(now, Number(v.inDays)), place: `Block C · ${r!.department} OPD` }, by, now);
+      if (next?.to === 'recommendations') db.advanceReferral(r!.id, 'recommendations', { recommendations: v.recs.trim() || 'Documented in notes' }, by, now);
+      setSheet(false);
+    }),
+  );
 
   return (
     <Screen
@@ -63,8 +72,8 @@ export default function ReferralDetail() {
       footer={
         next ? (
           <View style={{ gap: 8 }}>
-            <Button label={next.label} onPress={advance} />
-            {r.status === 'requested' && <Button variant="secondary" label="Decline" onPress={() => db.advanceReferral(r.id, 'declined', { note: 'Declined' }, by, now)} />}
+            <Button label={next.label} disabled={busy} onPress={advance} />
+            {r.status === 'requested' && <Button variant="secondary" label="Decline" disabled={busy} onPress={once(() => db.advanceReferral(r.id, 'declined', { note: 'Declined' }, by, now))} />}
           </View>
         ) : undefined
       }
@@ -110,15 +119,19 @@ export default function ReferralDetail() {
 
       <Button variant="secondary" label={`Open ${m.name}`} onPress={() => router.push({ pathname: '/care/p/[id]', params: { id: p.id } })} />
 
-      <Sheet visible={sheet} onClose={() => setSheet(false)} title={next?.to === 'scheduled' ? 'Schedule appointment' : 'Recommendations'} footer={<Button label="Confirm" onPress={confirmSheet} />}>
+      <Sheet visible={sheet} onClose={() => setSheet(false)} title={next?.to === 'scheduled' ? 'Schedule appointment' : 'Recommendations'} footer={<Button label="Confirm" disabled={busy} onPress={confirmSheet} />}>
         {next?.to === 'scheduled' ? (
           <>
-            <OptionChips label="Appointment in (days)" options={['1', '2', '3', '5', '7']} value={inDays} onChange={(v) => v && setInDays(v)} />
+            <Controller control={control} name="inDays" render={({ field }) => <OptionChips label="Appointment in (days)" options={['1', '2', '3', '5', '7']} value={field.value} onChange={(v) => v && field.onChange(v)} />} />
             <AppText variant="bodyMedium">{fmtDay(addDays(now, Number(inDays)))} · Block C · {r.department} OPD</AppText>
             <AppText variant="caption" tone="secondary">The mother sees this in her app with place and date.</AppText>
           </>
         ) : (
-          <Field label="Assessment & recommendations (specialist)" value={recs} onChangeText={setRecs} multiline placeholder="As documented by the specialist" />
+          <Controller
+            control={control}
+            name="recs"
+            render={({ field }) => <Field label="Assessment & recommendations (specialist)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} multiline placeholder="As documented by the specialist" />}
+          />
         )}
       </Sheet>
     </Screen>

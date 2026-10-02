@@ -1,120 +1,93 @@
 import { useState } from 'react';
 import { Alert, StyleSheet, Switch, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Controller, useWatch } from 'react-hook-form';
 import { addDays, gestationalAge } from '@domain/gestation';
-import { ancIntervalWeeks, completeness, expectedComponents, type ComponentState } from '@domain/schedules';
+import { ancIntervalWeeks, completeness, expectedComponents } from '@domain/schedules';
 
 import { COMPLAINTS, NOT_DONE_REASONS } from '@/data/catalogue';
+import { asPregnancyId } from '@/data/ids';
 import { fmtDay, motherOf } from '@/data/selectors';
-import { useDb } from '@/data/store';
-import type { ChecklistState } from '@/data/types';
+import { useDb, type VisitInput } from '@/data/store';
+import type { PregnancyId } from '@/data/types';
+import { OTHER_COMPLAINT, makeVisitSchema, visitRecorded, type VisitForm } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
+import { useZodForm } from '@/lib/forms';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, ChecklistRow, Chip, DatePicker, Field, OptionChips, ProgressBar, Screen, Sheet, TopBar, palette, space } from '@/ui';
-
-const num = (s: string) => (s.trim() === '' ? undefined : Number(s.replace(',', '.')));
-const range = (v: number | undefined, lo: number, hi: number) => (v === undefined || (v >= lo && v <= hi) ? undefined : 'Check value');
-const OTHER = 'Other';
 
 /** CT-30 Record ANC visit with the completeness checklist (PRD F-13). Values are stored as entered — never interpreted. */
 export default function RecordVisit() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asPregnancyId(useLocalSearchParams<{ id: string }>().id);
+  return <VisitFormScreen key={id} id={id} />;
+}
+
+function VisitFormScreen({ id }: { id: PregnancyId }) {
   const db = useDb();
   const now = useNow();
   const by = useActor();
   const p = db.pregnancies.find((x) => x.id === id)!;
   const m = motherOf(db, p.motherId);
   const ga = gestationalAge(p.edd, now);
-
-  const [weight, setWeight] = useState('');
-  const [sys, setSys] = useState('');
-  const [dia, setDia] = useState('');
-  const [pulse, setPulse] = useState('');
-  const [fundal, setFundal] = useState('');
-  const [fhr, setFhr] = useState('');
-  const [albumin, setAlbumin] = useState<string>();
-  const [sugar, setSugar] = useState<string>();
-  const [oedema, setOedema] = useState<string>();
-  const [presentation, setPresentation] = useState<string>();
-  const [movements, setMovements] = useState<string>();
-  const [ifa, setIfa] = useState(false);
-  const [counselling, setCounselling] = useState<string[]>([]);
-  const [complaints, setComplaints] = useState<string[]>([]);
-  const [otherComplaint, setOtherComplaint] = useState('');
   const defaultWeeks = ancIntervalWeeks(p.intensity, ga.weeks);
-  const [nextOn, setNextOn] = useState(() => addDays(now, defaultWeeks * 7));
-  const [gaps, setGaps] = useState<Record<string, { state: ChecklistState; reason?: string }>>({});
+
+  // Rebuilt per render (cheap); the React Compiler memoizes it.
+  const schema = makeVisitSchema(ga.weeks);
+  const { control, handleSubmit, setValue } = useZodForm(schema, {
+    defaultValues: {
+      weight: '',
+      sys: '',
+      dia: '',
+      pulse: '',
+      fundal: '',
+      fhr: '',
+      albumin: undefined,
+      sugar: undefined,
+      oedema: undefined,
+      presentation: undefined,
+      movements: undefined,
+      ifa: false,
+      counselling: [],
+      complaints: [],
+      otherComplaint: '',
+      nextOn: addDays(now, defaultWeeks * 7),
+      gaps: {},
+    },
+  });
+  const { busy, once } = useSubmitOnce();
   const [review, setReview] = useState(false);
+  const values = useWatch({ control }) as VisitForm;
 
-  const recorded: Record<string, ComponentState | undefined> = {
-    bp: sys && dia ? 'done' : undefined,
-    weight: weight ? 'done' : undefined,
-    urine_albumin: albumin ? 'done' : undefined,
-    fundal_height: fundal ? 'done' : undefined,
-    fhr: fhr ? 'done' : undefined,
-    fetal_movements: movements ? 'done' : undefined,
-    presentation: presentation ? 'done' : undefined,
-    ifa: ifa ? 'done' : undefined,
-    counselling: counselling.length ? 'done' : undefined,
-    next_visit: 'done',
-  };
-  const merged = Object.fromEntries(expectedComponents(ga.weeks).map((c) => [c.key, recorded[c.key] ?? gaps[c.key]?.state]));
+  const recorded = visitRecorded(values);
+  const merged = Object.fromEntries(expectedComponents(ga.weeks).map((c) => [c.key, recorded[c.key] ?? values.gaps[c.key]?.state]));
   const comp = completeness(ga.weeks, merged);
-  const nextInDays = Math.round((startOfDay(nextOn).getTime() - startOfDay(now).getTime()) / 86_400_000);
-  // "Other" is stored as the text the clinician wrote, so the record reads as one list.
-  const savedComplaints = complaints.flatMap((c) => (c !== OTHER ? [c] : otherComplaint.trim() ? [`Other: ${otherComplaint.trim()}`] : []));
+  const nextInDays = Math.round((startOfDay(values.nextOn).getTime() - startOfDay(now).getTime()) / 86_400_000);
 
-  const errors = {
-    weight: range(num(weight), 25, 200),
-    sys: range(num(sys), 60, 250),
-    dia: range(num(dia), 30, 160),
-    fhr: range(num(fhr), 60, 220),
-  };
-  const hasErrors = Object.values(errors).some(Boolean);
-
-  function save() {
-    const checklist = Object.fromEntries(
-      expectedComponents(ga.weeks).map((c) => [c.key, recorded[c.key] === 'done' ? { state: 'done' as const } : (gaps[c.key] ?? { state: 'not_done' as const, reason: 'Not recorded' })]),
-    );
-    db.recordVisit(
-      p.id,
-      {
-        vitals: {
-          weightKg: num(weight),
-          bpSys: num(sys),
-          bpDia: num(dia),
-          pulse: num(pulse),
-          fundalHeightCm: num(fundal),
-          fhr: num(fhr),
-          presentation,
-          urineAlbumin: albumin,
-          urineSugar: sugar,
-          oedema,
-        },
-        checklist,
-        complaints: savedComplaints,
-        nextVisitOn: nextOn,
-      },
-      by,
-      now,
-    );
+  const save = once((input: VisitInput) => {
+    db.recordVisit(p.id, input, by, now);
     setReview(false);
-    Alert.alert('Visit saved', `${comp.done}/${comp.expected} components recorded · next visit ${fmtDay(nextOn)}`);
+    Alert.alert('Visit saved', `${comp.done}/${comp.expected} components recorded · next visit ${fmtDay(input.nextVisitOn)}`);
     router.back();
-  }
+  });
 
-  function trySave() {
-    if (hasErrors) return Alert.alert('Check values', 'Some numbers look impossible — please re-check the highlighted fields.');
-    if (comp.missing.length) setReview(true);
-    else save();
-  }
+  const invalid = () => Alert.alert('Check values', 'Some numbers look impossible — please re-check the highlighted fields.');
+  const trySave = handleSubmit((input) => (comp.missing.length ? setReview(true) : save(input)), invalid);
+
+  const vital = (name: 'weight' | 'pulse' | 'sys' | 'dia' | 'fundal' | 'fhr', label: string, unit: string, keyboardType: 'decimal-pad' | 'number-pad') => (
+    <Controller
+      control={control}
+      name={name}
+      render={({ field, fieldState }) => <Field flex label={label} unit={unit} keyboardType={keyboardType} value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} error={fieldState.error?.message} />}
+    />
+  );
+  const options = (name: 'albumin' | 'sugar' | 'oedema' | 'presentation', label: string, opts: string[]) => (
+    <Controller control={control} name={name} render={({ field }) => <OptionChips label={label} options={opts} value={field.value} onChange={field.onChange} />} />
+  );
+  const mark = (key: string, gap: { state: 'na' } | { state: 'not_done'; reason: string }) => setValue('gaps', { ...values.gaps, [key]: gap });
 
   return (
-    <Screen
-      blob="none"
-      header={<TopBar back title="Record visit" />}
-      footer={<Button label={`Save visit · ${comp.done}/${comp.expected}`} onPress={trySave} />}
-    >
+    <Screen blob="none" header={<TopBar back title="Record visit" />} footer={<Button label={`Save visit · ${comp.done}/${comp.expected}`} disabled={busy} onPress={trySave} />}>
       <View style={{ gap: 4 }}>
         <AppText variant="display">{m.name}</AppText>
         <AppText tone="secondary">
@@ -129,17 +102,17 @@ export default function RecordVisit() {
       <Card style={{ gap: space.md }}>
         <AppText variant="title">Vitals</AppText>
         <View style={styles.row}>
-          <Field flex label="Weight" unit="kg" keyboardType="decimal-pad" value={weight} onChangeText={setWeight} error={errors.weight} />
-          <Field flex label="Pulse" unit="/min" keyboardType="number-pad" value={pulse} onChangeText={setPulse} />
+          {vital('weight', 'Weight', 'kg', 'decimal-pad')}
+          {vital('pulse', 'Pulse', '/min', 'number-pad')}
         </View>
         <View style={styles.row}>
-          <Field flex label="BP systolic" unit="mmHg" keyboardType="number-pad" value={sys} onChangeText={setSys} error={errors.sys} />
-          <Field flex label="BP diastolic" unit="mmHg" keyboardType="number-pad" value={dia} onChangeText={setDia} error={errors.dia} />
+          {vital('sys', 'BP systolic', 'mmHg', 'number-pad')}
+          {vital('dia', 'BP diastolic', 'mmHg', 'number-pad')}
         </View>
         {ga.weeks >= 20 && (
           <View style={styles.row}>
-            <Field flex label="Fundal height" unit="cm" keyboardType="number-pad" value={fundal} onChangeText={setFundal} />
-            <Field flex label="Fetal heart rate" unit="bpm" keyboardType="number-pad" value={fhr} onChangeText={setFhr} error={errors.fhr} />
+            {vital('fundal', 'Fundal height', 'cm', 'number-pad')}
+            {vital('fhr', 'Fetal heart rate', 'bpm', 'number-pad')}
           </View>
         )}
         <AppText variant="caption" tone="faint">
@@ -149,35 +122,65 @@ export default function RecordVisit() {
 
       <Card style={{ gap: space.md }}>
         <AppText variant="title">Examination</AppText>
-        <OptionChips label="Urine albumin" options={['Nil', 'Trace', '1+', '2+', '3+']} value={albumin} onChange={setAlbumin} />
-        <OptionChips label="Urine sugar" options={['Nil', 'Trace', '1+', '2+', '3+']} value={sugar} onChange={setSugar} />
-        <OptionChips label="Oedema" options={['None', 'Pedal', 'Generalised']} value={oedema} onChange={setOedema} />
-        {ga.weeks >= 28 && <OptionChips label="Fetal movements (as reported)" options={['Normal', 'Reduced', 'Not asked']} value={movements} onChange={(v) => setMovements(v === 'Not asked' ? undefined : v)} />}
-        {ga.weeks >= 32 && <OptionChips label="Presentation" options={['Cephalic', 'Breech', 'Transverse', 'Unsure']} value={presentation} onChange={setPresentation} />}
+        {options('albumin', 'Urine albumin', ['Nil', 'Trace', '1+', '2+', '3+'])}
+        {options('sugar', 'Urine sugar', ['Nil', 'Trace', '1+', '2+', '3+'])}
+        {options('oedema', 'Oedema', ['None', 'Pedal', 'Generalised'])}
+        {ga.weeks >= 28 && (
+          <Controller
+            control={control}
+            name="movements"
+            render={({ field }) => <OptionChips label="Fetal movements (as reported)" options={['Normal', 'Reduced', 'Not asked']} value={field.value} onChange={(v) => field.onChange(v === 'Not asked' ? undefined : v)} />}
+          />
+        )}
+        {ga.weeks >= 32 && options('presentation', 'Presentation', ['Cephalic', 'Breech', 'Transverse', 'Unsure'])}
       </Card>
 
       <Card style={{ gap: space.md }}>
         <AppText variant="title">Care given</AppText>
-        <View style={styles.switchRow}>
-          <AppText variant="bodyMedium">IFA / calcium dispensed</AppText>
-          <Switch value={ifa} onValueChange={setIfa} trackColor={{ true: palette.rose300, false: palette.divider }} thumbColor={ifa ? palette.rose500 : palette.white} />
-        </View>
-        <OptionChips multi label="Counselling given" options={['Nutrition', 'Warning signs', 'Birth preparedness', 'Breastfeeding', 'Family planning']} value={counselling} onChange={setCounselling} />
-        <OptionChips multi label="Complaints (as reported)" options={[...COMPLAINTS, OTHER]} value={complaints} onChange={setComplaints} variant="soft" />
-        {complaints.includes(OTHER) && <Field label="Other complaint" placeholder="Write the complaint as reported" multiline value={otherComplaint} onChangeText={setOtherComplaint} />}
+        <Controller
+          control={control}
+          name="ifa"
+          render={({ field }) => (
+            <View style={styles.switchRow}>
+              <AppText variant="bodyMedium">IFA / calcium dispensed</AppText>
+              <Switch value={field.value} onValueChange={field.onChange} trackColor={{ true: palette.rose300, false: palette.divider }} thumbColor={field.value ? palette.rose500 : palette.white} />
+            </View>
+          )}
+        />
+        <Controller
+          control={control}
+          name="counselling"
+          render={({ field }) => <OptionChips multi label="Counselling given" options={['Nutrition', 'Warning signs', 'Birth preparedness', 'Breastfeeding', 'Family planning']} value={field.value} onChange={field.onChange} />}
+        />
+        <Controller control={control} name="complaints" render={({ field }) => <OptionChips multi label="Complaints (as reported)" options={[...COMPLAINTS, OTHER_COMPLAINT]} value={field.value} onChange={field.onChange} variant="soft" />} />
+        {values.complaints.includes(OTHER_COMPLAINT) && (
+          <Controller
+            control={control}
+            name="otherComplaint"
+            render={({ field }) => <Field label="Other complaint" placeholder="Write the complaint as reported" multiline value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />}
+          />
+        )}
       </Card>
 
       <Card style={{ gap: space.sm }}>
         <AppText variant="title">Next visit</AppText>
-        <OptionChips
-          label={`Suggested by ${p.intensity} schedule: ${defaultWeeks} wk`}
-          options={WEEK_SHORTCUTS}
-          value={WEEK_SHORTCUTS.find((w) => Number(w.split(' ')[0]) * 7 === nextInDays)}
-          onChange={(v) => v && setNextOn(addDays(now, Number(v.split(' ')[0]) * 7))}
+        <Controller
+          control={control}
+          name="nextOn"
+          render={({ field }) => (
+            <>
+              <OptionChips
+                label={`Suggested by ${p.intensity} schedule: ${defaultWeeks} wk`}
+                options={WEEK_SHORTCUTS}
+                value={WEEK_SHORTCUTS.find((w) => Number(w.split(' ')[0]) * 7 === nextInDays)}
+                onChange={(v) => v && field.onChange(addDays(now, Number(v.split(' ')[0]) * 7))}
+              />
+              <DatePicker value={field.value} onChange={field.onChange} minDate={addDays(now, 1)} />
+            </>
+          )}
         />
-        <DatePicker value={nextOn} onChange={setNextOn} minDate={addDays(now, 1)} />
         <AppText variant="bodyMedium">
-          In {nextInDays} day{nextInDays === 1 ? '' : 's'} · {fmtDay(nextOn)}
+          In {nextInDays} day{nextInDays === 1 ? '' : 's'} · {fmtDay(values.nextOn)}
         </AppText>
       </Card>
 
@@ -186,7 +189,7 @@ export default function RecordVisit() {
         onClose={() => setReview(false)}
         title="Before you save"
         subtitle="These expected components weren't recorded. Record them, or mark each one."
-        footer={<Button label={comp.missing.length ? `Save anyway (${comp.missing.length} unmarked)` : 'Save visit'} onPress={save} />}
+        footer={<Button label={comp.missing.length ? `Save anyway (${comp.missing.length} unmarked)` : 'Save visit'} disabled={busy} onPress={handleSubmit(save, invalid)} />}
       >
         {expectedComponents(ga.weeks)
           .filter((c) => recorded[c.key] !== 'done')
@@ -194,14 +197,14 @@ export default function RecordVisit() {
             <ChecklistRow
               key={c.key}
               label={c.label}
-              state={gaps[c.key]?.state}
-              detail={gaps[c.key]?.reason}
+              state={values.gaps[c.key]?.state}
+              detail={values.gaps[c.key]?.reason}
               actions={
                 <>
                   <Chip label="Record now" onPress={() => setReview(false)} />
-                  <Chip label="N/A" variant={gaps[c.key]?.state === 'na' ? 'selected' : 'soft'} onPress={() => setGaps((g) => ({ ...g, [c.key]: { state: 'na' } }))} />
+                  <Chip label="N/A" variant={values.gaps[c.key]?.state === 'na' ? 'selected' : 'soft'} onPress={() => mark(c.key, { state: 'na' })} />
                   {NOT_DONE_REASONS.slice(0, 3).map((r) => (
-                    <Chip key={r} label={r} variant={gaps[c.key]?.reason === r ? 'selected' : 'soft'} onPress={() => setGaps((g) => ({ ...g, [c.key]: { state: 'not_done', reason: r } }))} />
+                    <Chip key={r} label={r} variant={values.gaps[c.key]?.reason === r ? 'selected' : 'soft'} onPress={() => mark(c.key, { state: 'not_done', reason: r })} />
                   ))}
                 </>
               }

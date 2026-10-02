@@ -6,7 +6,7 @@ import { addDays, daysBetween, formatGA, gestationalAge } from '@domain/gestatio
 import { GRACE_DAYS, taskStatus, type TaskStatus } from '@domain/schedules';
 
 import type { DbState } from './store';
-import type { Baby, Intensity, Investigation, Pregnancy, Referral, Task } from './types';
+import type { Baby, Intensity, Investigation, Pregnancy, Referral, SubjectId, Task } from './types';
 
 // ── helpers ─────────────────────────────────────────────────────────────────────
 
@@ -153,8 +153,8 @@ const langName = { en: 'English', kn: 'Kannada', hi: 'Hindi' } as const;
 
 export function worklist(db: DbState, now: Date): WorkItem[] {
   const out: WorkItem[] = [];
-  const pById = new Map(db.pregnancies.map((p) => [p.id, p]));
-  const bById = new Map(db.babies.map((b) => [b.id, b]));
+  const pById = new Map<SubjectId, Pregnancy>(db.pregnancies.map((p) => [p.id, p]));
+  const bById = new Map<SubjectId, Baby>(db.babies.map((b) => [b.id, b]));
 
   for (const c of db.callbacks.filter((x) => !x.closedAt)) {
     const m = motherOf(db, c.motherId);
@@ -339,7 +339,7 @@ export function continuityEvents(db: DbState, pregnancyId: string, now: Date, au
   const p = db.pregnancies.find((x) => x.id === pregnancyId);
   if (!p) return [];
   const babies = db.babies.filter((b) => b.pregnancyId === p.id);
-  const babyIdx = new Map(babies.map((b, i) => [b.id, i]));
+  const babyIdx = new Map<SubjectId, number>(babies.map((b, i) => [b.id, i]));
   const ev: TimelineEvent[] = [{ id: 'reg', at: p.registeredOn, lane: 'mother', kind: 'registered', state: 'past', label: 'Registered', sub: p.mchId }];
 
   for (const v of db.visits.filter((x) => x.pregnancyId === p.id)) {

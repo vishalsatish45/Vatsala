@@ -1,63 +1,57 @@
-import { useState } from 'react';
+import { useMemo } from 'react';
 import { Alert, Switch, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Controller, useWatch } from 'react-hook-form';
 import { gestationalAge, formatGA } from '@domain/gestation';
 
+import { asPregnancyId } from '@/data/ids';
 import { motherOf } from '@/data/selectors';
-import { useDb, type BabyInput } from '@/data/store';
+import { useDb, type DeliveryInput } from '@/data/store';
+import type { PregnancyId } from '@/data/types';
+import { BIRTH_TIMES, birthTime, blankBaby, makeDeliverySchema, type DeliveryForm } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
 import { useNow } from '@/lib/clock';
+import { firstError, useZodForm } from '@/lib/forms';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Field, OptionChips, Screen, TopBar, palette, space } from '@/ui';
 
 const MODES = ['Normal vaginal', 'Assisted (vacuum/forceps)', 'LSCS (elective)', 'LSCS (emergency)'];
 const COMPLICATIONS = ['PPH', 'Eclampsia', 'Retained placenta', 'Perineal tear', 'Other'];
 const MEDICINES = ['Oxytocin', 'MgSO4', 'Antibiotics', 'Blood transfusion', 'Steroids (antenatal)'];
-const WHEN = { Now: 0, '1 h ago': 1, '3 h ago': 3, '6 h ago': 6 } as const;
-
-type BabyForm = { sex?: 'F' | 'M'; weight: string; apgar1: string; apgar5: string; outcome: 'live' | 'stillbirth'; birthDoses: boolean };
-const blank = (): BabyForm => ({ weight: '', apgar1: '', apgar5: '', outcome: 'live', birthDoses: true });
 
 /** CT-56/57 Admission & delivery record (PRD F-18) → creates linked baby record(s) (F-19). */
 export default function RecordDelivery() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const id = asPregnancyId(useLocalSearchParams<{ id: string }>().id);
+  return <DeliveryFormScreen key={id} id={id} />;
+}
+
+function DeliveryFormScreen({ id }: { id: PregnancyId }) {
   const db = useDb();
   const now = useNow();
   const by = useActor();
   const p = db.pregnancies.find((x) => x.id === id)!;
   const m = motherOf(db, p.motherId);
-  const [when, setWhen] = useState<keyof typeof WHEN>('Now');
-  const [mode, setMode] = useState<string>();
-  const [indication, setIndication] = useState('');
-  const [loss, setLoss] = useState('');
-  const [complications, setComplications] = useState<string[]>([]);
-  const [medicines, setMedicines] = useState<string[]>(['Oxytocin']);
-  const [count, setCount] = useState('1');
-  const [babies, setBabies] = useState<BabyForm[]>([blank(), blank()]);
+  const schema = useMemo(() => makeDeliverySchema(now), [now]);
+  const { control, handleSubmit } = useZodForm(schema, {
+    defaultValues: { when: 'Now', mode: undefined, indication: '', loss: '', complications: [], medicines: ['Oxytocin'], count: '1', babies: [blankBaby(), blankBaby()] },
+  });
+  const { busy, once } = useSubmitOnce();
+  const admit = useSubmitOnce(p.status);
+  const values = useWatch({ control }) as DeliveryForm;
 
-  const at = new Date(now.getTime() - WHEN[when] * 3_600_000);
-  const ga = gestationalAge(p.edd, at);
-  const n = Number(count);
-  const upd = (i: number, patch: Partial<BabyForm>) => setBabies((b) => b.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const ga = gestationalAge(p.edd, birthTime(values.when, now));
+  const n = Number(values.count);
 
-  function save() {
-    const chosen = babies.slice(0, n);
-    if (!mode) return Alert.alert('Mode of delivery', 'Please choose the mode of delivery.');
-    const bad = chosen.find((b) => !b.sex || !(Number(b.weight) >= 300 && Number(b.weight) <= 6000));
-    if (bad) return Alert.alert('Baby details', 'Each baby needs sex and a birth weight between 300 and 6000 g.');
-    const input: BabyInput[] = chosen.map((b) => ({
-      sex: b.sex!,
-      birthWeightG: Number(b.weight),
-      apgar1: b.apgar1 ? Number(b.apgar1) : undefined,
-      apgar5: b.apgar5 ? Number(b.apgar5) : undefined,
-      outcome: b.outcome,
-      birthDoses: b.outcome === 'live' && b.birthDoses,
-    }));
-    db.recordDelivery(p.id, { at, mode, indication: indication.trim() || undefined, bloodLossMl: loss ? Number(loss) : undefined, complications, medicines, babies: input }, by);
-    router.replace({ pathname: '/care/delivered/[id]', params: { id: p.id } });
-  }
+  const save = handleSubmit(
+    once((input: DeliveryInput) => {
+      db.recordDelivery(p.id, input, by);
+      router.replace({ pathname: '/care/delivered/[id]', params: { id: p.id } });
+    }),
+    (errors) => Alert.alert(errors.mode ? 'Mode of delivery' : 'Baby details', firstError(errors) ?? ''),
+  );
 
   return (
-    <Screen blob="none" header={<TopBar back title="Record delivery" />} footer={<Button label="Save delivery" onPress={save} />}>
+    <Screen blob="none" header={<TopBar back title="Record delivery" />} footer={<Button label="Save delivery" disabled={busy} onPress={save} />}>
       <View style={{ gap: 4 }}>
         <AppText variant="display">{m.name}</AppText>
         <AppText tone="secondary">
@@ -65,35 +59,53 @@ export default function RecordDelivery() {
         </AppText>
       </View>
 
-      {p.status === 'active' && <Button variant="secondary" label="Mark admitted (labour room)" onPress={() => db.admit(p.id, by, now)} />}
+      {p.status === 'active' && <Button variant="secondary" label="Mark admitted (labour room)" disabled={admit.busy} onPress={admit.once(() => db.admit(p.id, by, now))} />}
 
       <Card style={{ gap: space.md }}>
         <AppText variant="title">Delivery</AppText>
-        <OptionChips label="Time of birth" options={Object.keys(WHEN)} value={when} onChange={(v) => v && setWhen(v as keyof typeof WHEN)} />
-        <OptionChips label="Mode" options={MODES} value={mode} onChange={setMode} />
-        {mode?.startsWith('LSCS') && <Field label="Indication (as documented)" value={indication} onChangeText={setIndication} />}
-        <Field label="Estimated blood loss" unit="ml" keyboardType="number-pad" value={loss} onChangeText={setLoss} />
-        <OptionChips multi label="Complications (documented)" options={COMPLICATIONS} value={complications} onChange={setComplications} />
-        <OptionChips multi label="Medicines given" options={MEDICINES} value={medicines} onChange={setMedicines} />
-        <OptionChips label="Number of babies" options={['1', '2']} value={count} onChange={(v) => v && setCount(v)} />
+        <Controller control={control} name="when" render={({ field }) => <OptionChips label="Time of birth" options={Object.keys(BIRTH_TIMES)} value={field.value} onChange={(v) => v && field.onChange(v)} />} />
+        <Controller control={control} name="mode" render={({ field }) => <OptionChips label="Mode" options={MODES} value={field.value} onChange={field.onChange} />} />
+        {values.mode?.startsWith('LSCS') && (
+          <Controller control={control} name="indication" render={({ field }) => <Field label="Indication (as documented)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+        )}
+        <Controller control={control} name="loss" render={({ field }) => <Field label="Estimated blood loss" unit="ml" keyboardType="number-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+        <Controller control={control} name="complications" render={({ field }) => <OptionChips multi label="Complications (documented)" options={COMPLICATIONS} value={field.value} onChange={field.onChange} />} />
+        <Controller control={control} name="medicines" render={({ field }) => <OptionChips multi label="Medicines given" options={MEDICINES} value={field.value} onChange={field.onChange} />} />
+        <Controller control={control} name="count" render={({ field }) => <OptionChips label="Number of babies" options={['1', '2']} value={field.value} onChange={(v) => v && field.onChange(v)} />} />
       </Card>
 
-      {babies.slice(0, n).map((b, i) => (
+      {values.babies.slice(0, n).map((b, i) => (
         <Card key={i} style={{ gap: space.md }}>
           <AppText variant="title">Baby {i + 1}</AppText>
-          <OptionChips label="Outcome" options={['Liveborn', 'Stillborn']} value={b.outcome === 'live' ? 'Liveborn' : 'Stillborn'} onChange={(v) => upd(i, { outcome: v === 'Stillborn' ? 'stillbirth' : 'live' })} />
-          <OptionChips label="Sex" options={['Girl', 'Boy']} value={b.sex === 'F' ? 'Girl' : b.sex === 'M' ? 'Boy' : undefined} onChange={(v) => upd(i, { sex: v === 'Girl' ? 'F' : v === 'Boy' ? 'M' : undefined })} />
-          <Field label="Birth weight" unit="g" keyboardType="number-pad" value={b.weight} onChangeText={(v) => upd(i, { weight: v })} />
+          <Controller
+            control={control}
+            name={`babies.${i}.outcome`}
+            render={({ field }) => <OptionChips label="Outcome" options={['Liveborn', 'Stillborn']} value={field.value === 'live' ? 'Liveborn' : 'Stillborn'} onChange={(v) => field.onChange(v === 'Stillborn' ? 'stillbirth' : 'live')} />}
+          />
+          <Controller
+            control={control}
+            name={`babies.${i}.sex`}
+            render={({ field }) => (
+              <OptionChips label="Sex" options={['Girl', 'Boy']} value={field.value === 'F' ? 'Girl' : field.value === 'M' ? 'Boy' : undefined} onChange={(v) => field.onChange(v === 'Girl' ? 'F' : v === 'Boy' ? 'M' : undefined)} />
+            )}
+          />
+          <Controller control={control} name={`babies.${i}.weight`} render={({ field }) => <Field label="Birth weight" unit="g" keyboardType="number-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
           {b.outcome === 'live' && (
             <>
               <View style={{ flexDirection: 'row', gap: space.sm }}>
-                <Field flex label="Apgar 1 min" keyboardType="number-pad" value={b.apgar1} onChangeText={(v) => upd(i, { apgar1: v })} />
-                <Field flex label="Apgar 5 min" keyboardType="number-pad" value={b.apgar5} onChangeText={(v) => upd(i, { apgar5: v })} />
+                <Controller control={control} name={`babies.${i}.apgar1`} render={({ field }) => <Field flex label="Apgar 1 min" keyboardType="number-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+                <Controller control={control} name={`babies.${i}.apgar5`} render={({ field }) => <Field flex label="Apgar 5 min" keyboardType="number-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
               </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <AppText variant="bodyMedium">Birth doses given (BCG, OPV-0, Hep B)</AppText>
-                <Switch value={b.birthDoses} onValueChange={(v) => upd(i, { birthDoses: v })} trackColor={{ true: palette.rose300, false: palette.divider }} thumbColor={b.birthDoses ? palette.rose500 : palette.white} />
-              </View>
+              <Controller
+                control={control}
+                name={`babies.${i}.birthDoses`}
+                render={({ field }) => (
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <AppText variant="bodyMedium">Birth doses given (BCG, OPV-0, Hep B)</AppText>
+                    <Switch value={field.value} onValueChange={field.onChange} trackColor={{ true: palette.rose300, false: palette.divider }} thumbColor={field.value ? palette.rose500 : palette.white} />
+                  </View>
+                )}
+              />
             </>
           )}
         </Card>

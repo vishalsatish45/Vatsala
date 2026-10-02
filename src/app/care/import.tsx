@@ -8,6 +8,7 @@ import { IMPORT_FIELDS, autoMap, parseCsv, sampleRegisterCsv, validate, type Fie
 import { useActor } from '@/features/care/nav';
 import { pickTextFile } from '@/lib/device';
 import { useNow } from '@/lib/clock';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Chip, ListRow, ProgressBar, Screen, SegmentedPills, StatusBadge, TopBar, space } from '@/ui';
 
 type Step = 'source' | 'mapping' | 'preview';
@@ -23,6 +24,7 @@ export default function ImportRegister() {
   const [mapping, setMapping] = useState<Mapping>({});
   const [editing, setEditing] = useState<FieldKey>();
   const [filter, setFilter] = useState<'valid' | 'warning' | 'rejected'>('valid');
+  const { busy, once } = useSubmitOnce();
 
   const headers = table[0] ?? [];
   const rows = table.slice(1);
@@ -49,11 +51,11 @@ export default function ImportRegister() {
     }
   }
 
-  function confirm() {
+  const confirm = once(() => {
     const ids = db.importRegister(importable.map((r) => r.input!), by, now);
     Alert.alert('Import complete', `${ids.length} pregnancies created with visit schedules and test windows. Past test windows are listed as "due now" for you to confirm.`);
     router.back();
-  }
+  });
 
   return (
     <Screen
@@ -63,7 +65,7 @@ export default function ImportRegister() {
         step === 'mapping' ? (
           <Button label="Check rows" disabled={IMPORT_FIELDS.some((f) => 'required' in f && f.required && mapping[f.key] === undefined)} onPress={() => setStep('preview')} />
         ) : step === 'preview' ? (
-          <Button label={`Import ${importable.length} pregnancies`} disabled={!importable.length} onPress={confirm} />
+          <Button label={`Import ${importable.length} pregnancies`} disabled={!importable.length || busy} onPress={confirm} />
         ) : undefined
       }
     >

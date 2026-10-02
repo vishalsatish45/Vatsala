@@ -9,6 +9,7 @@ import { familyItems, useFamily } from '@/features/family/useFamily';
 import { itemStatus, itemTitle, itemWhen } from '@/features/family/itemText';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { useNow } from '@/lib/clock';
+import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, EmergencyButtons, GlassSurface, Screen, StatusBadge, TopBar, palette, space } from '@/ui';
 
 function Line({ icon: Icon, label, value }: { icon: typeof Info; label: string; value: string }) {
@@ -34,6 +35,7 @@ export default function FamilyItemDetail() {
   const ctx = useFamily();
   const item = familyItems(db, ctx, now).find((i) => i.id === id);
   const [sent, setSent] = useState(false);
+  const { busy, once } = useSubmitOnce();
 
   if (!item || !ctx.mother) return <Screen header={<TopBar back />}><AppText>—</AppText></Screen>;
 
@@ -87,12 +89,13 @@ export default function FamilyItemDetail() {
         <Button
           variant="secondary"
           label={t('family.cantCome')}
-          onPress={() => {
+          disabled={busy}
+          onPress={once(() => {
             // The care team reads English (PRD F-62); the family sees their own language.
             const tEn = i18n.getFixedT('en');
             db.requestCallback(ctx.mother!.id, [], `${tEn('family.cb.cantCome')}: ${itemTitle(tEn, item)}`, ctx.isCaregiver ? `${ctx.accountName} (caregiver)` : `${ctx.mother!.name} (mother)`, 'app', now);
             setSent(true);
-          }}
+          })}
         />
       )}
 

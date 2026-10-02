@@ -15,6 +15,30 @@ import { z } from 'zod';
 
 import { CARD_FIELDS } from './catalogue';
 import { callbackOutcomeCodes, complaintCodes, complicationCodes, contactOutcomeCodes, deliveryModeCodes, dischargeLabel, followUpCodes, labourMedicineCodes, previousModeCodes, previousOutcomeCodes, signLabel } from './codes';
+import {
+  asBabyId,
+  asCallbackId,
+  asCaregiverId,
+  asDeliveryId,
+  asDischargeId,
+  asDocumentId,
+  asEncounterId,
+  asImmunizationId,
+  asInvestigationId,
+  asMedDoseId,
+  asMotherId,
+  asNoteId,
+  asPregnancyId,
+  asPrescriptionId,
+  asReferralId,
+  asSelfLogId,
+  asStaffId,
+  asSubjectId,
+  asTagId,
+  asTaskId,
+  asTeamId,
+  asVisitId,
+} from './ids';
 import type { DbState } from './store';
 import type {
   AuditEntry,
@@ -66,6 +90,7 @@ export function emptyState(): DbState {
 
 // ── contract: column types ────────────────────────────────────────────────────────
 
+/** Every id column is checked to be a UUID here; the mappers below then brand it (`asMotherId` …). */
 const id = z.guid();
 const nid = id.nullable();
 const str = z.string();
@@ -327,8 +352,8 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
   const teamName = new Map(teams.map((t) => [t.id, t.name]));
 
   const s = emptyState();
-  s.staff = staff;
-  s.teams = teams;
+  s.staff = staff.map((x) => ({ ...x, id: asStaffId(x.id) }));
+  s.teams = teams.map((x) => ({ ...x, id: asTeamId(x.id) }));
 
   // Mothers: the IP number of her latest admission (open first).
   const admByMother = groupBy(admissions, (a) => a.mother_id);
@@ -338,7 +363,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
     )[0];
     const ec = m.emergency_contact;
     return {
-      id: m.id,
+      id: asMotherId(m.id),
       name: m.name,
       age: m.age_at_registration ?? (m.dob ? Math.floor((Date.now() - day(m.dob).getTime()) / (365.25 * 86_400_000)) : 0),
       phone: localPhone(m.phone),
@@ -378,9 +403,9 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
     const bg = latestObs(sameMother, 'blood_group');
     const ht = latestObs(sameMother, 'height');
     return {
-      id: g.id,
+      id: asPregnancyId(g.id),
       mchId: g.mch_id,
-      motherId: g.mother_id,
+      motherId: asMotherId(g.mother_id),
       registeredOn: new Date(g.registered_on),
       lmp: dayOpt(d?.lmp),
       edd: day(g.edd),
@@ -406,10 +431,10 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
     };
   });
 
-  const subjectOf = (r: { pregnancy_id: string | null; baby_id: string | null }) => (r.pregnancy_id ?? r.baby_id)!;
+  const subjectOf = (r: { pregnancy_id: string | null; baby_id: string | null }) => asSubjectId((r.pregnancy_id ?? r.baby_id)!);
 
   s.tags = tags.map((t): Tag => ({
-    id: t.id, subjectId: subjectOf(t), code: t.code, note: opt(t.note), setBy: nameOf(t.set_by), setAt: new Date(t.set_at),
+    id: asTagId(t.id), subjectId: subjectOf(t), code: t.code, note: opt(t.note), setBy: nameOf(t.set_by), setAt: new Date(t.set_at),
     removedAt: tsOpt(t.removed_at), removedReason: opt(t.removed_reason),
   }));
 
@@ -423,8 +448,8 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
       const n = (k: string) => (typeof v[k] === 'number' ? (v[k] as number) : undefined);
       const t = (k: string) => (typeof v[k] === 'string' ? (v[k] as string) : undefined);
       return {
-        id: e.id,
-        pregnancyId: e.pregnancy_id!,
+        id: asVisitId(e.id),
+        pregnancyId: asPregnancyId(e.pregnancy_id!),
         at: new Date(e.at),
         by: nameOf(e.by_staff),
         vitals: {
@@ -444,19 +469,19 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
       const n = (k: string) => (typeof v[k] === 'number' ? (v[k] as number) : undefined);
       const t = (k: string) => (typeof v[k] === 'string' ? (v[k] as string) : undefined);
       return {
-        id: e.id, babyId: e.baby_id!, at: new Date(e.at), by: nameOf(e.by_staff),
+        id: asEncounterId(e.id), babyId: asBabyId(e.baby_id!), at: new Date(e.at), by: nameOf(e.by_staff),
         weightG: n('nb_weight'), tempC: n('nb_temp'), respRate: n('nb_resp_rate'), feeding: t('nb_feeding'), jaundice: t('nb_jaundice'),
       };
     });
 
   const contactsByTask = groupBy(contacts, (c) => c.task_id);
   s.tasks = tasks.map((t): Task => ({
-    id: t.id,
+    id: asTaskId(t.id),
     kind: t.kind,
     subjectType: t.baby_id ? 'baby' : 'pregnancy',
     subjectId: subjectOf(t),
     title: t.title,
-    refId: t.referral_id ?? t.completed_by_encounter_id ?? undefined,
+    refId: t.referral_id ? asReferralId(t.referral_id) : t.completed_by_encounter_id ? asVisitId(t.completed_by_encounter_id) : undefined,
     place: opt(t.place),
     dueFrom: dayOpt(t.due_from),
     dueBy: day(t.due_by),
@@ -474,7 +499,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
   s.investigations = investigations.map((i): Investigation => {
     const r = [...(resultsByInv.get(i.id) ?? [])].sort((a, b) => b.entered_at.localeCompare(a.entered_at))[0];
     return {
-      id: i.id,
+      id: asInvestigationId(i.id),
       subjectId: subjectOf(i),
       code: i.code,
       label: i.label,
@@ -496,8 +521,8 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
   // The app shows a cancelled referral as closed.
   const shown = (st: z.infer<typeof referralStatus>) => (st === 'cancelled' ? 'closed' : st);
   s.referrals = referrals.map((r): Referral => ({
-    id: r.id,
-    pregnancyId: r.pregnancy_id ?? babyPregnancy.get(r.baby_id ?? '') ?? '',
+    id: asReferralId(r.id),
+    pregnancyId: asPregnancyId(r.pregnancy_id ?? babyPregnancy.get(r.baby_id ?? '') ?? ''),
     department: teamName.get(r.to_team_id) ?? 'Department',
     urgency: r.urgency,
     reason: r.reason,
@@ -514,8 +539,8 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
 
   const motherName = new Map(mothers.map((m) => [m.id, m.name]));
   s.callbacks = callbacks.map((c): Callback => ({
-    id: c.id,
-    motherId: c.mother_id,
+    id: asCallbackId(c.id),
+    motherId: asMotherId(c.mother_id),
     requestedBy: requesterLabel(c.requested_by_label, motherName.get(c.mother_id)),
     channel: c.channel === 'app' ? 'app' : 'whatsapp',
     signs: c.signs.map(signLabel),
@@ -532,32 +557,32 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
 
   const babiesByPregnancy = groupBy(babies, (b) => b.pregnancy_id);
   s.deliveries = deliveries.map((d): Delivery => ({
-    id: d.id,
-    pregnancyId: d.pregnancy_id,
+    id: asDeliveryId(d.id),
+    pregnancyId: asPregnancyId(d.pregnancy_id),
     at: new Date(d.at),
     mode: deliveryModeCodes.label(d.mode),
     indication: opt(d.indication),
     bloodLossMl: opt(d.blood_loss_ml),
     complications: d.complications.map(complicationCodes.label),
     medicines: d.medicines.map(labourMedicineCodes.label),
-    babyIds: (babiesByPregnancy.get(d.pregnancy_id) ?? []).map((b) => b.id),
+    babyIds: (babiesByPregnancy.get(d.pregnancy_id) ?? []).map((b) => asBabyId(b.id)),
   }));
 
   s.babies = babies.map((b): Baby => ({
-    id: b.id, childId: b.child_id, motherId: b.mother_id, pregnancyId: b.pregnancy_id, dob: new Date(b.dob), sex: babySex(b.sex),
+    id: asBabyId(b.id), childId: b.child_id, motherId: asMotherId(b.mother_id), pregnancyId: asPregnancyId(b.pregnancy_id), dob: new Date(b.dob), sex: babySex(b.sex),
     birthWeightG: b.birth_weight_g ?? 0, gaAtBirthDays: b.ga_at_birth_days ?? 0, apgar1: opt(b.apgar1), apgar5: opt(b.apgar5), outcome: b.outcome, intensity: b.intensity,
   }));
 
   const vaccine = new Map(vaccines.map((v) => [v.code, v]));
   s.immunizations = immunizations.flatMap((z): Immunization[] =>
     z.baby_id
-      ? [{ id: z.id, babyId: z.baby_id, code: z.code, label: vaccine.get(z.code)?.label ?? z.code, group: vaccine.get(z.code)?.grp ?? '', dueOn: day(z.due_on), givenOn: dayOpt(z.given_on) }]
+      ? [{ id: asImmunizationId(z.id), babyId: asBabyId(z.baby_id), code: z.code, label: vaccine.get(z.code)?.label ?? z.code, group: vaccine.get(z.code)?.grp ?? '', dueOn: day(z.due_on), givenOn: dayOpt(z.given_on) }]
       : [],
   );
 
   const itemsByDischarge = groupBy(dischargeItems, (i) => i.discharge_id);
   s.discharges = discharges.map((d): Discharge => ({
-    id: d.id,
+    id: asDischargeId(d.id),
     subjectId: subjectOf(d),
     subject: d.baby_id ? 'baby' : 'mother',
     items: (itemsByDischarge.get(d.id) ?? []).map((i) => ({ key: i.key, label: dischargeLabel(i.key), state: opt(i.state), reason: opt(i.reason) })),
@@ -566,23 +591,23 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
   }));
 
   s.caregivers = caregivers.map((c): Caregiver => ({
-    id: c.id, motherId: c.mother_id, name: c.name, relation: c.relation, phone: localPhone(c.phone),
+    id: asCaregiverId(c.id), motherId: asMotherId(c.mother_id), name: c.name, relation: c.relation, phone: localPhone(c.phone),
     scopes: { schedule: c.scope_schedule, baby: c.scope_baby, logs: c.scope_logs }, addedAt: new Date(c.added_at), revokedAt: tsOpt(c.revoked_at),
   }));
 
-  s.notes = notes.map((n): Note => ({ id: n.id, subjectId: subjectOf(n), author: nameOf(n.author), body: n.body, at: new Date(n.at), kind: n.kind }));
+  s.notes = notes.map((n): Note => ({ id: asNoteId(n.id), subjectId: subjectOf(n), author: nameOf(n.author), body: n.body, at: new Date(n.at), kind: n.kind }));
 
   s.prescriptions = medications
     .filter((m) => m.kind === 'prescription' && m.status === 'active')
-    .map((m): Prescription => ({ id: m.id, motherId: m.mother_id, name: m.name, dose: opt(m.dose), slots: m.slots, instructions: opt(m.instructions) }));
+    .map((m): Prescription => ({ id: asPrescriptionId(m.id), motherId: asMotherId(m.mother_id), name: m.name, dose: opt(m.dose), slots: m.slots, instructions: opt(m.instructions) }));
   const medName = new Map(medications.map((m) => [m.id, m.name]));
-  s.medDoses = doses.map((d): MedDose => ({ id: d.id, motherId: d.mother_id, med: medName.get(d.medication_id) ?? '', medicationId: d.medication_id, date: d.date, slot: d.slot, status: d.status, at: new Date(d.at) }));
+  s.medDoses = doses.map((d): MedDose => ({ id: asMedDoseId(d.id), motherId: asMotherId(d.mother_id), med: medName.get(d.medication_id) ?? '', medicationId: asPrescriptionId(d.medication_id), date: d.date, slot: d.slot, status: d.status, at: new Date(d.at) }));
 
   s.audit = audit.map((a): AuditEntry => ({ id: String(a.id), at: new Date(a.at), actor: a.actor_label ?? a.role ?? 'System', action: a.action.replace(/_/g, ' '), entity: a.entity_type }));
 
-  const encByDoc = new Map(encounters.filter((e) => e.document_id).map((e) => [e.document_id!, e.id]));
+  const encByDoc = new Map(encounters.filter((e) => e.document_id).map((e) => [e.document_id!, asVisitId(e.id)]));
   s.captures = documents.flatMap((d): CaptureDoc[] =>
-    d.fields ? [{ id: d.id, subjectId: subjectOf(d), fields: d.fields, at: new Date(d.captured_at), by: nameOf(d.captured_by), visitId: encByDoc.get(d.id) }] : [],
+    d.fields ? [{ id: asDocumentId(d.id), subjectId: asPregnancyId(subjectOf(d)), fields: d.fields, at: new Date(d.captured_at), by: nameOf(d.captured_by), visitId: encByDoc.get(d.id) }] : [],
   );
 
   return { state: s, versions };
@@ -600,10 +625,10 @@ const babySex = (sex: 'F' | 'M' | 'U'): Baby['sex'] => (sex === 'M' ? 'M' : 'F')
 const SELF_LOG_KINDS: readonly string[] = ['bp', 'weight', 'movements', 'contractions', 'feeding', 'note'];
 function selfLog(lid: string, motherId: string, babyId: string | null | undefined, kind: string, value: string, at: string, by: string): SelfLog {
   return {
-    id: lid,
-    motherId,
+    id: asSelfLogId(lid),
+    motherId: asMotherId(motherId),
     subject: babyId ? 'baby' : 'mother',
-    babyId: opt(babyId),
+    babyId: babyId ? asBabyId(babyId) : undefined,
     // bleeding / wound readings come from other channels; the app lists them as notes.
     kind: (SELF_LOG_KINDS.includes(kind) ? kind : 'note') as SelfLog['kind'],
     value,
@@ -644,9 +669,9 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
 
   const s = emptyState();
   const versions: Versions = {};
-  const motherId = ctx.mother.id;
+  const motherId = asMotherId(ctx.mother.id);
   const card = ctx.card;
-  const prescriptions = medicines.map((m): Prescription => ({ id: m.id, motherId, name: m.name, dose: opt(m.dose), slots: m.slots, instructions: opt(m.instructions) }));
+  const prescriptions = medicines.map((m): Prescription => ({ id: asPrescriptionId(m.id), motherId, name: m.name, dose: opt(m.dose), slots: m.slots, instructions: opt(m.instructions) }));
 
   s.mothers = [{
     id: motherId,
@@ -662,7 +687,7 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
   const g = ctx.pregnancy;
   if (g) {
     s.pregnancies = [{
-      id: g.id,
+      id: asPregnancyId(g.id),
       mchId: g.mch_id ?? '',
       motherId,
       registeredOn: new Date(g.registered_on),
@@ -676,32 +701,32 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
       previous: [],
     }];
   }
-  const pregId = g?.id ?? '';
+  const pregId = asPregnancyId(g?.id ?? '');
 
   s.babies = babies.map((b): Baby => ({
-    id: b.id, childId: b.child_id, motherId, pregnancyId: pregId, dob: new Date(b.dob), sex: babySex(b.sex),
+    id: asBabyId(b.id), childId: b.child_id, motherId, pregnancyId: pregId, dob: new Date(b.dob), sex: babySex(b.sex),
     birthWeightG: b.birth_weight_g ?? 0, gaAtBirthDays: 0, outcome: b.live ? 'live' : 'stillbirth', intensity: 'routine',
   }));
 
   // The journey's "birth" moment for the family timeline: the date only — delivery details are the clinicians'.
   if (g && s.babies.length) {
     const first = s.babies.reduce((a, b) => (a.dob.getTime() <= b.dob.getTime() ? a : b));
-    s.deliveries = [{ id: `birth_${g.id}`, pregnancyId: g.id, at: first.dob, mode: '', complications: [], medicines: [], babyIds: s.babies.map((b) => b.id) }];
+    s.deliveries = [{ id: asDeliveryId(`birth_${g.id}`), pregnancyId: pregId, at: first.dob, mode: '', complications: [], medicines: [], babyIds: s.babies.map((b) => b.id) }];
   }
 
   s.tasks = schedule.visits.map((t): Task => ({
-    id: t.id, kind: t.kind, subjectType: t.baby_id ? 'baby' : 'pregnancy', subjectId: t.baby_id ?? pregId, title: t.title,
+    id: asTaskId(t.id), kind: t.kind, subjectType: t.baby_id ? 'baby' : 'pregnancy', subjectId: t.baby_id ? asBabyId(t.baby_id) : pregId, title: t.title,
     place: opt(t.place), dueFrom: dayOpt(t.due_from), dueBy: day(t.due_by), completedAt: t.done ? day(t.due_by) : undefined,
     generatedBy: 'protocol', contactAttempts: [],
   }));
 
   s.immunizations = schedule.vaccines.flatMap((z): Immunization[] =>
-    z.baby_id && z.status !== 'not_given' ? [{ id: z.id, babyId: z.baby_id, code: z.code, label: z.label, group: z.group, dueOn: day(z.due_on), givenOn: dayOpt(z.given_on) }] : [],
+    z.baby_id && z.status !== 'not_given' ? [{ id: asImmunizationId(z.id), babyId: asBabyId(z.baby_id), code: z.code, label: z.label, group: z.group, dueOn: day(z.due_on), givenOn: dayOpt(z.given_on) }] : [],
   );
 
   s.investigations = tests.map((i): Investigation => ({
-    id: i.id,
-    subjectId: i.baby_id ?? pregId,
+    id: asInvestigationId(i.id),
+    subjectId: i.baby_id ? asBabyId(i.baby_id) : pregId,
     code: i.code,
     label: i.label,
     kind: i.kind,
@@ -718,7 +743,7 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
   s.visits = [...atGroups.entries()].map(([at, obs]): Visit => {
     const v = (code: string) => obs.find((o) => o.code === code)?.value_num ?? undefined;
     return {
-      id: `reading_${at}`, pregnancyId: pregId, at: new Date(at), by: '',
+      id: asVisitId(`reading_${at}`), pregnancyId: pregId, at: new Date(at), by: '',
       vitals: { weightKg: v('weight'), bpSys: v('bp_sys'), bpDia: v('bp_dia'), fundalHeightCm: v('fundal_height'), fhr: v('fhr') },
       checklist: {}, complaints: [],
     };
@@ -730,21 +755,21 @@ export async function loadFamilySnapshot(db: SupabaseClient, who: FamilyWho): Pr
   ];
 
   s.callbacks = callbacks.map((c): Callback => ({
-    id: c.id, motherId, requestedBy: requesterLabel(c.by, ctx.mother.name), channel: 'app', signs: c.signs.map(signLabel),
+    id: asCallbackId(c.id), motherId, requestedBy: requesterLabel(c.by, ctx.mother.name), channel: 'app', signs: c.signs.map(signLabel),
     at: new Date(c.at), closedAt: tsOpt(c.closed_at),
   }));
 
   s.caregivers = isMother
     ? caregivers.map((c): Caregiver => ({
-        id: c.id, motherId, name: c.name, relation: c.relation, phone: localPhone(c.phone),
+        id: asCaregiverId(c.id), motherId, name: c.name, relation: c.relation, phone: localPhone(c.phone),
         scopes: { schedule: c.scopes.schedule, baby: c.scopes.baby, logs: c.scopes.logs }, addedAt: new Date(c.added_at),
       }))
-    : [{ id: 'me', motherId, name: who.name, relation: '', phone: who.phone, scopes: { schedule: sc.schedule, baby: sc.baby, logs: sc.logs }, addedAt: new Date(0) }];
+    : [{ id: asCaregiverId('me'), motherId, name: who.name, relation: '', phone: who.phone, scopes: { schedule: sc.schedule, baby: sc.baby, logs: sc.logs }, addedAt: new Date(0) }];
   for (const c of caregivers) versions[c.id] = c.version;
 
   s.prescriptions = prescriptions;
   s.medDoses = medicines.flatMap((m) =>
-    m.doses.map((d): MedDose => ({ id: `${m.id}:${d.date}:${d.slot}`, motherId, med: m.name, medicationId: m.id, date: d.date, slot: d.slot, status: d.status, at: day(d.date) })),
+    m.doses.map((d): MedDose => ({ id: asMedDoseId(`${m.id}:${d.date}:${d.slot}`), motherId, med: m.name, medicationId: asPrescriptionId(m.id), date: d.date, slot: d.slot, status: d.status, at: day(d.date) })),
   );
 
   return { state: s, versions };
