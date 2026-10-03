@@ -97,6 +97,7 @@ export const previousOutcomeCodes = table([
   ['ectopic', 'Ectopic'],
   ['molar', 'Molar'],
   ['neonatal_death', 'Neonatal death'],
+  ['other', 'Other'],
 ]);
 export const previousModeCodes = table([
   ['vaginal', 'Normal'],
@@ -152,5 +153,5 @@ export const previousLabel = (x: { year: number; outcome: string; mode?: string;
 export const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] as const;
 
 /** Previous-pregnancy outcome and mode labels, in the order the registration form offers them. */
-export const PREVIOUS_OUTCOMES = ['Live birth', 'Stillbirth', 'Miscarriage', 'MTP', 'Ectopic', 'Molar', 'Neonatal death'] as const;
+export const PREVIOUS_OUTCOMES = ['Live birth', 'Stillbirth', 'Miscarriage', 'MTP', 'Ectopic', 'Molar', 'Neonatal death', 'Other'] as const;
 export const PREVIOUS_MODES = ['Normal', 'Assisted', 'LSCS'] as const;

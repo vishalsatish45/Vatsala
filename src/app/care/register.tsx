@@ -210,7 +210,7 @@ function RegisterScreen() {
                 <Controller control={control} name={`previous.${i}.outcome`} render={({ field }) => <OptionChips label="Outcome" options={[...PREVIOUS_OUTCOMES]} value={field.value} onChange={field.onChange} />} />
                 <Controller control={control} name={`previous.${i}.mode`} render={({ field }) => <OptionChips label="Mode of delivery (if any)" options={[...PREVIOUS_MODES]} value={field.value} onChange={field.onChange} />} />
                 <Controller control={control} name={`previous.${i}.complications`} render={({ field }) => <Field label="Complications (as documented)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
-                <Controller control={control} name={`previous.${i}.note`} render={({ field }) => <Field label="Note" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+                <Controller control={control} name={`previous.${i}.note`} render={({ field }) => <Field label={values.previous[i]?.outcome === 'Other' ? 'Note: what was the outcome?' : 'Note'} value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
                 <Chip label="Remove" icon={Trash2} onPress={() => previous.remove(i)} />
               </View>
             ))}
@@ -228,8 +228,8 @@ function RegisterScreen() {
             {values.conditions.includes(OTHER_CONDITION) && (
               <Controller control={control} name="otherCondition" render={({ field }) => <Field label="Other condition (as documented)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
             )}
-            <Controller control={control} name="allergies" render={({ field }) => <Field label="Allergies" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
-            <Controller control={control} name="medicines" render={({ field }) => <Field label="Current medicines (as documented)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+            <Controller control={control} name="allergies" render={({ field }) => <Field label="Allergies (optional)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+            <Controller control={control} name="medicines" render={({ field }) => <Field label="Current medicines (as documented, optional)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
             <Controller control={control} name="blood" render={({ field }) => <OptionChips label="Blood group (if known)" options={BLOOD} value={field.value} onChange={field.onChange} />} />
             <View style={styles.row}>
               <Controller control={control} name="height" render={({ field }) => <Field flex label="Height (if measured)" unit="cm" keyboardType="decimal-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />

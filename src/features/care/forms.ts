@@ -374,6 +374,7 @@ export function makeRegisterSchema(now: Date, opts: { units?: readonly string[];
       v.previous.forEach((r, i) => {
         if (!wholeIn(r.year, 1960, now.getUTCFullYear())) at(['previous', i, 'year'], `Previous pregnancy ${i + 1}: year 1960–${now.getUTCFullYear()}`);
         if (!r.outcome) at(['previous', i, 'outcome'], `Previous pregnancy ${i + 1}: choose the outcome`);
+        else if (r.outcome === 'Other' && !r.note.trim()) at(['previous', i, 'note'], `Previous pregnancy ${i + 1}: describe the outcome in the note`);
         if (r.weeks.trim() && !wholeIn(r.weeks, 4, 45)) at(['previous', i, 'weeks'], `Previous pregnancy ${i + 1}: gestation 4–45 weeks`);
       });
 
