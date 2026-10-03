@@ -39,6 +39,7 @@
     "rateLimited": "Too many tries. Please wait a minute and try again.",
     "expired": "That code has expired. Tap “Resend code”.",
     "noAccess": "This number has no access yet. Please ask your hospital.",
+    "otpEnterAll": "Enter all 6 digits of the code.",
     "wrongDoorCare": "This number isn't registered with the hospital care team. If you're a mother or family member, go back and choose Mother / family.",
     "wrongDoorFamily": "This number isn't registered as a mother or family member. If you're on the hospital care team, go back and choose Hospital care team."
   },

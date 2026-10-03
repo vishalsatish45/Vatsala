@@ -68,7 +68,7 @@ export default function Otp() {
   const masked = phone ?`+91 ${phone.slice(0, 5)} ${phone.slice(5)}` : '';
 
   return (
-    <Screen header={<TopBar back />} backdrop={<BrandBackdrop faint />} footer={<Button label={t('auth.verify')} onPress={() => verify()} disabled={code.length !== LEN} loading={loading} />}>
+    <Screen header={<TopBar back />} backdrop={<BrandBackdrop faint />} footer={<Button label={t('auth.verify')} onPress={() => (code.length === LEN ? verify() : setError(t('auth.otpEnterAll')))} loading={loading} />}>
       <View style={{ gap: space.xs }}>
         <AppText variant="display">{t('auth.otpTitle')}</AppText>
         <AppText tone="secondary">{t('auth.otpSub', { phone: masked })}</AppText>
