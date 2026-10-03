@@ -115,7 +115,7 @@ function RegisterScreen() {
     // In Supabase mode the MCH id is assigned by the server and appears on her record once saved.
     Alert.alert(
       'Pregnancy registered',
-      `${isRemote ? 'MCH id is being assigned.' : p?.mchId}\nRecord the dating at her first check-up: the ANC visits and test windows are scheduled from it.`,
+      `${isRemote ? 'MCH id is being assigned.' : p?.mchId}\nRecord the dating scan / EDD at her first check-up: the ANC visits and test windows are scheduled from it.`,
     );
     router.replace({ pathname: '/care/p/[id]', params: { id } });
   });
@@ -287,7 +287,7 @@ function RegisterScreen() {
           )}
           {isRemote && units.length === 0 && <AppText tone="overdue">You are not a member of an obstetric unit, so you cannot register a pregnancy. Ask your hospital admin.</AppText>}
           <AppText variant="caption" tone="faint">
-            The dating (LMP, scan or your EDD) is recorded at her first check-up from her record; it schedules the ANC visits and test windows.
+            The dating scan / EDD (from LMP, a scan or your EDD) is recorded at her first check-up from her record; it schedules the ANC visits and test windows.
           </AppText>
         </>
       )}

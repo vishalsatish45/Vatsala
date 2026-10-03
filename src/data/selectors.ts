@@ -51,7 +51,7 @@ export const referralOpen = (r: Pick<Referral, 'status'>) => !REFERRAL_ENDED.inc
 export const activeTags = (db: DbState, subjectId: string) => db.tags.filter((t) => t.subjectId === subjectId && !t.removedAt);
 
 /** Shown wherever a gestational age would be, until the doctor records the dating. */
-export const DATING_NOT_RECORDED = 'Dating not recorded';
+export const DATING_NOT_RECORDED = 'Dating scan / EDD not recorded';
 
 export function gaLabel(p: Pick<Pregnancy, 'edd'>, now: Date) {
   return p.edd ? formatGAWords(gestationalAge(p.edd, now)) : DATING_NOT_RECORDED;

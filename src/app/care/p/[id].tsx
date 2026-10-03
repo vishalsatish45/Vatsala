@@ -483,7 +483,7 @@ export default function PatientView() {
               </AppText>
               {treating && (
                 <Button
-                  label="Record dating"
+                  label="Record dating scan / EDD"
                   icon={CalendarClock}
                   onPress={() =>
                     router.push({
@@ -730,7 +730,7 @@ export default function PatientView() {
               <AppText tone="secondary">
                 {p.edd
                   ? "No ANC visits are planned."
-                  : "ANC visits are planned once the dating is recorded."}
+                  : "ANC visits are planned once the dating scan / EDD is recorded."}
               </AppText>
             )}
             {scheduled.map((s) => (
@@ -930,7 +930,7 @@ export default function PatientView() {
             </Card>
           </Section>
 
-          <Section title="Dating">
+          <Section title="Dating scan / EDD">
             <Card>
               <InfoRow
                 label="EDD"
@@ -946,7 +946,7 @@ export default function PatientView() {
               <Button
                 variant="secondary"
                 icon={CalendarClock}
-                label={p.edd ? "Re-date (EDD)" : "Record dating"}
+                label={p.edd ? "Re-date (EDD)" : "Record dating scan / EDD"}
                 onPress={() =>
                   router.push({
                     pathname: "/care/p/[id]/redate",
@@ -1051,7 +1051,7 @@ export default function PatientView() {
         {treating && ongoing && (
           <>
             <MenuRow icon={Camera} label="Capture paper record" onPress={go({ pathname: "/care/capture", params: { id: p.id } })} />
-            <MenuRow icon={CalendarClock} label={p.edd ? "Re-date (EDD)" : "Record dating"} onPress={go({ pathname: "/care/p/[id]/redate", params: { id: p.id } })} />
+            <MenuRow icon={CalendarClock} label={p.edd ? "Re-date (EDD)" : "Record dating scan / EDD"} onPress={go({ pathname: "/care/p/[id]/redate", params: { id: p.id } })} />
           </>
         )}
 

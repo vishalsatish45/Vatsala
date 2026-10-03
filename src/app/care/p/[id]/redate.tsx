@@ -28,7 +28,7 @@ const SOURCE: Record<string, string> = { lmp: 'LMP', scan: 'scan', clinician: 'c
 export default function Redate() {
   const id = asPregnancyId(useLocalSearchParams<{ id: string }>().id);
   const p = useDb((s) => s.pregnancies.find((x) => x.id === id));
-  if (!p) return <Screen header={<TopBar back title="Dating" />}><AppText>Not found.</AppText></Screen>;
+  if (!p) return <Screen header={<TopBar back title="Dating scan / EDD" />}><AppText>Not found.</AppText></Screen>;
   return <DatingScreen key={p.id} pregnancyId={p.id} />;
 }
 
@@ -51,7 +51,7 @@ function DatingScreen({ pregnancyId }: { pregnancyId: ReturnType<typeof asPregna
   const entered = registerDating(values);
   const newEdd = parsed.success && entered ? eddFor(entered) : undefined;
   const openVisits = db.tasks.filter((t) => t.subjectId === p.id && t.kind === 'anc_visit' && !t.completedAt && !t.cancelledAt && t.dueBy.getTime() > now.getTime()).length;
-  const title = first ? 'Record dating' : 'Re-date pregnancy';
+  const title = first ? 'Record dating scan / EDD' : 'Re-date pregnancy';
 
   const save = handleSubmit(
     once((dating) => {
@@ -69,7 +69,7 @@ function DatingScreen({ pregnancyId }: { pregnancyId: ReturnType<typeof asPregna
       {!ongoing && <AppText tone="secondary">Only an ongoing pregnancy can be dated.</AppText>}
       {first && (
         <AppText tone="secondary">
-          Dating not recorded yet. Enter how you date her pregnancy; the EDD it gives schedules her ANC visits and test windows.
+          Dating scan / EDD not recorded yet. Enter how you date her pregnancy; the EDD it gives schedules her ANC visits and test windows.
         </AppText>
       )}
 
@@ -122,7 +122,7 @@ function DatingScreen({ pregnancyId }: { pregnancyId: ReturnType<typeof asPregna
           <AppText variant="label" tone="secondary">{first ? 'EDD' : 'New EDD'} ({SOURCE[method]})</AppText>
           <AppText variant="title">{newEdd ? fmtDay(newEdd) : '—'}</AppText>
           <AppText variant="caption" tone="secondary">
-            {newEdd ? `GA today ${formatGAWords(gestationalAge(newEdd, now))}` : 'Enter the dating'}
+            {newEdd ? `GA today ${formatGAWords(gestationalAge(newEdd, now))}` : 'Enter the dating scan / EDD'}
           </AppText>
         </Card>
       </View>
@@ -132,7 +132,7 @@ function DatingScreen({ pregnancyId }: { pregnancyId: ReturnType<typeof asPregna
           : `You choose which EDD the record uses. Choosing the new one re-plans the ${openVisits} future ANC visit${openVisits === 1 ? '' : 's'} from it; completed visits and results are kept.`}
       </AppText>
 
-      <Button label={first ? 'Save dating' : 'Use the new EDD'} disabled={!newEdd || !ongoing || busy} onPress={save} />
+      <Button label={first ? 'Save dating scan / EDD' : 'Use the new EDD'} disabled={!newEdd || !ongoing || busy} onPress={save} />
       <Button variant="secondary" label={first ? 'Not now' : 'Keep the current EDD'} onPress={() => router.back()} />
     </Screen>
   );
