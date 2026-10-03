@@ -261,7 +261,8 @@ type Actions = {
   /** Reassign a pregnancy's or a baby's care team, with or without a named doctor (assign_care). */
   assignCare: (subjectId: SubjectId, specialty: CareSpecialty, teamId: TeamId, staffId: StaffId | undefined, reason: string, by: string, now: Date) => void;
   orderInvestigation: (id: InvestigationId, by: string, now: Date) => void;
-  enterResult: (id: InvestigationId, value: string, unit: string | undefined, note: string | undefined, by: string, now: Date) => void;
+  /** `crlMm`: a scan's CRL as reported (mm). */
+  enterResult: (id: InvestigationId, value: string, unit: string | undefined, note: string | undefined, by: string, now: Date, crlMm?: number) => void;
   reviewResult: (id: InvestigationId, followUp: string, by: string, now: Date) => void;
   markNotDone: (id: InvestigationId, reason: string, by: string, now: Date) => void;
   createReferral: (r: Pick<Referral, 'pregnancyId' | 'department' | 'urgency' | 'reason' | 'question'> & { toTeamId?: TeamId }, by: string, now: Date) => ReferralId;
@@ -653,7 +654,7 @@ export const useDb = create<Db>()((set, get) => {
       // Like a new result, a corrected one waits for a fresh review (server correct_result).
       set({
         investigations: s.investigations.map((i) =>
-          i.id === investigationId ? { ...i, status: 'resulted', result: { value: c.value.trim(), unit: c.unit, note: c.note?.trim() || undefined, at: c.testedAt }, resultId, review: undefined } : i,
+          i.id === investigationId ? { ...i, status: 'resulted', result: { value: c.value.trim(), unit: c.unit, note: c.note?.trim() || undefined, at: c.testedAt, crlMm: c.crlMm }, resultId, review: undefined } : i,
         ),
         audit: audit(s, by, 'record_corrected (result)', investigationId, now),
       });
@@ -789,11 +790,11 @@ export const useDb = create<Db>()((set, get) => {
       enqueue('update_investigation', { id, action: 'order', at: now.toISOString() }, { entityId: id, withVersion: true });
     },
 
-    enterResult: (id, value, unit, note, by, now) => {
+    enterResult: (id, value, unit, note, by, now, crlMm) => {
       const s = get();
       const resultId = uid('rs');
-      set({ investigations: s.investigations.map((i) => (i.id === id ? { ...i, status: 'resulted', result: { value, unit, note, at: now }, resultId, review: undefined } : i)), audit: audit(s, by, 'enter_result', id, now) });
-      enqueue('record_result', { id: resultId, investigation_id: id, ...resultValue(value, unit), reported_at: now.toISOString(), note }, { entityId: id, withVersion: true });
+      set({ investigations: s.investigations.map((i) => (i.id === id ? { ...i, status: 'resulted', result: { value, unit, note, at: now, crlMm }, resultId, review: undefined } : i)), audit: audit(s, by, 'enter_result', id, now) });
+      enqueue('record_result', { id: resultId, investigation_id: id, ...resultValue(value, unit), reported_at: now.toISOString(), note, crl_mm: crlMm }, { entityId: id, withVersion: true });
     },
 
     reviewResult: (id, followUp, by, now) => {

@@ -344,11 +344,11 @@ export function resultValue(value: string, unit?: string) {
 }
 
 /** A result as entered, corrected: the value (and unit), the note and the date tested. */
-export type ResultCorrection = { value: string; unit?: string; note?: string; testedAt: Date };
+export type ResultCorrection = { value: string; unit?: string; note?: string; testedAt: Date; crlMm?: number };
 
 /** `correct_result`: the shown result `resultId` replaced by `newId` (the test's version is stamped by the outbox). */
 export function correctResultPayload(resultId: Id, newId: Id, c: ResultCorrection) {
-  return { result_id: resultId, id: newId, ...resultValue(c.value, c.unit), note: c.note?.trim() || undefined, reported_at: c.testedAt.toISOString() };
+  return { result_id: resultId, id: newId, ...resultValue(c.value, c.unit), note: c.note?.trim() || undefined, reported_at: c.testedAt.toISOString(), crl_mm: c.crlMm };
 }
 
 /** A documented history entry, corrected (as documented). */

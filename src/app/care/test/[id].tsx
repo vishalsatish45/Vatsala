@@ -125,6 +125,7 @@ export default function TestDetail() {
           title={`Result (as entered): ${inv.result.value}${inv.result.unit ? ` ${inv.result.unit}` : ""}`}
           subtitle={[
             `Tested ${fmtDay(inv.result.at)}`,
+            inv.result.crlMm != null ? `CRL ${inv.result.crlMm} mm` : undefined,
             inv.result.note,
             editable && inv.resultId ? "Tap to correct" : undefined,
           ]
@@ -227,6 +228,7 @@ function ResultCorrectionForm({
     {
       defaultValues: {
         value: `${r.value}${r.unit ? ` ${r.unit}` : ""}`,
+        crl: r.crlMm != null ? String(r.crlMm) : "",
         note: r.note ?? "",
         testedOn: r.at,
       },
@@ -254,6 +256,24 @@ function ResultCorrectionForm({
           />
         )}
       />
+      {inv.kind === "scan" && (
+        <Controller
+          control={control}
+          name="crl"
+          render={({ field, fieldState }) => (
+            <Field
+              label="CRL (as reported, optional)"
+              unit="mm"
+              keyboardType="decimal-pad"
+              maxLength={6}
+              value={field.value}
+              onChangeText={field.onChange}
+              onBlur={field.onBlur}
+              error={fieldState.error?.message}
+            />
+          )}
+        />
+      )}
       <Controller
         control={control}
         name="note"
@@ -367,11 +387,11 @@ function ResultForm({ inv }: { inv: Investigation }) {
   const now = useNow();
   const by = useActor();
   const { control, handleSubmit } = useZodForm(resultSchema, {
-    defaultValues: { value: "", note: "" },
+    defaultValues: { value: "", crl: "", note: "" },
   });
   const { busy, once } = useSubmitOnce(inv.status);
   const save = handleSubmit(
-    once((r) => db.enterResult(inv.id, r.value, undefined, r.note, by, now)),
+    once((r) => db.enterResult(inv.id, r.value, undefined, r.note, by, now, r.crlMm)),
   );
   return (
     <>
@@ -390,6 +410,24 @@ function ResultForm({ inv }: { inv: Investigation }) {
           />
         )}
       />
+      {inv.kind === "scan" && (
+        <Controller
+          control={control}
+          name="crl"
+          render={({ field, fieldState }) => (
+            <Field
+              label="CRL (as reported, optional)"
+              unit="mm"
+              keyboardType="decimal-pad"
+              maxLength={6}
+              value={field.value}
+              onChangeText={field.onChange}
+              onBlur={field.onBlur}
+              error={fieldState.error?.message}
+            />
+          )}
+        />
+      )}
       <Controller
         control={control}
         name="note"

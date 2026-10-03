@@ -189,7 +189,8 @@ export type Investigation = {
   late: boolean;
   status: InvestigationStatus;
   orderedAt?: Date;
-  result?: { value: string; unit?: string; at: Date; note?: string };
+  /** `crlMm`: a scan's CRL as reported (mm), its own field. */
+  result?: { value: string; unit?: string; at: Date; note?: string; crlMm?: number };
   /** Id of the result shown in `result` (for entered-in-error). */
   resultId?: Id;
   review?: { by: string; at: Date; followUp: string };

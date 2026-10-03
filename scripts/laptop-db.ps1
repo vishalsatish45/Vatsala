@@ -6,12 +6,13 @@
 #   .\scripts\laptop-db.ps1 stop      # stop it (harmless either way before shutting the laptop)
 #   .\scripts\laptop-db.ps1 status
 #   .\scripts\laptop-db.ps1 reset     # drop + recreate mch_dev: shim -> migrations -> seed -> tests
+#   .\scripts\laptop-db.ps1 build     # the same without the tests (then run one test file with psql -f)
 #   .\scripts\laptop-db.ps1 test      # re-run supabase/tests against the current mch_dev
 #   .\scripts\laptop-db.ps1 psql      # interactive shell on mch_dev
 #
 # Synthetic data only. The shim (supabase/laptop) fakes the bits of Supabase that plain Postgres lacks
 # (auth.users, auth.uid(), API roles) and is never applied to a Supabase project.
-param([ValidateSet("init", "start", "stop", "status", "reset", "test", "perf", "psql")][string]$Action = "status")
+param([ValidateSet("init", "start", "stop", "status", "reset", "build", "test", "perf", "psql")][string]$Action = "status")
 
 $ErrorActionPreference = "Stop"
 $PgBin = "C:\Program Files\PostgreSQL\17\bin"
@@ -57,7 +58,7 @@ switch ($Action) {
   }
   "stop" { & "$PgBin\pg_ctl.exe" -D $Data -m fast -w stop }
   "status" { & "$PgBin\pg_ctl.exe" -D $Data status }
-  "reset" {
+  { $_ -in "reset", "build" } {
     Write-Host "Recreating $Db on port $Port"
     Invoke-Psql "postgres" @("-c", "drop database if exists $Db with (force)")
     Invoke-Psql "postgres" @("-c", "create database $Db")
@@ -65,6 +66,8 @@ switch ($Action) {
     Invoke-SqlDir (Join-Path $Supa "migrations")
     Write-Host "  seed.sql"
     Invoke-Psql $Db @("-f", (Join-Path $Supa "seed.sql"))
+    # build: the schema and seed only (run one test file by hand); reset: every suite too
+    if ($Action -eq "build") { Write-Host "Done: $Db is fresh (tests not run)."; break }
     Invoke-Tests
     Write-Host "Done: $Db is fresh and all tests passed."
   }

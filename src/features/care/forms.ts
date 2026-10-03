@@ -825,9 +825,22 @@ export function makeDeathSchema(now: Date, dob: Date) {
 
 export const FOLLOW_UPS = ['None', 'Repeat test', 'Refer', 'Discuss at next visit'] as const;
 
+/** A scan's CRL as reported (mm): empty, or a number above 0 and up to 200 (server investigation_results.crl_mm). */
+const crlIssue = (crl: string | undefined) => {
+  if (!crl?.trim()) return undefined;
+  const n = numText(crl);
+  return n !== undefined && n > 0 && n <= 200 ? undefined : 'CRL: a number in mm (up to 200)';
+};
+const crlOf = (crl: string | undefined) => (crl?.trim() ? numText(crl) : undefined);
+
+/** A result as reported. Scan tests also take the CRL (mm) as written on the report: recorded, never interpreted. */
 export const resultSchema = z
-  .object({ value: text.refine((s) => !!s.trim(), 'Enter the result as reported'), note: text })
-  .transform((v) => ({ value: v.value.trim(), note: trimmedOrUndefined(v.note) }));
+  .object({ value: text.refine((s) => !!s.trim(), 'Enter the result as reported'), crl: text.optional(), note: text })
+  .superRefine((v, ctx) => {
+    const issue = crlIssue(v.crl);
+    if (issue) ctx.addIssue({ code: 'custom', path: ['crl'], message: issue });
+  })
+  .transform((v) => ({ value: v.value.trim(), crlMm: crlOf(v.crl), note: trimmedOrUndefined(v.note) }));
 
 export const notDoneSchema = z.object({ reason: choice }).refine((v) => !!v.reason, { path: ['reason'], message: 'Choose a reason' });
 
@@ -839,9 +852,13 @@ export const reviewSchema = z.object({ followUp: z.enum(FOLLOW_UPS).optional() }
  */
 export function makeResultCorrectionSchema(now: Date) {
   return z
-    .object({ value: text.refine((s) => !!s.trim(), 'Enter the result as reported'), note: text, testedOn: z.date() })
-    .refine((v) => startOfLocalDay(v.testedOn) <= startOfLocalDay(now), { path: ['testedOn'], message: 'The date tested cannot be in the future' })
-    .transform((v): ResultCorrection => ({ value: v.value.trim(), note: trimmedOrUndefined(v.note), testedAt: v.testedOn }));
+    .object({ value: text.refine((s) => !!s.trim(), 'Enter the result as reported'), crl: text.optional(), note: text, testedOn: z.date() })
+    .superRefine((v, ctx) => {
+      if (startOfLocalDay(v.testedOn) > startOfLocalDay(now)) ctx.addIssue({ code: 'custom', path: ['testedOn'], message: 'The date tested cannot be in the future' });
+      const issue = crlIssue(v.crl);
+      if (issue) ctx.addIssue({ code: 'custom', path: ['crl'], message: issue });
+    })
+    .transform((v): ResultCorrection => ({ value: v.value.trim(), crlMm: crlOf(v.crl), note: trimmedOrUndefined(v.note), testedAt: v.testedOn }));
 }
 export type ResultCorrectionForm = z.input<ReturnType<typeof makeResultCorrectionSchema>>;
 

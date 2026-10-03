@@ -1049,7 +1049,7 @@ export default function PatientView() {
           </Section>
 
           {treating && (p.status === "active" || delivered) && (
-            <Section title="Episode">
+            <Section title="Outcome">
               <Button
                 variant="secondary"
                 label={

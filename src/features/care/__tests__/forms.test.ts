@@ -403,7 +403,11 @@ describe('delivery schema', () => {
 describe('small care forms', () => {
   it('investigation result, not-done and review', () => {
     expect(resultSchema.safeParse({ value: '  ', note: '' }).success).toBe(false);
-    expect(resultSchema.parse({ value: ' 11.2 g/dL ', note: ' ' })).toEqual({ value: '11.2 g/dL', note: undefined });
+    expect(resultSchema.parse({ value: ' 11.2 g/dL ', note: ' ' })).toEqual({ value: '11.2 g/dL', crlMm: undefined, note: undefined });
+    // A scan's CRL (mm), as reported: its own number, never folded into the note
+    expect(resultSchema.parse({ value: 'Report documented', crl: '45,5', note: 'Single live fetus' })).toEqual({ value: 'Report documented', crlMm: 45.5, note: 'Single live fetus' });
+    expect(resultSchema.safeParse({ value: 'Report', crl: '250', note: '' }).success).toBe(false);
+    expect(resultSchema.safeParse({ value: 'Report', crl: 'abc', note: '' }).success).toBe(false);
     expect(reviewSchema.safeParse({ followUp: undefined }).success).toBe(false);
     expect(reviewSchema.parse({ followUp: 'Refer' })).toEqual({ followUp: 'Refer' });
   });

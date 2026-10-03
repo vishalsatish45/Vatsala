@@ -170,7 +170,7 @@ const T = {
   }),
   investigation_catalogue: z.strictObject({ code: str, kind: z.enum(['lab', 'scan']) }),
   investigation_results: z.strictObject({
-    id, investigation_id: id, value_num: nnum, value_text: nstr, unit: nstr, reported_at: str, entered_at: str, note: nstr,
+    id, investigation_id: id, value_num: nnum, value_text: nstr, unit: nstr, reported_at: str, entered_at: str, note: nstr, crl_mm: nnum,
   }),
   referrals: z.strictObject({
     id, pregnancy_id: nid, baby_id: nid, to_team_id: id, urgency: z.enum(['emergency', '24h', 'routine']), reason: str, question: str,
@@ -623,7 +623,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
       late: i.late,
       status: i.status === 'collected' ? 'ordered' : i.status === 'not_applicable' ? 'not_done' : i.status,
       orderedAt: tsOpt(i.ordered_at),
-      result: r ? { value: r.value_text ?? String(r.value_num), unit: opt(r.unit), at: new Date(r.reported_at), note: opt(r.note) } : undefined,
+      result: r ? { value: r.value_text ?? String(r.value_num), unit: opt(r.unit), at: new Date(r.reported_at), note: opt(r.note), crlMm: opt(r.crl_mm) } : undefined,
       resultId: r?.id,
       review: i.reviewed_at ? { by: nameOf(i.reviewed_by), at: new Date(i.reviewed_at), followUp: followUpCodes.label(i.follow_up ?? '') } : undefined,
       notDoneReason: opt(i.not_done_reason),
