@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { DEMO_OTP } from '@/features/auth/demoAccounts';
 import { authService, isMockAuth } from '@/features/auth/service';
 import { useSession } from '@/state/session';
-import { AppText, Button, GlassSurface, Screen, TopBar, families, palette, space } from '@/ui';
+import { AppText, BrandBackdrop, Button, GlassSurface, Screen, TopBar, families, palette, space } from '@/ui';
 
 const LEN = 6;
 const RESEND_S = 30;
@@ -46,7 +46,7 @@ export default function Otp() {
   const masked = phone ? `+91 ${phone.slice(0, 5)} ${phone.slice(5)}` : '';
 
   return (
-    <Screen header={<TopBar back />} blob="none" footer={<Button label={t('auth.verify')} onPress={() => verify()} disabled={code.length !== LEN} loading={loading} />}>
+    <Screen header={<TopBar back />} backdrop={<BrandBackdrop faint />} footer={<Button label={t('auth.verify')} onPress={() => verify()} disabled={code.length !== LEN} loading={loading} />}>
       <View style={{ gap: space.xs }}>
         <AppText variant="display">{t('auth.otpTitle')}</AppText>
         <AppText tone="secondary">{t('auth.otpSub', { phone: masked })}</AppText>

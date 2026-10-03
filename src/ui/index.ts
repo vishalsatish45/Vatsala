@@ -3,6 +3,7 @@ export * from './fonts';
 export * from './mood';
 export * from './AppText';
 export * from './Atmosphere';
+export * from './BrandBackdrop';
 export * from './GlassSurface';
 export * from './Card';
 export * from './PressableScale';

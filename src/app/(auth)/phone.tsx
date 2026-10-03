@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { DEMO_ACCOUNTS, DEMO_OTP } from '@/features/auth/demoAccounts';
 import { authService, isMockAuth } from '@/features/auth/service';
-import { AppText, Avatar, Button, GlassSurface, ListRow, Screen, TopBar, families, palette, space } from '@/ui';
+import { AppText, Avatar, BrandBackdrop, Button, GlassSurface, ListRow, Screen, TopBar, families, palette, space } from '@/ui';
 
 const roleLabel = (a: (typeof DEMO_ACCOUNTS)[number]) =>
   [a.care && `Care team · ${a.care.role}`, a.family && `Family · ${a.family.role}`].filter(Boolean).join(' + ');
@@ -29,7 +29,7 @@ export default function Phone() {
   }
 
   return (
-    <Screen header={<TopBar back />} blob="none" footer={<Button label={t('common.continue')} onPress={submit} disabled={!valid} loading={loading} />}>
+    <Screen header={<TopBar back />} backdrop={<BrandBackdrop faint />} footer={<Button label={t('common.continue')} onPress={submit} disabled={!valid} loading={loading} />}>
       <View style={{ gap: space.xs }}>
         <AppText variant="display">{t('auth.phoneTitle')}</AppText>
         <AppText tone="secondary">{t('auth.phoneSub')}</AppText>

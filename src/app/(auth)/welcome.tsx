@@ -7,7 +7,7 @@ import { HeartHandshake, Stethoscope, type LucideIcon } from 'lucide-react-nativ
 
 import { LANGUAGES } from '@/lib/i18n';
 import { useSession } from '@/state/session';
-import { AppText, Chip, GlassSurface, PressableScale, Screen, palette, space } from '@/ui';
+import { AppText, BrandBackdrop, Chip, GlassSurface, PressableScale, Screen, palette, space } from '@/ui';
 
 function Door({ icon: Icon, title, sub, onPress }: { icon: LucideIcon; title: string; sub: string; onPress: () => void }) {
   return (
@@ -29,7 +29,6 @@ function Door({ icon: Icon, title, sub, onPress }: { icon: LucideIcon; title: st
   );
 }
 
-const BACKDROP = require('../../../assets/images/welcome-backdrop.png');
 const LOCKUP = require('../../../assets/images/vatsala-lockup.png');
 
 /** AU-01: the brand artwork (floral frame, logo, tagline) and two doors. The door is a UX hint only — the face is decided server-side. */
@@ -40,7 +39,7 @@ export default function Welcome() {
   const insets = useSafeAreaInsets();
 
   return (
-    <Screen scroll={false} backdrop={<Image source={BACKDROP} contentFit="cover" style={styles.backdrop} />}>
+    <Screen scroll={false} backdrop={<BrandBackdrop />}>
       <View style={styles.langs}>
         {LANGUAGES.map((l) => (
           <Chip key={l.code} label={l.label} variant={l.code === lang ? 'brand' : 'glass'} onPress={() => setLang(l.code)} />
@@ -65,7 +64,6 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   langs: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginTop: space.md },
-  backdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: palette.brandPaper },
   hero: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.md, paddingVertical: space.lg },
   lockup: { width: '100%', flexShrink: 1, maxHeight: 238, aspectRatio: 452 / 596 },
   tagline: { color: palette.brandBlush, textTransform: 'uppercase', letterSpacing: 0.6 },
