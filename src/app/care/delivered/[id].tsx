@@ -4,9 +4,11 @@ import QRCode from 'react-native-qrcode-svg';
 import { ClipboardCheck } from 'lucide-react-native';
 
 import { asPregnancyId } from '@/data/ids';
+import type { PregnancyId } from '@/data/types';
 import { fmtDay, fmtTime, motherOf, sexLabel } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import { AppText, Button, Chip, GlassSurface, PressableScale, Screen, TopBar, palette, space } from '@/ui';
+import { PregnancyGate } from '@/features/care/PregnancyGate';
 
 /**
  * CT-58 Delivered — linked baby IDs, paediatrics notified (PRD F-18, F-19). Every baby is its own card (tap a
@@ -14,6 +16,14 @@ import { AppText, Button, Chip, GlassSurface, PressableScale, Screen, TopBar, pa
  */
 export default function Delivered() {
   const id = asPregnancyId(useLocalSearchParams<{ id: string }>().id);
+  return (
+    <PregnancyGate id={id} title="Delivered">
+      <DeliveredScreen id={id} />
+    </PregnancyGate>
+  );
+}
+
+function DeliveredScreen({ id }: { id: PregnancyId }) {
   const db = useDb();
   const p = db.pregnancies.find((x) => x.id === id)!;
   const m = motherOf(db, p.motherId);

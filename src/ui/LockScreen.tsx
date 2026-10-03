@@ -12,7 +12,7 @@ export function LockScreen({ title, body, unlockLabel, onUnlock, secondary }: { 
     <View style={StyleSheet.absoluteFill}>
       <Atmosphere blobCenterY={300} />
       <View style={styles.lock}>
-        <LockKeyhole size={56} color={palette.rose600} strokeWidth={1.5} />
+        <LockKeyhole size={56} color={palette.rose600} strokeWidth={1.5} style={{ alignSelf: 'center' }} />
         <AppText variant="display" align="center">
           {title}
         </AppText>

@@ -86,7 +86,7 @@ export function MotherFields({
         </>
       )}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-        {!ageOnly && <Controller control={control} name="dobEstimated" render={({ field }) => <Chip label="Estimated" variant={field.value ? 'selected' : 'soft'} onPress={() => field.onChange(!field.value)} />} />}
+        {!ageOnly && <Controller control={control} name="dobEstimated" render={({ field }) => <Chip label="Date of birth is approximate" variant={field.value ? 'selected' : 'soft'} onPress={() => field.onChange(!field.value)} />} />}
         <Controller control={control} name="ageOnly" render={({ field }) => <Chip label="Only her age is known" variant={field.value ? 'selected' : 'soft'} onPress={() => field.onChange(!field.value)} />} />
       </View>
       {ageOnly && text('age', 'Age', { unit: 'yrs', numeric: true, max: 2 })}

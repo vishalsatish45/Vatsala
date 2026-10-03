@@ -193,7 +193,7 @@ function RegisterScreen() {
                 </View>
                 <Controller control={control} name={`previous.${i}.outcome`} render={({ field }) => <OptionChips label="Outcome" options={[...PREVIOUS_OUTCOMES]} value={field.value} onChange={field.onChange} />} />
                 <Controller control={control} name={`previous.${i}.mode`} render={({ field }) => <OptionChips label="Mode of delivery (if any)" options={[...PREVIOUS_MODES]} value={field.value} onChange={field.onChange} />} />
-                <Controller control={control} name={`previous.${i}.complications`} render={({ field }) => <Field label="Complications (comma separated, as documented)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+                <Controller control={control} name={`previous.${i}.complications`} render={({ field }) => <Field label="Complications (as documented)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
                 <Controller control={control} name={`previous.${i}.note`} render={({ field }) => <Field label="Note" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
                 <Chip label="Remove" icon={Trash2} onPress={() => previous.remove(i)} />
               </View>

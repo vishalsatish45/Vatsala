@@ -164,7 +164,7 @@ function FactForm({
           />
           {text(
             "complications",
-            "Complications as documented (comma-separated)",
+            "Complications (as documented)",
           )}
           {text("note", "Note (optional)")}
         </>

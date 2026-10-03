@@ -36,6 +36,7 @@ import { WhenFields } from "@/features/care/WhenFields";
 import { useNow } from "@/lib/clock";
 import { useZodForm } from "@/lib/forms";
 import { useSubmitOnce } from "@/lib/useSubmitOnce";
+import { PregnancyGate } from "@/features/care/PregnancyGate";
 import {
   AppText,
   Button,
@@ -74,7 +75,11 @@ export default function RecordVisit() {
         </AppText>
       </Screen>
     );
-  return <VisitFormScreen key={visit?.id ?? id} id={id} visit={visit} />;
+  return (
+    <PregnancyGate id={id} title={visit ? "Correct visit" : "Record visit"}>
+      <VisitFormScreen key={visit?.id ?? id} id={id} visit={visit} />
+    </PregnancyGate>
+  );
 }
 
 function VisitFormScreen({ id, visit }: { id: PregnancyId; visit?: Visit }) {

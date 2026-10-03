@@ -5,6 +5,8 @@ import { asPregnancyId } from '@/data/ids';
 import { tagLabel } from '@/data/catalogue';
 import { activeTags, fmtDay, gaLabel, invState, motherOf, nextVisit, stillDue } from '@/data/selectors';
 import { useDb } from '@/data/store';
+import type { PregnancyId } from '@/data/types';
+import { PregnancyGate } from '@/features/care/PregnancyGate';
 import { useNow } from '@/lib/clock';
 import { sharePdf } from '@/lib/device';
 import { AppText, Button, Card, InfoRow, Screen, Section, TopBar, space } from '@/ui';
@@ -12,6 +14,14 @@ import { AppText, Button, Card, InfoRow, Screen, Section, TopBar, space } from '
 /** CT-29 Structured handoff summary (PRD F-29): documented facts, what's done, what's due. */
 export default function Handoff() {
   const id = asPregnancyId(useLocalSearchParams<{ id: string }>().id);
+  return (
+    <PregnancyGate id={id} title="Handoff summary">
+      <HandoffScreen id={id} />
+    </PregnancyGate>
+  );
+}
+
+function HandoffScreen({ id }: { id: PregnancyId }) {
   const db = useDb();
   const now = useNow();
   const p = db.pregnancies.find((x) => x.id === id)!;

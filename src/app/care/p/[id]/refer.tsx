@@ -13,10 +13,19 @@ import { useNow } from '@/lib/clock';
 import { firstError, useZodForm } from '@/lib/forms';
 import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Field, OptionChips, Screen, TopBar, space } from '@/ui';
+import { PregnancyGate } from '@/features/care/PregnancyGate';
 
 /** CT-51 New referral with an auto-attached context bundle (PRD F-17). */
 export default function NewReferral() {
   const id = asPregnancyId(useLocalSearchParams<{ id: string }>().id);
+  return (
+    <PregnancyGate id={id} title="New referral">
+      <NewReferralScreen id={id} />
+    </PregnancyGate>
+  );
+}
+
+function NewReferralScreen({ id }: { id: PregnancyId }) {
   return <ReferralForm key={id} id={id} />;
 }
 

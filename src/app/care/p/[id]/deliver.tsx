@@ -26,6 +26,7 @@ import { useNow } from '@/lib/clock';
 import { firstError, useZodForm } from '@/lib/forms';
 import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { AppText, Button, Card, Chip, Field, OptionChips, Screen, TopBar, palette, space } from '@/ui';
+import { PregnancyGate } from '@/features/care/PregnancyGate';
 
 const MODES = ['Normal vaginal', 'Assisted (vacuum/forceps)', 'LSCS (elective)', 'LSCS (emergency)'];
 const COMPLICATIONS = ['PPH', 'Eclampsia', 'Retained placenta', 'Perineal tear', 'Other'];
@@ -35,6 +36,14 @@ const SEXES = { Girl: 'F', Boy: 'M', Undetermined: 'U' } as const;
 /** CT-56/57 Admission & delivery record (PRD F-18) → creates linked baby record(s) (F-19). Values as documented. */
 export default function RecordDelivery() {
   const id = asPregnancyId(useLocalSearchParams<{ id: string }>().id);
+  return (
+    <PregnancyGate id={id} title="Record delivery">
+      <RecordDeliveryScreen id={id} />
+    </PregnancyGate>
+  );
+}
+
+function RecordDeliveryScreen({ id }: { id: PregnancyId }) {
   return <DeliveryFormScreen key={id} id={id} />;
 }
 
