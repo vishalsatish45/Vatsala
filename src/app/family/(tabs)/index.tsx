@@ -28,6 +28,7 @@ import {
   Screen,
   StatTile,
   TopBar,
+  UpcomingCard,
   palette,
   space,
 } from '@/ui';
@@ -171,14 +172,14 @@ export default function FamilyHome() {
 
   // Before the birth: the next step, and her next test and next ANC visit as cards of their own (earliest first).
   const nextCards = homeNextItems(focusItems).map((i) => (
-    <NextStepCard
+    <UpcomingCard
       key={i.id}
+      kind={i.kind === 'test' ? 'test' : i.kind === 'vaccine' ? 'vaccine' : 'visit'}
       eyebrow={i.status === 'missed' ? t('family.missedUs') : i === next ? t('family.nextStep') : i.kind === 'test' ? t('family.nextTest') : t('family.nextVisit')}
       title={itemTitle(t, i)}
-      bigFirstLine
-      lines={[itemWhen(t, i, lang), itemPlace(t, i), ...i.bring.map((b) => t(b)), ...i.prep.map((x) => t(x))].filter(Boolean)}
-      actionLabel={t('family.seeDetails')}
-      onAction={() => openItem(i)}
+      when={itemWhen(t, i, lang)}
+      place={itemPlace(t, i) || undefined}
+      onPress={() => openItem(i)}
     />
   ));
 

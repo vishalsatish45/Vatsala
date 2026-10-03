@@ -19,6 +19,7 @@ export * from './ProgressBar';
 export * from './Button';
 export * from './HeroNumber';
 export * from './NextStepCard';
+export * from './UpcomingCard';
 export * from './Screen';
 export * from './FloatingNavBar';
 export * from './ActionSheet';
