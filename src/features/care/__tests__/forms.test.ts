@@ -66,9 +66,12 @@ describe('register schema', () => {
     tags: ['prev_cs'],
     tagNote: ' On the referral letter ',
     intensity: 'enhanced',
+    // Present pregnancy (step 2): LMP and EDD are required
+    presentLmp: local('2026-07-10'),
+    presentEdd: local('2027-04-16'),
   };
 
-  it('accepts a complete registration WITHOUT a dating and sends only what was entered', () => {
+  it('accepts a complete registration, dated from the Present pregnancy card, and sends only what was entered', () => {
     const r = schema.safeParse(valid);
     expect(messages(r)).toEqual([]);
     const out = r.data!;
@@ -76,7 +79,7 @@ describe('register schema', () => {
     expect(out.mother).toMatchObject({ name: 'Asha R', age: 24, dob: new Date('2002-05-01T00:00:00Z'), phone: '9000000099', village: '', lang: 'kn', emergencyContact: { name: '', relation: '', phone: '' } });
     expect(out.mother.altPhone).toBeUndefined();
     expect(out.mother.husbandName).toBeUndefined();
-    expect(out.dating).toBeUndefined();
+    expect(out.dating).toEqual({ method: 'lmp', lmp: new Date('2026-07-10T00:00:00Z') });
     expect(out.fetuses).toBeUndefined();
     expect(out.registeredOn).toBe(NOW);
     expect(out.gpla).toEqual({ g: 2, p: 1, l: 1, a: 0 });
@@ -151,8 +154,8 @@ describe('register schema', () => {
     const scan = imp.parse({ ...dated, lmp: undefined, method: 'Scan', scanOn: local('2026-09-30'), scanWeeks: '12', scanDays: '3', datingNote: ' Scan report ' });
     expect(scan.dating).toEqual({ method: 'scan', scanOn: new Date('2026-09-30T00:00:00Z'), gaAtScanDays: 87, note: 'Scan report' });
     expect(messages(imp.safeParse({ ...dated, method: 'Scan', scanWeeks: '3' }))).toEqual(['scanWeeks: GA at the scan: 4–42 weeks and 0–6 days']);
-    // The registration form itself never dates: the same fields are ignored there.
-    expect(schema.parse(dated).dating).toBeUndefined();
+    // The registration form ignores the import's dating fields: it dates from its own LMP + EDD.
+    expect(schema.parse({ ...dated, lmp: local('2026-08-01') }).dating).toEqual({ method: 'lmp', lmp: new Date('2026-07-10T00:00:00Z') });
   });
 
   it('back-dates a registration to noon of the chosen day, never into the future', () => {

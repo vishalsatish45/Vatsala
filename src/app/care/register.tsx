@@ -6,7 +6,6 @@ import { Plus, Trash2 } from 'lucide-react-native';
 
 import { TAGS } from '@/data/catalogue';
 import { BLOOD_GROUPS, PREVIOUS_MODES, PREVIOUS_OUTCOMES } from '@/data/codes';
-import { formatGAWords } from '@domain/gestation';
 import { eddFor, type MotherDetails } from '@/data/payloads';
 import { findMother, type MotherMatch } from '@/data/registration';
 import { fmtDay } from '@/data/selectors';
@@ -20,6 +19,7 @@ import {
   calendarDay,
   gaDaysOn,
   makeRegisterSchema,
+  pickerDay,
   presentDating,
   motherFormValues,
   type MotherForm,
@@ -224,7 +224,7 @@ function RegisterScreen() {
             {previous.fields.length < MAX_PREVIOUS && <Chip label="Add a previous pregnancy" icon={Plus} onPress={() => previous.append(blankPrevious())} />}
           </Card>
 
-          <PresentPregnancy control={control} values={values} now={now} />
+          <PresentPregnancy control={control} values={values} now={now} setEdd={(d) => setValue('presentEdd', d, { shouldValidate: true, shouldDirty: true })} />
         </>
       )}
 
@@ -296,9 +296,7 @@ function RegisterScreen() {
           )}
           {isRemote && units.length === 0 && <AppText tone="overdue">You are not a member of an obstetric unit, so you cannot register a pregnancy. Ask your hospital admin.</AppText>}
           <AppText variant="caption" tone="faint">
-            {values.presentLmp || values.presentEdd || values.pogWeeks.trim()
-              ? 'Her ANC visits and test windows are planned from the Present pregnancy dates (step 2) when you register.'
-              : 'No Present pregnancy dates entered (step 2): record the dating scan / EDD at her first check-up; it schedules the ANC visits and test windows.'}
+            Her ANC visits and test windows are planned from the LMP and EDD (step 2) when you register.
           </AppText>
         </>
       )}
@@ -308,24 +306,32 @@ function RegisterScreen() {
 }
 
 /**
- * Step 2 "Present pregnancy" (optional): LMP, EDD and POG. Whatever the doctor types is kept; what it implies is shown
- * as "calculated" (calendar arithmetic only). Left empty, she is dated later ("Record dating scan / EDD").
+ * Step 2 "Present pregnancy": the LMP and the EDD, both required. Picking the LMP fills the EDD with LMP + 280 days
+ * (the doctor may change it, e.g. to a scan-corrected EDD); the POG is worked out from them and shown large.
+ * Calendar arithmetic only.
  */
-function PresentPregnancy({ control, values, now }: { control: Control<RegisterForm, unknown, RegisterInput>; values: RegisterForm; now: Date }) {
+function PresentPregnancy({
+  control,
+  values,
+  now,
+  setEdd,
+}: {
+  control: Control<RegisterForm, unknown, RegisterInput>;
+  values: RegisterForm;
+  now: Date;
+  setEdd: (d: Date) => void;
+}) {
   const reg = calendarDay(values.registeredOn);
-  const d = presentDating(values, reg);
+  const d = presentDating(values);
   const ga = d && gaDaysOn(d, reg);
-  const pogWords = ga !== undefined && ga >= 0 ? formatGAWords({ weeks: Math.floor(ga / 7), days: ga % 7, totalDays: ga }) : undefined;
+  const pog = ga !== undefined && ga >= 0 ? { weeks: Math.floor(ga / 7), days: ga % 7 } : undefined;
   const regLabel = reg.getTime() === calendarDay(now).getTime() ? 'today' : `on ${fmtDay(reg)}`;
   const lmp = values.presentLmp && calendarDay(values.presentLmp);
   const lmpEdd = lmp && eddFor({ method: 'lmp', lmp });
   const ownEdd = values.presentEdd && calendarDay(values.presentEdd);
   return (
     <Card style={{ gap: space.md }}>
-      <AppText variant="title">Present pregnancy (optional)</AppText>
-      <AppText variant="caption" tone="secondary">
-        Enter the LMP, the EDD or the POG; the others are worked out from it. Leave it empty to record the dating scan / EDD later.
-      </AppText>
+      <AppText variant="title">Present pregnancy</AppText>
       <Controller
         control={control}
         name="presentLmp"
@@ -333,9 +339,13 @@ function PresentPregnancy({ control, values, now }: { control: Control<RegisterF
           <DateField
             label="LMP (first day of last period)"
             value={field.value}
-            onChange={field.onChange}
+            onChange={(v) => {
+              field.onChange(v);
+              // The EDD by LMP fills in while no EDD is entered yet
+              if (v && !values.presentEdd) setEdd(pickerDay(eddFor({ method: 'lmp', lmp: calendarDay(v) })));
+            }}
             initial={new Date(now.getFullYear(), now.getMonth() - 2, 1)}
-            error={fieldState.error?.message}
+            error={fieldState.error && fieldState.isTouched ? fieldState.error.message : undefined}
           />
         )}
       />
@@ -349,35 +359,28 @@ function PresentPregnancy({ control, values, now }: { control: Control<RegisterF
             onChange={field.onChange}
             initial={new Date(now.getFullYear(), now.getMonth() + 5, 1)}
             hint={
-              ownEdd && lmpEdd && ownEdd.getTime() !== lmpEdd.getTime()
-                ? 'Your EDD is kept; the LMP is recorded too'
-                : !ownEdd && lmpEdd
-                  ? `Calculated from the LMP: ${fmtDay(lmpEdd)}`
-                  : undefined
+              ownEdd && lmpEdd
+                ? ownEdd.getTime() === lmpEdd.getTime()
+                  ? 'By LMP (LMP + 280 days); change it if a scan corrected it'
+                  : 'Your EDD is kept; the LMP is recorded too'
+                : undefined
             }
-            error={fieldState.error?.message}
+            error={fieldState.error && fieldState.isTouched ? fieldState.error.message : undefined}
           />
         )}
       />
-      {!values.presentLmp && !values.presentEdd ? (
-        <View style={{ gap: space.xs }}>
-          <View style={styles.row}>
-            <Controller control={control} name="pogWeeks" render={({ field, fieldState }) => <Field flex label="POG" unit="weeks" keyboardType="number-pad" maxLength={2} value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} error={fieldState.error?.message} />} />
-            <Controller control={control} name="pogDays" render={({ field }) => <Field flex label=" " unit="days" keyboardType="number-pad" maxLength={1} value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
-          </View>
-          {d && (
-            <AppText variant="caption" tone="secondary">
-              EDD calculated from the POG: {fmtDay(eddFor(d))}
-            </AppText>
-          )}
-        </View>
-      ) : (
-        pogWords && (
-          <AppText variant="bodyMedium">
-            POG {regLabel}: {pogWords} <AppText variant="caption" tone="faint">(calculated)</AppText>
+      <View style={styles.pog}>
+        <AppText variant="label" tone="secondary">
+          POG {regLabel}
+        </AppText>
+        {pog ? (
+          <AppText variant="headline" style={styles.pogValue}>
+            {pog.weeks} {pog.weeks === 1 ? 'week' : 'weeks'} {pog.days} {pog.days === 1 ? 'day' : 'days'}
           </AppText>
-        )
-      )}
+        ) : (
+          <AppText tone="secondary">Worked out once the LMP and EDD are in</AppText>
+        )}
+      </View>
     </Card>
   );
 }
@@ -420,4 +423,6 @@ const styles = StyleSheet.create({
   footer: { flexDirection: 'row', gap: space.sm },
   prev: { gap: space.sm, paddingBottom: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.softBorder },
   returning: { gap: space.sm, padding: space.md, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, borderColor: palette.softBorder },
+  pog: { gap: 4, paddingVertical: space.sm, paddingHorizontal: space.md, borderRadius: 16, backgroundColor: palette.rose50 },
+  pogValue: { fontSize: 24, lineHeight: 30, color: palette.rose600 },
 });

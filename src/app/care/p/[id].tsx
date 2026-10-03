@@ -498,7 +498,7 @@ export default function PatientView() {
 
           <Card style={{ gap: 4 }}>
             <View style={styles.cardHead}>
-              <AppText variant="title">Still due</AppText>
+              <AppText variant="title">Missed tests / visits</AppText>
               <AppText variant="label" tone="secondary">
                 {due.length
                   ? `${due.length} item${due.length > 1 ? "s" : ""}`

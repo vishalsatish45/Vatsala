@@ -38,7 +38,7 @@ function HandoffScreen({ id }: { id: PregnancyId }) {
       <p style="color:#6E5A67">${p.mchId} · ${m.age} y · ${p.status === 'delivered' ? 'Delivered' : gaLabel(p, now)}${p.edd ? ` · EDD ${fmtDay(p.edd)}` : ''}</p>
       <h3>Documented</h3><ul>${li(`G/P/L/A ${p.gpla.g}/${p.gpla.p}/${p.gpla.l}/${p.gpla.a}`)}${li(`Tags: ${tagsText}`)}${li(`Conditions: ${p.history.conditions.join(', ') || 'None documented'}`)}${li(`Allergies: ${p.history.allergies.join(', ') || 'None documented'}`)}${li(`Blood group: ${p.history.bloodGroup ?? '—'}`)}</ul>
       <h3>Done</h3><ul>${done.map((i) => li(i.sensitive ? i.label : `${i.label} — ${i.result?.value ?? ''}`)).join('')}</ul>
-      <h3>Still due</h3><ul>${due.map((d) => li(`${d.label} — ${d.detail}`)).join('') || li('Nothing pending')}</ul>
+      <h3>Missed tests / visits</h3><ul>${due.map((d) => li(`${d.label} — ${d.detail}`)).join('') || li('Nothing pending')}</ul>
       <p>Next visit: ${nv ? `${fmtDay(nv.dueBy)} · ${nv.title}` : '—'}</p>
       <p style="color:#A5949E;font-size:11px">Documented facts only · generated ${now.toLocaleString('en-IN')} · synthetic demo data</p>
     </body></html>`;
@@ -77,7 +77,7 @@ function HandoffScreen({ id }: { id: PregnancyId }) {
           ))}
         </Card>
       </Section>
-      <Section title="Still due">
+      <Section title="Missed tests / visits">
         <Card style={{ gap: 4 }}>
           {due.length === 0 && <AppText tone="secondary">Nothing pending.</AppText>}
           {due.map((d) => (
