@@ -6,7 +6,7 @@ import { Plus, Trash2 } from 'lucide-react-native';
 
 import { TAGS } from '@/data/catalogue';
 import { BLOOD_GROUPS, PREVIOUS_MODES, PREVIOUS_OUTCOMES } from '@/data/codes';
-import { eddFor, type MotherDetails } from '@/data/payloads';
+import type { MotherDetails } from '@/data/payloads';
 import { findMother, type MotherMatch } from '@/data/registration';
 import { fmtDay } from '@/data/selectors';
 import { useDb, type RegisterInput } from '@/data/store';
@@ -19,7 +19,6 @@ import {
   calendarDay,
   gaDaysOn,
   makeRegisterSchema,
-  pickerDay,
   motherFormValues,
   type MotherForm,
   type RegisterForm,
@@ -200,7 +199,7 @@ function RegisterScreen() {
             {regOpen && <Controller control={control} name="registeredOn" render={({ field }) => <DatePicker value={field.value} onChange={field.onChange} />} />}
           </Card>
 
-          <PresentPregnancy control={control} now={now} setEdd={(d) => setValue('presentEdd', d, { shouldValidate: true, shouldDirty: true })} />
+          <PresentPregnancy control={control} now={now} />
 
           <Card style={{ gap: space.md }}>
             <AppText variant="title">Previous pregnancies (optional)</AppText>
@@ -305,25 +304,16 @@ function RegisterScreen() {
 }
 
 /**
- * Step 2 "Present pregnancy": the LMP and the EDD, both required. Picking the LMP fills the EDD with LMP + 280 days
- * (the doctor may change it, e.g. to a scan-corrected EDD); the POG is worked out from them and shown large.
- * Calendar arithmetic only.
+ * Step 2 "Present pregnancy": the LMP and the EDD, both entered by the doctor (the EDD is never calculated). The POG
+ * is worked out from the LMP only and shown large. Calendar arithmetic only.
  */
-function PresentPregnancy({ control, now, setEdd }: { control: Control<RegisterForm, unknown, RegisterInput>; now: Date; setEdd: (d: Date) => void }) {
-  // Watched here, field by field, so the POG follows every change as it is typed or picked
-  const [presentLmp, presentEdd, registeredOn] = useWatch({ control, name: ['presentLmp', 'presentEdd', 'registeredOn'] });
-  const values = { presentLmp, presentEdd };
+function PresentPregnancy({ control, now }: { control: Control<RegisterForm, unknown, RegisterInput>; now: Date }) {
+  // Watched here so the POG follows the LMP as it is typed or picked
+  const [presentLmp, registeredOn] = useWatch({ control, name: ['presentLmp', 'registeredOn'] });
   const reg = calendarDay(registeredOn);
   const regLabel = reg.getTime() === calendarDay(now).getTime() ? 'today' : `on ${fmtDay(reg)}`;
-  const lmp = values.presentLmp && calendarDay(values.presentLmp);
-  const lmpEdd = lmp && eddFor({ method: 'lmp', lmp });
-  const ownEdd = values.presentEdd && calendarDay(values.presentEdd);
-  // POG by dates (from the LMP); by the EDD only when there is no LMP. A different EDD's POG is shown beside it.
-  const weeksDays = (ga: number) => (ga >= 0 ? `${Math.floor(ga / 7)} ${Math.floor(ga / 7) === 1 ? 'week' : 'weeks'} ${ga % 7} ${ga % 7 === 1 ? 'day' : 'days'}` : undefined);
-  const byLmp = lmp ? weeksDays(gaDaysOn({ method: 'lmp', lmp }, reg)) : undefined;
-  const byEdd = ownEdd ? weeksDays(gaDaysOn({ method: 'clinician', edd: ownEdd }, reg)) : undefined;
-  const pog = byLmp ?? byEdd;
-  const eddDiffers = !!(lmpEdd && ownEdd && lmpEdd.getTime() !== ownEdd.getTime());
+  const ga = presentLmp ? gaDaysOn({ method: 'lmp', lmp: calendarDay(presentLmp) }, reg) : undefined;
+  const pog = ga !== undefined && ga >= 0 ? `${Math.floor(ga / 7)} ${Math.floor(ga / 7) === 1 ? 'week' : 'weeks'} ${ga % 7} ${ga % 7 === 1 ? 'day' : 'days'}` : undefined;
   return (
     <Card style={{ gap: space.md }}>
       <AppText variant="title">Present pregnancy</AppText>
@@ -334,12 +324,7 @@ function PresentPregnancy({ control, now, setEdd }: { control: Control<RegisterF
           <DateField
             label="LMP (first day of last period)"
             value={field.value}
-            onChange={(v) => {
-              field.onChange(v);
-              // The EDD follows the LMP while it is empty or was filled from the previous LMP (one typed by the doctor stays)
-              const followsLmp = !ownEdd || (lmpEdd && ownEdd.getTime() === lmpEdd.getTime());
-              if (v && followsLmp) setEdd(pickerDay(eddFor({ method: 'lmp', lmp: calendarDay(v) })));
-            }}
+            onChange={field.onChange}
             initial={new Date(now.getFullYear(), now.getMonth() - 2, 1)}
             error={fieldState.error && fieldState.isTouched ? fieldState.error.message : undefined}
           />
@@ -354,21 +339,13 @@ function PresentPregnancy({ control, now, setEdd }: { control: Control<RegisterF
             value={field.value}
             onChange={field.onChange}
             initial={new Date(now.getFullYear(), now.getMonth() + 5, 1)}
-            hint={
-              ownEdd && lmpEdd
-                ? ownEdd.getTime() === lmpEdd.getTime()
-                  ? 'By LMP (LMP + 280 days); change it if a scan corrected it'
-                  : 'Your EDD is kept; the LMP is recorded too'
-                : undefined
-            }
             error={fieldState.error && fieldState.isTouched ? fieldState.error.message : undefined}
           />
         )}
       />
       <View style={styles.pog}>
         <AppText variant="label" tone="secondary">
-          POG {regLabel}
-          {pog ? (byLmp ? ' (by LMP)' : ' (by EDD)') : ''}
+          POG {regLabel} (by LMP)
         </AppText>
         {pog ? (
           <AppText variant="headline" style={styles.pogValue}>
@@ -376,11 +353,6 @@ function PresentPregnancy({ control, now, setEdd }: { control: Control<RegisterF
           </AppText>
         ) : (
           <AppText tone="secondary">Worked out once the LMP is in</AppText>
-        )}
-        {eddDiffers && byEdd && (
-          <AppText variant="caption" tone="secondary">
-            By your EDD: {byEdd}
-          </AppText>
         )}
       </View>
     </Card>

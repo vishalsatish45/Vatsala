@@ -55,8 +55,10 @@ describe('present pregnancy in the register schema', () => {
     expect(messages(schema.safeParse({ ...valid, presentEdd: undefined }))).toEqual(['presentEdd: Enter the EDD']);
   });
 
-  it('refuses an LMP in the future and a POG outside 0–42 weeks', () => {
+  it('refuses an LMP in the future, a POG (by LMP) over 42 weeks and an EDD outside the 40 weeks ahead', () => {
     expect(messages(schema.safeParse({ ...valid, presentLmp: local('2026-10-10') }))).toEqual(['presentLmp: The LMP cannot be in the future']);
-    expect(messages(schema.safeParse({ ...valid, presentEdd: local('2027-09-01') }))).toEqual(['presentEdd: This gives a POG outside 0–42 weeks on the registration date']);
+    expect(messages(schema.safeParse({ ...valid, presentLmp: local('2025-10-01') }))).toEqual(['presentLmp: This LMP gives a POG over 42 weeks on the registration date']);
+    expect(messages(schema.safeParse({ ...valid, presentEdd: local('2027-09-01') }))).toEqual(['presentEdd: The EDD should be within 40 weeks after the registration date']);
+    expect(messages(schema.safeParse({ ...valid, presentEdd: local('2026-09-01') }))).toEqual(['presentEdd: The EDD should be within 40 weeks after the registration date']);
   });
 });

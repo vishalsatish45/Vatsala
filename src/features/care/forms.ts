@@ -290,9 +290,13 @@ function checkPresent(v: PresentFields, ctx: z.RefinementCtx, now: Date, reg: Da
   const at = (path: string, message: string) => ctx.addIssue({ code: 'custom', path: [path], message });
   if (!v.presentLmp) return at('presentLmp', 'Enter the LMP');
   if (calendarDay(v.presentLmp).getTime() > calendarDay(now).getTime()) return at('presentLmp', 'The LMP cannot be in the future');
+  // The POG is by LMP only
+  const pog = gaDaysOn({ method: 'lmp', lmp: calendarDay(v.presentLmp) }, reg);
+  if (pog > 42 * 7 + 6) return at('presentLmp', 'This LMP gives a POG over 42 weeks on the registration date');
   if (!v.presentEdd) return at('presentEdd', 'Enter the EDD');
-  const ga = gaDaysOn(presentDating(v)!, reg);
-  if (ga < 0 || ga > 42 * 7 + 6) at('presentEdd', 'This gives a POG outside 0–42 weeks on the registration date');
+  // The EDD as entered: after the registration date and within the length of a pregnancy
+  const ahead = daysBetween(reg, calendarDay(v.presentEdd));
+  if (ahead < 0 || ahead > PREGNANCY_DAYS) at('presentEdd', 'The EDD should be within 40 weeks after the registration date');
 }
 
 /**
