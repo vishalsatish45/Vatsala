@@ -5,6 +5,7 @@ import { CalendarDays } from 'lucide-react-native';
 import { DatePicker } from './DatePicker';
 import { Field } from './Field';
 import { PressableScale } from './PressableScale';
+import { parse, plausibleDigits, toText, withDashes } from './dateDigits';
 import { palette, space } from './tokens';
 
 type Props = {
@@ -19,24 +20,6 @@ type Props = {
   hint?: string;
   error?: string;
 };
-
-const pad = (n: number) => String(n).padStart(2, '0');
-const toText = (d: Date) => `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}`;
-
-/** Digits typed as DDMMYYYY, shown with dashes as they arrive ("0305" → "03-05"). */
-function withDashes(raw: string) {
-  const digits = raw.replace(/\D/g, '').slice(0, 8);
-  return [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4)].filter(Boolean).join('-');
-}
-
-/** DD-MM-YYYY as a local date; an impossible day (31-02-2026) is refused, never rolled over. */
-function parse(text: string): Date | undefined {
-  const m = text.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  if (!m) return undefined;
-  const [day, month, year] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const d = new Date(year, month - 1, day);
-  return d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day ? d : undefined;
-}
 
 /**
  * A date typed as DD-MM-YYYY or picked on the calendar (the icon opens it). Both stay in step: picking fills the box,
@@ -54,7 +37,10 @@ export function DateField({ label, value, onChange, initial, yearNav, hint, erro
   }
 
   function type(raw: string) {
-    const next = withDashes(raw);
+    const digits = raw.replace(/\D/g, '').slice(0, 8);
+    // A day over 31 or a month over 12 is not taken
+    if (!plausibleDigits(digits)) return;
+    const next = withDashes(digits);
     setText(next);
     const d = parse(next);
     if (d) onChange(d);
