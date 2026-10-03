@@ -31,24 +31,27 @@ export function DateField({ label, value, onChange, initial, yearNav, hint, erro
 
   // A value set from outside (the calendar, a restored draft, a returning mother) shows in the box.
   const [seen, setSeen] = useState(value);
+  const digitsOf = (s: string) => s.replace(/\D/g, '').slice(0, 8);
   if (value?.getTime() !== seen?.getTime()) {
     setSeen(value);
-    if (value && parse(text)?.getTime() !== value.getTime()) setText(toText(value));
+    if (value && parse(withDashes(digitsOf(text)))?.getTime() !== value.getTime()) setText(toText(value));
   }
 
   function type(raw: string) {
-    const digits = raw.replace(/\D/g, '').slice(0, 8);
-    // A day over 31 or a month over 12 is not taken
-    if (!plausibleDigits(digits)) return;
-    const next = withDashes(digits);
-    setText(next);
-    const d = parse(next);
+    const digits = digitsOf(raw);
+    // Typing at the end: dashes are added as the digits arrive, and a day over 31 or a month over 12 is not taken.
+    // An edit in the middle is kept exactly as typed (so the cursor stays where it is); it is tidied on leaving the box.
+    const atEnd = raw.startsWith(text) && raw.length > text.length;
+    if (atEnd && !plausibleDigits(digits)) return;
+    setText(atEnd ? withDashes(digits) : raw.replace(/[^\d-]/g, '').slice(0, 10));
+    const d = digits.length === 8 ? parse(withDashes(digits)) : undefined;
     if (d) onChange(d);
     else if (value) onChange(undefined);
   }
 
-  const incomplete = text.length > 0 && text.length < 10;
-  const impossible = text.length === 10 && !parse(text);
+  const typed = digitsOf(text);
+  const incomplete = typed.length > 0 && typed.length < 8;
+  const impossible = typed.length === 8 && !parse(withDashes(typed));
 
   return (
     <View style={{ gap: space.sm }}>
@@ -56,6 +59,7 @@ export function DateField({ label, value, onChange, initial, yearNav, hint, erro
         label={label}
         value={text}
         onChangeText={type}
+        onBlur={() => setText(withDashes(typed))}
         placeholder="DD-MM-YYYY"
         keyboardType="number-pad"
         maxLength={10}
