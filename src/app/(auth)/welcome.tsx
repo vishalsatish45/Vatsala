@@ -1,5 +1,7 @@
 import { StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { HeartHandshake, Stethoscope, type LucideIcon } from 'lucide-react-native';
 
@@ -25,14 +27,18 @@ function Door({ icon: Icon, title, sub, onPress }: { icon: LucideIcon; title: st
   );
 }
 
-/** AU-01: two doors. The door is a UX hint only — the face is decided server-side. */
+const BACKDROP = require('../../../assets/images/welcome-backdrop.png');
+const LOCKUP = require('../../../assets/images/vatsala-lockup.png');
+
+/** AU-01: the brand artwork (floral frame, logo, tagline) and two doors. The door is a UX hint only — the face is decided server-side. */
 export default function Welcome() {
   const { t } = useTranslation();
   const lang = useSession((s) => s.lang);
   const setLang = useSession((s) => s.setLang);
+  const insets = useSafeAreaInsets();
 
   return (
-    <Screen blobCenterY={260}>
+    <Screen scroll={false} backdrop={<Image source={BACKDROP} contentFit="cover" style={styles.backdrop} />}>
       <View style={styles.langs}>
         {LANGUAGES.map((l) => (
           <Chip key={l.code} label={l.label} variant={l.code === lang ? 'selected' : 'glass'} onPress={() => setLang(l.code)} />
@@ -40,15 +46,14 @@ export default function Welcome() {
       </View>
 
       <View style={styles.hero}>
-        <AppText variant="display" tone="accent" align="center">
-          Vatsala
-        </AppText>
-        <AppText variant="title" align="center">
-          {t('auth.tagline')}
+        <Image source={LOCKUP} contentFit="contain" style={styles.lockup} accessible accessibilityRole="image" accessibilityLabel="Vatsala" />
+        {/* The artwork's tagline, as text so it follows the chosen language */}
+        <AppText variant="headline" align="center" style={styles.tagline}>
+          {t('auth.tagline').replace(/\.$/, '')}
         </AppText>
       </View>
 
-      <View style={styles.doors}>
+      <View style={[styles.doors, { paddingBottom: insets.bottom + space.lg }]}>
         <Door icon={HeartHandshake} title={t('auth.familyDoor')} sub={t('auth.familyDoorSub')} onPress={() => router.push({ pathname: '/phone', params: { door: 'family' } })} />
         <Door icon={Stethoscope} title={t('auth.careDoor')} sub={t('auth.careDoorSub')} onPress={() => router.push({ pathname: '/phone', params: { door: 'care' } })} />
       </View>
@@ -58,7 +63,10 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   langs: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginTop: space.md },
-  hero: { marginTop: 150, marginBottom: 120, gap: space.sm, paddingHorizontal: space.md },
+  backdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: palette.brandPaper },
+  hero: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.md, paddingVertical: space.lg },
+  lockup: { width: '100%', flexShrink: 1, maxHeight: 280, aspectRatio: 452 / 596 },
+  tagline: { color: palette.brandBlush, textTransform: 'uppercase', letterSpacing: 0.6 },
   doors: { gap: space.sm },
   door: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.lg },
   doorIcon: { width: 52, height: 52, borderRadius: 16, backgroundColor: palette.rose50, alignItems: 'center', justifyContent: 'center' },

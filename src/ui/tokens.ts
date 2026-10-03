@@ -17,6 +17,9 @@ export const palette = {
   lav200: '#D9CCF3',
   lav400: '#B9A6EE',
   lav600: '#7E68C9',
+  // Brand artwork (welcome screen): its paper and the tagline's dusty rose
+  brandPaper: '#FFFFFC',
+  brandBlush: '#CF93A6',
   // Neutrals
   cream: '#FBF7F2',
   beige: '#F1EBE3',

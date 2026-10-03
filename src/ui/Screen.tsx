@@ -17,15 +17,17 @@ type Props = {
   blobCenterY?: number;
   /** Leave room for the floating navbar. */
   withNav?: boolean;
+  /** Replaces the atmosphere background (e.g. the welcome artwork). */
+  backdrop?: ReactNode;
 };
 
 /** Screen scaffold: atmosphere background + safe areas + scroll with navbar clearance. */
-export function Screen({ children, header, footer, scroll = true, blob = 'top', blobCenterY, withNav = false }: Props) {
+export function Screen({ children, header, footer, scroll = true, blob = 'top', blobCenterY, withNav = false, backdrop }: Props) {
   const bottomPad = withNav ? NAV_CLEARANCE : 32;
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
-      <Atmosphere blob={blob} blobCenterY={blobCenterY} />
+      {backdrop ?? <Atmosphere blob={blob} blobCenterY={blobCenterY} />}
       {/* edge-to-edge Android doesn't resize for the keyboard, so pad on both platforms */}
       <KeyboardAvoidingView style={styles.root} behavior="padding">
         <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
