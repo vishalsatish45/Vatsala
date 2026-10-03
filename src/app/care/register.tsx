@@ -201,6 +201,8 @@ function RegisterScreen() {
             {regOpen && <Controller control={control} name="registeredOn" render={({ field }) => <DatePicker value={field.value} onChange={field.onChange} />} />}
           </Card>
 
+          <PresentPregnancy control={control} now={now} setEdd={(d) => setValue('presentEdd', d, { shouldValidate: true, shouldDirty: true })} />
+
           <Card style={{ gap: space.md }}>
             <AppText variant="title">Previous pregnancies (optional)</AppText>
             {lookup?.decision === 'same' && lookup.match && lookup.match.pregnancies > 0 && (
@@ -223,8 +225,6 @@ function RegisterScreen() {
             ))}
             {previous.fields.length < MAX_PREVIOUS && <Chip label="Add a previous pregnancy" icon={Plus} onPress={() => previous.append(blankPrevious())} />}
           </Card>
-
-          <PresentPregnancy control={control} values={values} now={now} setEdd={(d) => setValue('presentEdd', d, { shouldValidate: true, shouldDirty: true })} />
         </>
       )}
 
@@ -310,19 +310,15 @@ function RegisterScreen() {
  * (the doctor may change it, e.g. to a scan-corrected EDD); the POG is worked out from them and shown large.
  * Calendar arithmetic only.
  */
-function PresentPregnancy({
-  control,
-  values,
-  now,
-  setEdd,
-}: {
-  control: Control<RegisterForm, unknown, RegisterInput>;
-  values: RegisterForm;
-  now: Date;
-  setEdd: (d: Date) => void;
-}) {
-  const reg = calendarDay(values.registeredOn);
-  const d = presentDating(values);
+function PresentPregnancy({ control, now, setEdd }: { control: Control<RegisterForm, unknown, RegisterInput>; now: Date; setEdd: (d: Date) => void }) {
+  // Watched here, field by field, so the POG follows every change as it is typed or picked
+  const [presentLmp, presentEdd, registeredOn] = useWatch({ control, name: ['presentLmp', 'presentEdd', 'registeredOn'] });
+  const values = { presentLmp, presentEdd };
+  const reg = calendarDay(registeredOn);
+  // The POG as soon as either date is in: both → the card's dating; only the LMP → by LMP; only the EDD → by that EDD
+  const d =
+    presentDating(values) ??
+    (presentLmp ? { method: 'lmp' as const, lmp: calendarDay(presentLmp) } : presentEdd ? { method: 'clinician' as const, edd: calendarDay(presentEdd) } : undefined);
   const ga = d && gaDaysOn(d, reg);
   const pog = ga !== undefined && ga >= 0 ? { weeks: Math.floor(ga / 7), days: ga % 7 } : undefined;
   const regLabel = reg.getTime() === calendarDay(now).getTime() ? 'today' : `on ${fmtDay(reg)}`;
