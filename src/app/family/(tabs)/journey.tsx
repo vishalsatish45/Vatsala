@@ -15,7 +15,7 @@ import { TEST_KEYS, familyTestStatus, familyTests } from '@/features/family/test
 import { familyTimeline } from '@/features/family/timeline';
 import { useFamily } from '@/features/family/useFamily';
 import { useNow } from '@/lib/clock';
-import { AppText, Button, Card, ContinuityTimeline, ListRow, Screen, StatTile, StatusBadge, TopBar, UnderlineTabs, WeekScrubber, palette, space } from '@/ui';
+import { AppText, Button, Card, Chip, ContinuityTimeline, ListRow, Screen, StatTile, StatusBadge, TopBar, UnderlineTabs, WeekScrubber, palette, space } from '@/ui';
 
 type Tab = 'journey' | 'tests' | 'readings' | 'record' | 'meds';
 
@@ -53,7 +53,15 @@ export default function Journey() {
 
   return (
     <Screen withNav blob="none" header={<TopBar large title={canSwitch ? t('family.tabs.myHealth') : t('family.tabs.journey')} below={<FocusSwitch />} />}>
-      <AppText tone="secondary">{!pregnant ? (isPregnant(p) ? `${t('family.dueDateLater')} · ` : '') : `${t('family.weeksDays', { w: ga.weeks, d: ga.days })} · `}🩺 {p.assignedDoctor?.name ?? t('family.noDoctor')}</AppText>
+      {/* Centred chips, as on Home: the week while pregnant (or "due date later"), and her doctor */}
+      <View style={styles.chips}>
+        {pregnant ? (
+          <Chip label={t('family.weeksDays', { w: ga.weeks, d: ga.days })} variant="soft" />
+        ) : isPregnant(p) ? (
+          <Chip label={t('family.dueDateLater')} variant="soft" />
+        ) : null}
+        <Chip label={`🩺 ${p.assignedDoctor?.name ?? t('family.noDoctor')}`} variant="soft" />
+      </View>
       {pregnant && <WeekScrubber week={ga.weeks} label={t('family.weeksDays', { w: ga.weeks, d: ga.days })} />}
 
       <UnderlineTabs
@@ -145,4 +153,7 @@ export default function Journey() {
   );
 }
 
-const styles = StyleSheet.create({ tiles: { flexDirection: 'row', gap: space.sm } });
+const styles = StyleSheet.create({
+  tiles: { flexDirection: 'row', gap: space.sm },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: space.xs },
+});
