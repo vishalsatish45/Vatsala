@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { StyleSheet, TextInput, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
 import { DEMO_ACCOUNTS, DEMO_OTP } from '@/features/auth/demoAccounts';
@@ -13,6 +13,8 @@ const roleLabel = (a: (typeof DEMO_ACCOUNTS)[number]) =>
 /** AU-02: phone number entry. */
 export default function Phone() {
   const { t } = useTranslation();
+  // The welcome button chosen (care / family): checked after the OTP, never before (that would tell anyone whose number it is)
+  const { door } = useLocalSearchParams<{ door?: string }>();
   const [phone, setPhone] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -25,7 +27,7 @@ export default function Phone() {
     const res = await authService.requestOtp(phone);
     setLoading(false);
     if (!res.ok) return setError(t(res.reason === 'not_registered' ? 'auth.notRegistered' : res.reason === 'rate_limited' ? 'auth.rateLimited' : 'auth.network'));
-    router.push({ pathname: '/otp', params: { phone } });
+    router.push({ pathname: '/otp', params: door ? { phone, door } : { phone } });
   }
 
   return (

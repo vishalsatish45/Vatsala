@@ -38,7 +38,9 @@
     "network": "Couldn't reach the hospital server. Check your connection and try again.",
     "rateLimited": "Too many tries. Please wait a minute and try again.",
     "expired": "That code has expired. Tap “Resend code”.",
-    "noAccess": "This number has no access yet. Please ask your hospital."
+    "noAccess": "This number has no access yet. Please ask your hospital.",
+    "wrongDoorCare": "This number isn't registered with the hospital care team. If you're a mother or family member, go back and choose Mother / family.",
+    "wrongDoorFamily": "This number isn't registered as a mother or family member. If you're on the hospital care team, go back and choose Hospital care team."
   },
   "family": {
     "tabs": {

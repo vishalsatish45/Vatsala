@@ -14,8 +14,9 @@ const RESEND_S = 30;
 /** AU-03: OTP. On success the session flips and the root guards route to the right face. */
 export default function Otp() {
   const { t } = useTranslation();
-  const { phone = '' } = useLocalSearchParams<{ phone: string }>();
+  const { phone = '', door } = useLocalSearchParams<{ phone: string; door?: string }>();
   const signIn = useSession((s) => s.signIn);
+  const chooseFace = useSession((s) => s.chooseFace);
   const input = useRef<TextInput>(null);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -33,9 +34,19 @@ export default function Otp() {
     setLoading(true);
     setError(null);
     const res = await authService.verifyOtp(phone, value);
+    if (res.ok && (door === 'care' || door === 'family') && !res.account.faces.includes(door)) {
+      // The number is real but not on the side chosen on the welcome screen: sign straight out and say which side it is.
+      await authService.signOut();
+      setLoading(false);
+      setError(t(door === 'care' ? 'auth.wrongDoorCare' : 'auth.wrongDoorFamily'));
+      setCode('');
+      return;
+    }
     setLoading(false);
     if (res.ok) {
       signIn(res.account);
+      // Someone who is both staff and family opens the side they chose
+      if ((door === 'care' || door === 'family') && res.account.faces.length > 1) chooseFace(door);
     } else {
       const key = { wrong_code: 'auth.otpWrong', expired: 'auth.expired', network: 'auth.network', no_access: 'auth.noAccess' }[res.reason];
       setError(t(key));
