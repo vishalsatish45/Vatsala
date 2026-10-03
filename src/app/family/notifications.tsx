@@ -1,10 +1,12 @@
+import { useEffect } from 'react';
 import { View } from 'react-native';
 import { router, type Href } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Baby, Bell, CalendarClock, FileCheck2, PhoneIncoming, Syringe, type LucideIcon } from 'lucide-react-native';
-import { daysBetween } from '@domain/gestation';
 
 import { useDb } from '@/data/store';
+import { isReminder, reminderKey } from '@/features/family/notifBadge';
+import { useSession } from '@/state/session';
 import { familyNotificationRows } from '@/features/family/serverNotifications';
 import { familyTests } from '@/features/family/tests';
 import { familyItems, useFamily } from '@/features/family/useFamily';
@@ -35,10 +37,11 @@ export default function FamilyNotifications() {
     });
   }
 
-  for (const i of familyItems(db, ctx, now)) {
-    const soon = daysBetween(now, i.date) <= 2;
+  const items = familyItems(db, ctx, now);
+  for (const i of items) {
+    if (!isReminder(i, now)) continue;
     if (i.status === 'missed') rows.push({ id: i.id, icon: CalendarClock, title: t('family.missedUs'), body: itemTitle(t, i), href: { pathname: '/family/item/[id]', params: { id: i.id } } });
-    else if (soon) rows.push({ id: i.id, icon: i.kind === 'vaccine' ? Syringe : CalendarClock, title: t('family.rem.notifTitle'), body: `${itemTitle(t, i)} · ${itemWhen(t, i, i18n.language)}`, href: { pathname: '/family/item/[id]', params: { id: i.id } } });
+    else rows.push({ id: i.id, icon: i.kind === 'vaccine' ? Syringe : CalendarClock, title: t('family.rem.notifTitle'), body: `${itemTitle(t, i)} · ${itemWhen(t, i, i18n.language)}`, href: { pathname: '/family/item/[id]', params: { id: i.id } } });
   }
   // "Result ready — discuss at your visit" is the mother's prompt; a caregiver never gets it.
   if (!ctx.isCaregiver) {
@@ -53,6 +56,15 @@ export default function FamilyNotifications() {
   }
 
   const unread = server.filter((n) => n.unread);
+
+  // Opening this page counts its reminders as seen, so the bell on Home stops counting them.
+  const accountId = useSession((s) => s.account?.id);
+  const setSeen = useSession((s) => s.setSeenReminders);
+  const keys = items.filter((i) => isReminder(i, now)).map(reminderKey).sort().join(',');
+  useEffect(() => {
+    if (accountId) setSeen(accountId, keys ? keys.split(',') : []);
+  }, [accountId, keys, setSeen]);
+
   const open = (r: Row) => {
     if (r.unread) db.markNotificationsRead([r.id], new Date());
     if (r.href) router.push(r.href);

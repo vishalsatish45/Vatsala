@@ -19,8 +19,10 @@ type SessionState = {
   lang: Lang;
   hydrated: boolean;
   /** Per-account Family onboarding (consent + reminder channels), keyed by account id. */
-  familyPrefs: Record<string, { consentAt: string; consentVersion: string; channels: string[]; lock?: boolean }>;
+  familyPrefs: Record<string, { consentAt: string; consentVersion: string; channels: string[]; lock?: boolean; seenReminders?: string[] }>;
   completeOnboarding: (accountId: string, channels: string[]) => void;
+  /** The reminders on the notifications page when it was last opened (they no longer count on the bell). */
+  setSeenReminders: (accountId: string, keys: string[]) => void;
   setChannels: (accountId: string, channels: string[]) => void;
   setLock: (accountId: string, on: boolean) => void;
   /** PRD F-03: withdrawing consent stops app access; the hospital record is retained. */
@@ -47,6 +49,8 @@ export const useSession = create<SessionState>()(
         set((s) => ({ familyPrefs: { ...s.familyPrefs, [accountId]: { consentAt: new Date().toISOString(), consentVersion: 'v1', channels } } })),
       setChannels: (accountId, channels) =>
         set((s) => (s.familyPrefs[accountId] ? { familyPrefs: { ...s.familyPrefs, [accountId]: { ...s.familyPrefs[accountId]!, channels } } } : s)),
+      setSeenReminders: (accountId, keys) =>
+        set((s) => (s.familyPrefs[accountId] ? { familyPrefs: { ...s.familyPrefs, [accountId]: { ...s.familyPrefs[accountId]!, seenReminders: keys } } } : s)),
       setLock: (accountId, on) =>
         set((s) => (s.familyPrefs[accountId] ? { familyPrefs: { ...s.familyPrefs, [accountId]: { ...s.familyPrefs[accountId]!, lock: on } } } : s)),
       withdrawConsent: (accountId) => {

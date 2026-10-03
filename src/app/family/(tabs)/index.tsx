@@ -8,6 +8,7 @@ import { daysBetween, gestationalAge, localDay, trimester } from '@domain/gestat
 import { useDb } from '@/data/store';
 import { FocusSwitch, useFamilyFocus } from '@/features/family/FocusSwitch';
 import { MedicinesView, dosesToday, familyMeds } from '@/features/family/MedicinesView';
+import { bellCount } from '@/features/family/notifBadge';
 import { cancelReminders } from '@/features/family/reminders';
 import { familyNotificationRows } from '@/features/family/serverNotifications';
 import { localDaysBetween } from '@/features/family/stage';
@@ -15,6 +16,7 @@ import { familyItems, homeNextItems, useFamily, type FamilyItem } from '@/featur
 import { fmtShort, itemPlace, itemTitle, itemWhen } from '@/features/family/itemText';
 import { ReadAloudButton } from '@/features/voice/ReadAloudButton';
 import { useNow } from '@/lib/clock';
+import { useSession } from '@/state/session';
 import {
   AppText,
   Avatar,
@@ -44,6 +46,8 @@ export default function FamilyHome() {
   const ctx = useFamily();
   const { mother, pregnancy: p, babies, isCaregiver, accountName, stage } = ctx;
   const { focus } = useFamilyFocus();
+  // Reminders already seen on the notifications page don't count on the bell again
+  const seenReminders = useSession((s) => (s.account ? s.familyPrefs[s.account.id]?.seenReminders : undefined));
   const items = familyItems(db, ctx, now);
   // Today by the phone's calendar (the UTC day is a day behind between 00:00 and 05:30 IST).
   const today = localDay(now);
@@ -85,7 +89,7 @@ export default function FamilyHome() {
       right={
         <>
           <ReadAloudButton text={readAloud} />
-          <GlassIconButton icon={Bell} accessibilityLabel={t('family.notif.title')} badge={items.filter((i) => i.status === 'missed' || i.status === 'due').length + familyNotificationRows(db.notifications, babies).filter((n) => n.unread).length} onPress={() => router.push('/family/notifications')} />
+          <GlassIconButton icon={Bell} accessibilityLabel={t('family.notif.title')} badge={bellCount(items, familyNotificationRows(db.notifications, babies).filter((n) => n.unread).length, seenReminders, now)} onPress={() => router.push('/family/notifications')} />
         </>
       }
     />
