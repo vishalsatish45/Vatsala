@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
   langs: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginTop: space.md },
   backdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: palette.brandPaper },
   hero: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.md, paddingVertical: space.lg },
-  lockup: { width: '100%', flexShrink: 1, maxHeight: 280, aspectRatio: 452 / 596 },
+  lockup: { width: '100%', flexShrink: 1, maxHeight: 238, aspectRatio: 452 / 596 },
   tagline: { color: palette.brandBlush, textTransform: 'uppercase', letterSpacing: 0.6 },
   // Clear of the artwork's bottom florals, and inset from the screen edges
   doors: { gap: space.xs, paddingHorizontal: space.md },
