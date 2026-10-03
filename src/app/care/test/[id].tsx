@@ -140,17 +140,16 @@ export default function TestDetail() {
       {editable && waiting && (
         <Card style={{ gap: space.md }}>
           <AppText variant="title">
-            {inv.status === "due" ? "Order or enter result" : "Enter result"}
+            {inv.kind === "scan" ? "Enter scan result" : "Enter result"}
           </AppText>
+          <ResultForm key={inv.id} inv={inv} />
           {inv.status === "due" && (
-            <Button
-              variant="secondary"
-              label="Mark as ordered"
-              disabled={order.busy}
-              onPress={order.once(() => db.orderInvestigation(inv.id, by, now))}
+            // Before a result exists: the scan booked / the sample sent (status "ordered")
+            <Chip
+              label={inv.kind === "scan" ? "Mark scan as booked" : "Mark sample sent"}
+              onPress={order.busy ? undefined : order.once(() => db.orderInvestigation(inv.id, by, now))}
             />
           )}
-          <ResultForm key={inv.id} inv={inv} />
           <NotDoneForm key={`nd-${inv.id}`} inv={inv} />
         </Card>
       )}
