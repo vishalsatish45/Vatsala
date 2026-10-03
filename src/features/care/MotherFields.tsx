@@ -71,6 +71,7 @@ export function MotherFields({
   const initialDob = new Date(now.getFullYear() - 25, 0, 1);
 
   return (
+    <>
     <Card style={{ gap: space.md }}>
       <AppText variant="title">Mother details</AppText>
 
@@ -136,7 +137,10 @@ export function MotherFields({
 
       <Controller control={control} name="lang" render={({ field }) => <OptionChips label="Preferred language" options={Object.keys(LANGUAGES)} value={field.value} onChange={(v) => v && field.onChange(v)} />} />
 
-      {section('Emergency contact (optional)')}
+    </Card>
+
+    <Card style={{ gap: space.md }}>
+      <AppText variant="title">Emergency contact (optional)</AppText>
       {text('ecName', 'Name')}
       {text('ecRelation', 'Relation', { placeholder: 'e.g. Husband' })}
       <Controller
@@ -152,5 +156,6 @@ export function MotherFields({
       />
       {text('ecPhone', 'Their mobile', { numeric: true, max: 10 })}
     </Card>
+    </>
   );
 }
