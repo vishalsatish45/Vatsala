@@ -111,8 +111,8 @@ function ChangeDate({ task }: { task: Task }) {
         <View style={{ flex: 1 }}>
           <Button variant="secondary" label="Cancel" onPress={() => setOpen(false)} />
         </View>
-        <View style={{ flex: 2 }}>
-          <Button label="Save new date" disabled={busy || !ready} onPress={save} />
+        <View style={{ flex: 1 }}>
+          <Button label="Save date" disabled={busy || !ready} onPress={save} />
         </View>
       </View>
     </Card>
