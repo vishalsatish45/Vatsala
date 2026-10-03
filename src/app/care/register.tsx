@@ -31,11 +31,12 @@ import { isRemote } from '@/lib/supabase';
 import { useSubmitOnce } from '@/lib/useSubmitOnce';
 import { useOutbox } from '@/data/outbox';
 import { useSession } from '@/state/session';
-import { AppText, Button, Card, Chip, DatePicker, Field, OptionChips, ProgressBar, Screen, SegmentedPills, TopBar, palette, space } from '@/ui';
+import { AppText, Button, Card, Chip, DatePicker, Field, OptionChips, ProgressBar, Screen, SearchableMultiSelect, SegmentedPills, TopBar, palette, space } from '@/ui';
 
 const CONDITIONS = ['Hypertension', 'Diabetes', 'Heart disease', 'Kidney disease', 'Thyroid disorder', 'Epilepsy', 'Asthma', 'TB', OTHER_CONDITION];
 const BLOOD = [...BLOOD_GROUPS, 'Unknown'];
 const STEPS = ['Mother details', 'Obstetric summary', 'History & risk'];
+const RISK_OPTIONS = TAGS.filter((t) => t.group !== 'Newborn').map((t) => ({ value: t.code, label: t.label, group: t.group }));
 
 type Lookup = { phone: string; state: 'searching' | 'none' | 'found' | 'error'; match?: MotherMatch; message?: string; decision?: 'same' | 'different' };
 
@@ -229,14 +230,7 @@ function RegisterScreen() {
             <Controller
               control={control}
               name="tags"
-              render={({ field }) => (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {TAGS.filter((t) => t.group !== 'Newborn').map((t) => {
-                    const on = field.value.includes(t.code);
-                    return <Chip key={t.code} label={t.label} variant={on ? 'selected' : 'soft'} onPress={() => field.onChange(on ? field.value.filter((x) => x !== t.code) : [...field.value, t.code])} />;
-                  })}
-                </View>
-              )}
+              render={({ field }) => <SearchableMultiSelect noun="risk factors" options={RISK_OPTIONS} value={field.value} onChange={field.onChange} />}
             />
             {values.tags.length > 0 && (
               <Controller control={control} name="tagNote" render={({ field }) => <Field label="Note (optional)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />

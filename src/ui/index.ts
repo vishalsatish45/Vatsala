@@ -25,6 +25,7 @@ export * from './ActionSheet';
 export * from './UnderlineTabs';
 export * from './Field';
 export * from './OptionChips';
+export * from './SearchableMultiSelect';
 export * from './IntensityPill';
 export * from './ChecklistRow';
 export * from './Section';
