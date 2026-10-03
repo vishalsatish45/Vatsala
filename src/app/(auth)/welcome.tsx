@@ -43,7 +43,7 @@ export default function Welcome() {
     <Screen scroll={false} backdrop={<Image source={BACKDROP} contentFit="cover" style={styles.backdrop} />}>
       <View style={styles.langs}>
         {LANGUAGES.map((l) => (
-          <Chip key={l.code} label={l.label} variant={l.code === lang ? 'selected' : 'glass'} onPress={() => setLang(l.code)} />
+          <Chip key={l.code} label={l.label} variant={l.code === lang ? 'brand' : 'glass'} onPress={() => setLang(l.code)} />
         ))}
       </View>
 
