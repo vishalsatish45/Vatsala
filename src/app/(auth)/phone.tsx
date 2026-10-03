@@ -31,7 +31,7 @@ export default function Phone() {
   }
 
   return (
-    <Screen header={<TopBar back />} backdrop={<BrandBackdrop faint />} footer={<Button label={t('common.continue')} onPress={submit} disabled={!valid} loading={loading} />}>
+    <Screen header={<TopBar back />} backdrop={<BrandBackdrop faint />} footer={<Button label={t('common.continue')} onPress={submit} loading={loading} />}>
       <View style={{ gap: space.xs }}>
         <AppText variant="display">{t('auth.phoneTitle')}</AppText>
         <AppText tone="secondary">{t('auth.phoneSub')}</AppText>
