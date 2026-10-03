@@ -147,6 +147,11 @@ export type Visit = {
   /** Counselling topics given at the visit (English labels; server codes in src/data/codes.ts). */
   counselling?: string[];
   note?: string;
+  /**
+   * BP recorded at registration (a registration encounter, not an ANC visit): shown with the visits, but it belongs to
+   * the registration record and is not corrected as a visit (server correct_visit takes ANC visits only).
+   */
+  fromRegistration?: boolean;
 };
 
 export type TaskKind = 'anc_visit' | 'investigation' | 'referral_appt' | 'pn_visit' | 'nb_visit' | 'vaccine' | 'review_result' | 'template';

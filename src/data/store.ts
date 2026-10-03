@@ -18,29 +18,40 @@ import {
   complicationCodes,
   contactOutcomeCodes,
   contactSuccessful,
-  counsellingCodes,
   deliveryModeCodes,
   followUpCodes,
   labourMedicineCodes,
   previousLabel,
   signLabel,
-  splitComplaints,
 } from './codes';
 import { enqueue, useOutbox } from './outbox';
 import {
   caregiverScopesPayload,
+  correctFactPayload,
+  correctNewbornPayload,
+  correctResultPayload,
+  correctVisitPayload,
   eddFor,
   eiePayload,
+  factLabel,
+  newbornObservationRows,
+  rescheduleTestPayload,
+  resultValue,
+  visitBody,
+  visitObservationRows,
   motherUpdatePayload,
   notificationsReadPayload,
   prescribePayload,
   redatePayload,
   registerPayload,
+  type FactCorrection,
   type MotherDetails,
   type PrescriptionInput,
   type RegisterDating,
   type RegisterInput,
+  type ResultCorrection,
   type Subject,
+  type VisitRecord,
 } from './payloads';
 import { e164, emptyState, isoDay } from './remote';
 import { useNetwork } from '@/lib/network';
@@ -65,6 +76,7 @@ import type {
   CaregiverScopes,
   DocumentedFact,
   EieKind,
+  EncounterId,
   MedDose,
   NewbornObs,
   Note,
@@ -225,7 +237,18 @@ type Actions = {
   /** Replace the whole state with the server's (Supabase mode). */
   hydrate: (state: DbState) => void;
   registerPregnancy: (input: RegisterInput, by: string, now: Date) => PregnancyId;
+  /** `at`: the date and time of the visit (the doctor's choice, default now; never in the future). */
   recordVisit: (pregnancyId: PregnancyId, input: VisitInput, by: string, at: Date) => VisitId;
+  /**
+   * Corrections (server correct_*): the edited entry becomes a new version and the old one is withdrawn as
+   * "Corrected" in the same server transaction — never overwritten. Each returns / uses a new id.
+   */
+  correctVisit: (visitId: VisitId, input: VisitRecord, at: Date, by: string, now: Date) => VisitId;
+  correctNewbornObs: (obsId: EncounterId, obs: Omit<NewbornObs, 'id' | 'babyId' | 'by'>, by: string, now: Date) => EncounterId;
+  correctResult: (investigationId: InvestigationId, c: ResultCorrection, by: string, now: Date) => void;
+  correctFact: (factId: Id, c: FactCorrection, by: string, now: Date) => void;
+  /** Move a test's due window (server reschedule_investigation; a reason is required). */
+  rescheduleInvestigation: (id: InvestigationId, dueFrom: Date, dueBy: Date, reason: string, by: string, now: Date) => void;
   /**
    * Add and remove tags (deltas, so another clinician's change made meanwhile is never undone). `note` goes with the
    * added tags and is the reason for the removed ones (required when removing).
@@ -360,32 +383,10 @@ const taskRows = (tasks: Task[]) => tasks.map((t) => ({ id: t.id, kind: t.kind, 
 
 // ── Payload builders (the RPC contracts in supabase/migrations/2026100500030*–60*) ──
 
-const VITAL_CODES: [keyof Visit['vitals'], string][] = [
-  ['weightKg', 'weight'],
-  ['bpSys', 'bp_sys'],
-  ['bpDia', 'bp_dia'],
-  ['pulse', 'pulse'],
-  ['fundalHeightCm', 'fundal_height'],
-  ['fhr', 'fhr'],
-  ['presentation', 'presentation'],
-  ['urineAlbumin', 'urine_albumin'],
-  ['urineSugar', 'urine_sugar'],
-  ['oedema', 'oedema'],
-  ['fetalMovements', 'fetal_movements'],
-];
-
 /** Content type of a photographed paper record, from its file name (the picker saves JPEG unless told otherwise). */
 export function photoMime(uri: string) {
   const ext = uri.split('?')[0].split('.').pop()?.toLowerCase();
   return ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-}
-
-function observationRows(vitals: Visit['vitals']) {
-  return VITAL_CODES.flatMap(([k, code]) => {
-    const v = vitals[k];
-    if (v === undefined || v === '') return [];
-    return [typeof v === 'number' ? { code, value_num: v } : { code, value_text: v }];
-  });
 }
 
 // ── Paper capture (PRD F-31): confirmed fields → visit values ─────────────────────
@@ -470,12 +471,6 @@ export function captureVisit(fields: CaptureField[]): CaptureMapping {
   if (has('fundalHeightCm')) out.components.push('fundal_height');
   if (has('fhr')) out.components.push('fhr');
   return out;
-}
-
-/** "11.2 g/dL" → a number and its unit; anything else is kept as text, exactly as entered. */
-function resultValue(value: string, unit?: string) {
-  const m = value.trim().match(/^(-?\d+(?:\.\d+)?)\s*([^\d\s][^\d]*)?$/);
-  return m ? { value_num: Number(m[1]), unit: unit ?? m[2]?.trim() } : { value_text: value.trim(), unit };
 }
 
 /** The signed-in obstetrician's first obstetric unit (when the form did not ask: she has only one). */
@@ -601,22 +596,12 @@ export const useDb = create<Db>()((set, get) => {
       set({ visits: [...s.visits, visit], tasks: plan.tasks, audit: audit(s, by, 'record_visit', p.mchId, at) });
       useNetwork.getState().markPending(visit.id);
 
-      const counted = Object.values(input.checklist).filter((c) => c.state !== 'na');
-      const { codes, note: complaintsNote } = splitComplaints(input.complaints);
       enqueue(
         'record_visit',
         {
           encounter_id: visit.id,
           pregnancy_id: pregnancyId,
-          at: at.toISOString(),
-          ga_days: p.edd && gestationalAge(p.edd, at).totalDays,
-          observations: observationRows(input.vitals),
-          checklist: Object.entries(input.checklist).map(([component, c]) => ({ component, state: c.state, reason: c.reason })),
-          complaints: codes,
-          complaints_note: complaintsNote,
-          counselling: counselling.flatMap((l) => counsellingCodes.code(l) ?? []),
-          note: input.note,
-          completeness: counted.length ? Math.round((counted.filter((c) => c.state === 'done').length / counted.length) * 1000) / 1000 : undefined,
+          ...visitBody({ ...input, counselling }, at, p.edd),
           close_task_id: closed?.id,
           cancel_task_ids: plan.cancelled.map((t) => t.id),
           new_tasks: taskRows(plan.fresh),
@@ -624,6 +609,94 @@ export const useDb = create<Db>()((set, get) => {
         { entityId: visit.id },
       );
       return visit.id;
+    },
+
+    correctVisit: (visitId, input, at, by, now) => {
+      const s = get();
+      const old = s.visits.find((v) => v.id === visitId);
+      const p = old && s.pregnancies.find((x) => x.id === old.pregnancyId);
+      if (!old || !p || old.fromRegistration) return visitId;
+      const id = uid('vs');
+      const visit: Visit = { id, pregnancyId: old.pregnancyId, at, by, vitals: input.vitals, checklist: input.checklist, complaints: input.complaints, counselling: input.counselling ?? [], note: input.note };
+      // The old version leaves every view (the server keeps it, withdrawn as "Corrected"); the planned visit it
+      // closed now links the corrected one, at its corrected time.
+      set({
+        visits: [...s.visits.filter((v) => v.id !== visitId), visit],
+        tasks: s.tasks.map((t) => (t.refId === visitId ? { ...t, refId: id, completedAt: at } : t)),
+        audit: audit(s, by, 'record_corrected (visit)', p.mchId, now),
+      });
+      useNetwork.getState().markPending(id);
+      enqueue('correct_visit', correctVisitPayload(visitId, id, input, at, p.edd), { entityId: id });
+      return id;
+    },
+
+    correctNewbornObs: (obsId, obs, by, now) => {
+      const s = get();
+      const old = s.newbornObs.find((o) => o.id === obsId);
+      if (!old) return obsId;
+      const id = uid('nb');
+      set({
+        newbornObs: [...s.newbornObs.filter((o) => o.id !== obsId), { ...obs, id, babyId: old.babyId, by }],
+        tasks: s.tasks.map((t) => (t.refId === obsId ? { ...t, refId: id, completedAt: obs.at } : t)),
+        audit: audit(s, by, 'record_corrected (newborn observation)', old.babyId, now),
+      });
+      useNetwork.getState().markPending(id);
+      enqueue('correct_newborn_obs', correctNewbornPayload(obsId, id, obs), { entityId: id });
+      return id;
+    },
+
+    correctResult: (investigationId, c, by, now) => {
+      const s = get();
+      const inv = s.investigations.find((i) => i.id === investigationId);
+      if (!inv?.resultId) return;
+      const resultId = uid('rs');
+      // Like a new result, a corrected one waits for a fresh review (server correct_result).
+      set({
+        investigations: s.investigations.map((i) =>
+          i.id === investigationId ? { ...i, status: 'resulted', result: { value: c.value.trim(), unit: c.unit, note: c.note?.trim() || undefined, at: c.testedAt }, resultId, review: undefined } : i,
+        ),
+        audit: audit(s, by, 'record_corrected (result)', investigationId, now),
+      });
+      enqueue('correct_result', correctResultPayload(inv.resultId, resultId, c), { entityId: investigationId, withVersion: true });
+    },
+
+    correctFact: (factId, c, by, now) => {
+      const s = get();
+      const fact = s.facts.find((f) => f.id === factId);
+      if (!fact || fact.kind !== c.kind) return;
+      const id = uid(c.kind === 'condition' ? 'dc' : c.kind === 'allergy' ? 'al' : 'pp');
+      const label = factLabel(c);
+      const swap = (xs: string[]) => {
+        const i = xs.indexOf(fact.label);
+        return i < 0 ? [...xs, label] : [...xs.slice(0, i), label, ...xs.slice(i + 1)];
+      };
+      set({
+        facts: s.facts.map((f) => (f.id === factId ? { ...f, id, label } : f)),
+        pregnancies: s.pregnancies.map((p) =>
+          p.motherId !== fact.motherId
+            ? p
+            : {
+                ...p,
+                history: {
+                  ...p.history,
+                  conditions: c.kind === 'condition' ? swap(p.history.conditions) : p.history.conditions,
+                  allergies: c.kind === 'allergy' ? swap(p.history.allergies) : p.history.allergies,
+                },
+                previous: c.kind === 'previous_pregnancy' ? p.previous.map((x) => (x.id === factId ? { ...c.previous, id } : x)) : p.previous,
+              },
+        ),
+        audit: audit(s, by, `record_corrected (${c.kind})`, fact.motherId, now),
+      });
+      enqueue('correct_fact', correctFactPayload(factId, id, c), { entityId: id });
+    },
+
+    rescheduleInvestigation: (id, dueFrom, dueBy, reason, by, now) => {
+      const s = get();
+      set({
+        investigations: s.investigations.map((i) => (i.id === id ? { ...i, dueFrom, dueBy } : i)),
+        audit: audit(s, by, `reschedule_investigation (${reason.trim()})`, id, now),
+      });
+      enqueue('reschedule_investigation', rescheduleTestPayload(id, dueFrom, dueBy, reason, now), { entityId: id, withVersion: true });
     },
 
     setTags: (subjectId, change, note, by, now) => {
@@ -1099,18 +1172,9 @@ export const useDb = create<Db>()((set, get) => {
       const id = uid('nb');
       set({ newbornObs: [...s.newbornObs, { ...obs, id }], audit: audit(s, obs.by, 'newborn_observation', obs.babyId, obs.at) });
       useNetwork.getState().markPending(id);
-      const rows = [
-        obs.weightG !== undefined && { code: 'nb_weight', value_num: obs.weightG },
-        obs.tempC !== undefined && { code: 'nb_temp', value_num: obs.tempC },
-        obs.respRate !== undefined && { code: 'nb_resp_rate', value_num: obs.respRate },
-        obs.feeding && { code: 'nb_feeding', value_text: obs.feeding },
-        obs.jaundice && { code: 'nb_jaundice', value_text: obs.jaundice },
-        obs.lengthCm !== undefined && { code: 'nb_length', value_num: obs.lengthCm },
-        obs.headCircCm !== undefined && { code: 'nb_head_circ', value_num: obs.headCircCm },
-      ].filter(Boolean);
       enqueue(
         'add_newborn_obs',
-        { encounter_id: id, baby_id: obs.babyId, at: obs.at.toISOString(), observations: rows, note: obs.note?.trim() || undefined },
+        { encounter_id: id, baby_id: obs.babyId, at: obs.at.toISOString(), observations: newbornObservationRows(obs), note: obs.note?.trim() || undefined },
         { entityId: id },
       );
     },
@@ -1156,7 +1220,7 @@ export const useDb = create<Db>()((set, get) => {
           encounter_id: visit.id,
           at: now.toISOString(),
           fields: doc.fields.map((f) => ({ key: f.key, label: f.label, value: f.value, confidence: f.confidence, confirmed: f.confirmed })),
-          observations: observationRows(visit.vitals),
+          observations: visitObservationRows(visit.vitals),
           checklist: mapped.components.map((component) => ({ component, state: 'done' })),
         },
         { entityId: visit.id },

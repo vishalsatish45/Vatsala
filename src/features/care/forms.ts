@@ -13,7 +13,9 @@ import { BLOOD_GROUPS, PREVIOUS_MODES, PREVIOUS_OUTCOMES } from '@/data/codes';
 import { asMotherId, asStaffId, asTeamId } from '@/data/ids';
 import { eddFor, type MotherDetails, type RegisterDating } from '@/data/payloads';
 import type { DeliveryInput, RegisterInput, VaccineDoseInput, VisitInput } from '@/data/store';
-import type { CaptureField, ChecklistState, MaritalStatus, Mother, Referral } from '@/data/types';
+import { COMPLAINTS } from '@/data/catalogue';
+import type { FactCorrection, ResultCorrection } from '@/data/payloads';
+import type { CaptureField, ChecklistState, DocumentedFact, MaritalStatus, Mother, PrevPregnancy, Referral, Visit } from '@/data/types';
 
 // ── shared pieces ─────────────────────────────────────────────────────────────────
 
@@ -443,6 +445,9 @@ export const OTHER_COMPLAINT = 'Other';
 const gap = z.object({ state: z.enum(['done', 'not_done', 'na']), reason: z.string().optional() });
 
 const visitFields = z.object({
+  /** Date and time of the visit, "DD-MM-YYYY" + "HH:MM" (default now; not in the future, not before registration). */
+  date: text,
+  time: text,
   weight: reading(25, 200),
   sys: reading(60, 250),
   dia: reading(30, 160),
@@ -484,32 +489,79 @@ export function visitRecorded(v: VisitForm): Record<string, ComponentState | und
 export const visitComplaints = (v: Pick<VisitForm, 'complaints' | 'otherComplaint'>) =>
   v.complaints.flatMap((c) => (c !== OTHER_COMPLAINT ? [c] : v.otherComplaint.trim() ? [`Other: ${v.otherComplaint.trim()}`] : []));
 
-export function makeVisitSchema(gaWeeks: number) {
-  return visitFields.transform((v): VisitInput => {
-    const recorded = visitRecorded(v);
-    const checklist: Record<string, { state: ChecklistState; reason?: string }> = Object.fromEntries(
-      expectedComponents(gaWeeks).map((c) => [c.key, recorded[c.key] === 'done' ? { state: 'done' as const } : (v.gaps[c.key] ?? { state: 'not_done' as const, reason: 'Not recorded' })]),
-    );
-    return {
-      vitals: {
-        weightKg: numText(v.weight),
-        bpSys: numText(v.sys),
-        bpDia: numText(v.dia),
-        pulse: numText(v.pulse),
-        fundalHeightCm: numText(v.fundal),
-        fhr: numText(v.fhr),
-        presentation: v.presentation,
-        urineAlbumin: v.albumin,
-        urineSugar: v.sugar,
-        oedema: v.oedema,
-        fetalMovements: v.movements,
-      },
-      checklist,
-      complaints: visitComplaints(v),
-      counselling: v.counselling,
-      nextVisitOn: v.nextOn,
-    };
-  });
+/** The visit's date and time from the form, or undefined while it does not read as one. */
+export const visitTime = (v: Pick<VisitForm, 'date' | 'time'>) => birthTime(v.date, v.time);
+
+const startOfLocalDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+/**
+ * CT-30 Record visit (and its correction). `gaWeeksOn`: completed weeks of gestation on a day (0 while undated), so
+ * the expected components follow the visit's own date; `now` and `registeredOn` bound that date as the server does
+ * (record_visit / correct_visit: not in the future, not before the calendar day of registration).
+ */
+export function makeVisitSchema(gaWeeksOn: (at: Date) => number, now: Date, registeredOn: Date) {
+  return visitFields
+    .superRefine((v, ctx) => {
+      const at = visitTime(v);
+      if (!at) ctx.addIssue({ code: 'custom', path: ['time'], message: 'Enter the date as DD-MM-YYYY and the time as HH:MM (24-hour).' });
+      else if (at.getTime() > now.getTime() + 10 * 60_000) ctx.addIssue({ code: 'custom', path: ['time'], message: 'The visit cannot be in the future.' });
+      else if (startOfLocalDay(at) < startOfLocalDay(registeredOn)) ctx.addIssue({ code: 'custom', path: ['time'], message: 'The visit cannot be before the registration.' });
+    })
+    .transform((v): VisitInput & { at: Date } => {
+      const at = visitTime(v)!;
+      const gaWeeks = gaWeeksOn(at);
+      const recorded = visitRecorded(v);
+      const checklist: Record<string, { state: ChecklistState; reason?: string }> = Object.fromEntries(
+        expectedComponents(gaWeeks).map((c) => [c.key, recorded[c.key] === 'done' ? { state: 'done' as const } : (v.gaps[c.key] ?? { state: 'not_done' as const, reason: 'Not recorded' })]),
+      );
+      return {
+        vitals: {
+          weightKg: numText(v.weight),
+          bpSys: numText(v.sys),
+          bpDia: numText(v.dia),
+          pulse: numText(v.pulse),
+          fundalHeightCm: numText(v.fundal),
+          fhr: numText(v.fhr),
+          presentation: v.presentation,
+          urineAlbumin: v.albumin,
+          urineSugar: v.sugar,
+          oedema: v.oedema,
+          fetalMovements: v.movements,
+        },
+        checklist,
+        complaints: visitComplaints(v),
+        counselling: v.counselling,
+        nextVisitOn: v.nextOn,
+        at,
+      };
+    });
+}
+
+/** The form values of a recorded visit (to correct it): every value as recorded, the gaps as marked. */
+export function visitFormValues(v: Visit, nextOn: Date): VisitForm {
+  const s = (n: number | undefined) => (n === undefined ? '' : String(n));
+  const known = new Set<string>(COMPLAINTS);
+  const other = v.complaints.filter((c) => !known.has(c)).map((c) => c.replace(/^Other:\s*/, ''));
+  return {
+    ...whenDefaults(v.at),
+    weight: s(v.vitals.weightKg),
+    sys: s(v.vitals.bpSys),
+    dia: s(v.vitals.bpDia),
+    pulse: s(v.vitals.pulse),
+    fundal: s(v.vitals.fundalHeightCm),
+    fhr: s(v.vitals.fhr),
+    albumin: v.vitals.urineAlbumin,
+    sugar: v.vitals.urineSugar,
+    oedema: v.vitals.oedema,
+    presentation: v.vitals.presentation,
+    movements: v.vitals.fetalMovements,
+    ifa: v.checklist.ifa?.state === 'done',
+    counselling: v.counselling ?? [],
+    complaints: [...v.complaints.filter((c) => known.has(c)), ...(other.length ? [OTHER_COMPLAINT] : [])],
+    otherComplaint: other.join('; '),
+    nextOn,
+    gaps: Object.fromEntries(Object.entries(v.checklist).filter(([, c]) => c.state !== 'done' && c.reason !== 'Not recorded')),
+  };
 }
 
 // ── CT-27 Tags & follow-up intensity ─────────────────────────────────────────────
@@ -743,6 +795,85 @@ export const resultSchema = z
 export const notDoneSchema = z.object({ reason: choice }).refine((v) => !!v.reason, { path: ['reason'], message: 'Choose a reason' });
 
 export const reviewSchema = z.object({ followUp: z.enum(FOLLOW_UPS).optional() }).refine((v) => !!v.followUp, { path: ['followUp'], message: 'Choose what happens next' });
+
+/**
+ * A recorded result, corrected (server correct_result): the value as reported, the note and the day it was tested
+ * (not in the future). The day keeps the time of day of the result it corrects.
+ */
+export function makeResultCorrectionSchema(now: Date) {
+  return z
+    .object({ value: text.refine((s) => !!s.trim(), 'Enter the result as reported'), note: text, testedOn: z.date() })
+    .refine((v) => startOfLocalDay(v.testedOn) <= startOfLocalDay(now), { path: ['testedOn'], message: 'The date tested cannot be in the future' })
+    .transform((v): ResultCorrection => ({ value: v.value.trim(), note: trimmedOrUndefined(v.note), testedAt: v.testedOn }));
+}
+export type ResultCorrectionForm = z.input<ReturnType<typeof makeResultCorrectionSchema>>;
+
+/** A test's due window moved by the doctor (server reschedule_investigation): from ≤ by, and why (recorded). */
+export const testWindowSchema = z
+  .object({ from: z.date(), by: z.date(), reason: text })
+  .superRefine((v, ctx) => {
+    if (startOfLocalDay(v.from) > startOfLocalDay(v.by)) ctx.addIssue({ code: 'custom', path: ['by'], message: 'The window ends on or after its first day' });
+    if (v.reason.trim().length < 3) ctx.addIssue({ code: 'custom', path: ['reason'], message: 'Write why the window moves (recorded)' });
+  })
+  .transform((v) => ({ dueFrom: calendarDay(v.from), dueBy: calendarDay(v.by), reason: v.reason.trim() }));
+export type TestWindowForm = z.input<typeof testWindowSchema>;
+
+// ── History tab: a documented condition, allergy or previous pregnancy, corrected ─────
+
+const factFields = z.object({
+  label: text,
+  year: text,
+  outcome: z.enum(PREVIOUS_OUTCOMES).optional(),
+  mode: z.enum(PREVIOUS_MODES).optional(),
+  weeks: text,
+  complications: text,
+  note: text,
+});
+export type FactForm = z.input<typeof factFields>;
+
+/** The form values of a documented entry (a previous pregnancy from its structured record). */
+export function factFormValues(fact: Pick<DocumentedFact, 'kind' | 'label'>, previous?: PrevPregnancy): FactForm {
+  const blank = { label: '', year: '', weeks: '', complications: '', note: '' };
+  if (fact.kind !== 'previous_pregnancy' || !previous) return { ...blank, label: fact.label };
+  return {
+    ...blank,
+    year: String(previous.year),
+    outcome: (PREVIOUS_OUTCOMES as readonly string[]).includes(previous.outcome) ? (previous.outcome as FactForm['outcome']) : undefined,
+    mode: previous.mode && (PREVIOUS_MODES as readonly string[]).includes(previous.mode) ? (previous.mode as FactForm['mode']) : undefined,
+    weeks: previous.gestationWeeks ? String(previous.gestationWeeks) : '',
+    complications: (previous.complications ?? []).join(', '),
+    note: previous.note ?? '',
+  };
+}
+
+/** Same bounds as registration (and the server's correct_fact): text as documented; year 1960–now, gestation 4–45 weeks. */
+export function makeFactSchema(kind: DocumentedFact['kind'], now: Date) {
+  return factFields
+    .superRefine((v, ctx) => {
+      if (kind !== 'previous_pregnancy') {
+        if (!v.label.trim() || v.label.trim().length > 200) ctx.addIssue({ code: 'custom', path: ['label'], message: 'Write it as documented (up to 200 characters)' });
+        return;
+      }
+      if (!wholeIn(v.year, 1960, now.getFullYear())) ctx.addIssue({ code: 'custom', path: ['year'], message: `Year 1960–${now.getFullYear()}` });
+      if (!v.outcome) ctx.addIssue({ code: 'custom', path: ['outcome'], message: 'Choose the outcome' });
+      if (v.weeks.trim() && !wholeIn(v.weeks, 4, 45)) ctx.addIssue({ code: 'custom', path: ['weeks'], message: 'Gestation 4–45 weeks' });
+    })
+    .transform((v): FactCorrection => {
+      if (kind === 'condition') return { kind, label: v.label.trim() };
+      if (kind === 'allergy') return { kind, substance: v.label.trim() };
+      return {
+        kind,
+        previous: {
+          year: Number(v.year),
+          outcome: v.outcome ?? '',
+          mode: v.mode,
+          gestationWeeks: v.weeks.trim() ? Number(v.weeks) : undefined,
+          complications: csv(v.complications),
+          note: trimmedOrUndefined(v.note),
+        },
+      };
+    });
+}
 
 // ── CT-96 Task outcome · CT-41/42 Call-back outcome ──────────────────────────────
 

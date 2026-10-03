@@ -233,8 +233,15 @@ describe('mother details schema', () => {
   });
 });
 
+// The visit was seen this morning (the phone's local time); she was registered in August.
+const VISIT_NOW = new Date(2026, 9, 2, 11, 0);
+const REGISTERED = new Date(2026, 7, 10, 10, 0);
+const visitSchema = () => makeVisitSchema(() => 30, VISIT_NOW, REGISTERED);
+
 describe('visit schema', () => {
   const blank: VisitForm = {
+    date: '02-10-2026',
+    time: '09:30',
     weight: '',
     sys: '',
     dia: '',
@@ -250,7 +257,7 @@ describe('visit schema', () => {
   };
 
   it('keeps values exactly as entered (no thresholds beyond "physically possible")', () => {
-    const r = makeVisitSchema(30).safeParse({ ...blank, weight: '62,5', sys: '150', dia: '100', fhr: '144', albumin: '2+', complaints: ['Headache', 'Other'], otherComplaint: ' dizzy ' });
+    const r = visitSchema().safeParse({ ...blank, weight: '62,5', sys: '150', dia: '100', fhr: '144', albumin: '2+', complaints: ['Headache', 'Other'], otherComplaint: ' dizzy ' });
     expect(messages(r)).toEqual([]);
     expect(r.data!.vitals).toMatchObject({ weightKg: 62.5, bpSys: 150, bpDia: 100, fhr: 144, urineAlbumin: '2+' });
     expect(r.data!.complaints).toEqual(['Headache', 'Other: dizzy']);
@@ -259,7 +266,7 @@ describe('visit schema', () => {
   });
 
   it('flags impossible numbers with "Check value"', () => {
-    expect(messages(makeVisitSchema(30).safeParse({ ...blank, weight: '700', sys: '20', dia: 'abc', fhr: '300' }))).toEqual([
+    expect(messages(visitSchema().safeParse({ ...blank, weight: '700', sys: '20', dia: 'abc', fhr: '300' }))).toEqual([
       'weight: Check value',
       'sys: Check value',
       'dia: Check value',
@@ -268,7 +275,7 @@ describe('visit schema', () => {
   });
 
   it('records the clinician’s N/A and not-done marks for components left empty', () => {
-    const r = makeVisitSchema(30).safeParse({ ...blank, gaps: { ifa: { state: 'na' }, weight: { state: 'not_done', reason: 'Kit unavailable' } } });
+    const r = visitSchema().safeParse({ ...blank, gaps: { ifa: { state: 'na' }, weight: { state: 'not_done', reason: 'Kit unavailable' } } });
     expect(r.data!.checklist.ifa).toEqual({ state: 'na' });
     expect(r.data!.checklist.weight).toEqual({ state: 'not_done', reason: 'Kit unavailable' });
   });
@@ -291,8 +298,8 @@ describe('tags schema', () => {
 
 describe('visit schema: counselling and fetal movements are kept', () => {
   it('passes counselling topics and fetal movements (as reported) to the visit', () => {
-    const r = makeVisitSchema(30).parse({
-      weight: '', sys: '', dia: '', pulse: '', fundal: '', fhr: '', ifa: false, complaints: [], otherComplaint: '', gaps: {},
+    const r = visitSchema().parse({
+      date: '02-10-2026', time: '09:30', weight: '', sys: '', dia: '', pulse: '', fundal: '', fhr: '', ifa: false, complaints: [], otherComplaint: '', gaps: {},
       nextOn: new Date('2026-10-30T00:00:00Z'), counselling: ['Nutrition', 'Warning signs'], movements: 'Reduced',
     });
     expect(r.counselling).toEqual(['Nutrition', 'Warning signs']);
