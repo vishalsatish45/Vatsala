@@ -1047,8 +1047,15 @@ export default function PatientView() {
         {menuTab === "actions" && (
           <>
         <MenuRow icon={FileText} label="Handoff summary" onPress={go({ pathname: "/care/p/[id]/handoff", params: { id: p.id } })} />
+        <MenuRow icon={Eye} label="Who viewed this record" onPress={go({ pathname: "/care/p/[id]/access", params: { id: p.id } })} />
+        {treating && ongoing && (
+          <>
+            <MenuRow icon={Camera} label="Capture paper record" onPress={go({ pathname: "/care/capture", params: { id: p.id } })} />
+            <MenuRow icon={CalendarClock} label={p.edd ? "Re-date (EDD)" : "Record dating"} onPress={go({ pathname: "/care/p/[id]/redate", params: { id: p.id } })} />
+          </>
+        )}
 
-        {treating && (ongoing || (delivered && motherDischarge)) && (
+        {treating && (ongoing || delivered) && (
           <>
             <AppText variant="label" tone="secondary" style={styles.menuGroup}>
               Clinical actions
@@ -1081,8 +1088,18 @@ export default function PatientView() {
                 onPress={go({ pathname: "/care/discharge/[id]", params: { id: p.id } })}
               />
             )}
-            {delivered && motherDischarge?.completedAt && (
-              <MenuRow icon={CircleCheck} label="Close episode" onPress={go({ pathname: "/care/p/[id]/end", params: { id: p.id } })} />
+            {(p.status === "active" || delivered) && (
+              <MenuRow
+                icon={CircleCheck}
+                label={
+                  delivered
+                    ? motherDischarge && !motherDischarge.completedAt
+                      ? "Close episode (after discharge)"
+                      : "Close episode"
+                    : "End of pregnancy care"
+                }
+                onPress={go({ pathname: "/care/p/[id]/end", params: { id: p.id } })}
+              />
             )}
           </>
         )}
