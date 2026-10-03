@@ -154,7 +154,8 @@ export function motherFormValues(m: Partial<MotherDetails>): MotherFieldValues {
   };
 }
 
-function checkMother(v: MotherFieldValues, ctx: z.RefinementCtx, now: Date) {
+/** `aadhaarOptional`: a register import may not carry it; a clinician entering her details must give it. */
+function checkMother(v: MotherFieldValues, ctx: z.RefinementCtx, now: Date, aadhaarOptional = false) {
   const at = (path: keyof MotherFieldValues, message: string) => ctx.addIssue({ code: 'custom', path: [path], message });
   const name = v.name.trim();
   if (!name) at('name', 'Enter her full name');
@@ -181,7 +182,8 @@ function checkMother(v: MotherFieldValues, ctx: z.RefinementCtx, now: Date) {
   if (v.addressLine.trim().length > 200) at('addressLine', 'House / street: up to 200 characters');
   if (v.pincode.trim() && !/^[1-9]\d{5}$/.test(v.pincode.trim())) at('pincode', 'PIN code: 6 digits, not starting with 0');
   if (v.rchId.trim() && !/^\d{12}$/.test(v.rchId.trim())) at('rchId', 'An RCH id has 12 digits');
-  if (v.aadhaarLast4.trim() && !/^\d{4}$/.test(v.aadhaarLast4.trim())) at('aadhaarLast4', 'Aadhaar: the last 4 digits only');
+  if (!aadhaarOptional && !v.aadhaarLast4.trim()) at('aadhaarLast4', 'Aadhaar: enter the last 4 digits');
+  else if (v.aadhaarLast4.trim() && !/^\d{4}$/.test(v.aadhaarLast4.trim())) at('aadhaarLast4', 'Aadhaar: the last 4 digits only');
   if (v.abhaNumber.trim() && !/^\d{14}$/.test(v.abhaNumber.trim())) at('abhaNumber', 'An ABHA number has 14 digits');
   if (v.abhaAddress.trim() && !/^[a-z0-9._]+@[a-z]+$/.test(v.abhaAddress.trim())) at('abhaAddress', 'An ABHA address looks like name@abdm');
   if (v.ecName.trim() || v.ecRelation.trim() || v.ecPhone) {
@@ -328,7 +330,7 @@ export const REGISTER_STEPS = [
  * register into; with several, she must choose one. `dating: true` (register import only): each row also carries its
  * LMP, which is then required and checked like any dating.
  */
-export function makeRegisterSchema(now: Date, opts: { units?: readonly string[]; dating?: boolean } = {}) {
+export function makeRegisterSchema(now: Date, opts: { units?: readonly string[]; dating?: boolean; aadhaarOptional?: boolean } = {}) {
   return z
     .object({
       ...motherFields,
@@ -355,7 +357,7 @@ export function makeRegisterSchema(now: Date, opts: { units?: readonly string[];
     })
     .superRefine((v, ctx) => {
       const at = (path: (string | number)[], message: string) => ctx.addIssue({ code: 'custom', path, message });
-      checkMother(v, ctx, now);
+      checkMother(v, ctx, now, opts.aadhaarOptional);
 
       const reg = calendarDay(v.registeredOn);
       if (reg.getTime() > calendarDay(now).getTime()) at(['registeredOn'], 'The registration date cannot be in the future');

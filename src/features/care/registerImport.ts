@@ -100,7 +100,7 @@ export type RowResult = { index: number; cells: string[]; status: 'valid' | 'war
  */
 export function validate(rows: string[][], mapping: Mapping, known: KnownMother[], now: Date, opts: { units?: readonly string[]; teamId?: string } = {}): RowResult[] {
   // A register row carries its LMP: the import still dates each pregnancy (the registration form does not).
-  const schema = makeRegisterSchema(now, { units: opts.units, dating: true });
+  const schema = makeRegisterSchema(now, { units: opts.units, dating: true, aadhaarOptional: true });
   const firstRow = new Map<string, number>();
   return rows.map((cells, index) => {
     const get = (k: FieldKey) => (mapping[k] !== undefined ? (cells[mapping[k]!] ?? '').trim() : '');

@@ -49,6 +49,7 @@ describe('register schema', () => {
     name: ' Asha R ',
     dob: local('2002-05-01'),
     phone: '9000000099',
+    aadhaarLast4: '5678',
     lang: 'Kannada',
     g: '2',
     p: '1',
@@ -110,10 +111,13 @@ describe('register schema', () => {
     expect(messages(schema.safeParse({ ...valid, addressLine: 'x'.repeat(201) }))).toEqual(['addressLine: House / street: up to 200 characters']);
   });
 
-  it('Aadhaar: the last 4 digits only, never the full number', () => {
+  it('Aadhaar: required, the last 4 digits only, never the full number', () => {
     expect(messages(schema.safeParse({ ...valid, aadhaarLast4: '123456789012' }))).toEqual(['aadhaarLast4: Aadhaar: the last 4 digits only']);
     expect(messages(schema.safeParse({ ...valid, aadhaarLast4: '12a4' }))).toEqual(['aadhaarLast4: Aadhaar: the last 4 digits only']);
     expect(schema.parse({ ...valid, aadhaarLast4: ' 1234 ' }).mother.aadhaarLast4).toBe('1234');
+    expect(messages(schema.safeParse({ ...valid, aadhaarLast4: '' }))).toEqual(['aadhaarLast4: Aadhaar: enter the last 4 digits']);
+    // A register import may not carry it
+    expect(messages(makeRegisterSchema(NOW, { aadhaarOptional: true }).safeParse({ ...valid, aadhaarLast4: '' }))).toEqual([]);
     expect(maskedAadhaar('1234')).toBe('XXXX-XXXX-1234');
   });
 

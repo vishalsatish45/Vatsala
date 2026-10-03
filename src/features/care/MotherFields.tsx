@@ -15,7 +15,7 @@ const digits = (v: string) => v.replace(/\D/g, '');
  * A mother's details as ONE card (registration step 1, "Edit details"), in this order: name · date of birth (age
  * derived; age typed only when the date is not known) · mobile · alternate mobile · email · marital status (husband's
  * name and mobile only when married) · address · ids (RCH, Aadhaar last 4 digits, ABHA) · language · emergency contact.
- * Required: name, date of birth (or age), mobile and language. RCH / ABHA ids already on record are shown, not edited
+ * Required: name, date of birth (or age), mobile, Aadhaar (last 4 digits) and language. RCH / ABHA ids already on record are shown, not edited
  * (the server adds an id once and never overwrites one).
  */
 export function MotherFields({
@@ -115,15 +115,15 @@ export function MotherFields({
         {text('pincode', 'PIN code', { numeric: true, max: 6, flex: true })}
       </View>
 
-      {section('IDs (optional)')}
-      {recorded.rchId ? <InfoRow label="RCH id" value={recorded.rchId} /> : text('rchId', 'RCH ID (12 digits)', { numeric: true, max: 12 })}
+      {section('IDs')}
+      {recorded.rchId ? <InfoRow label="RCH id" value={recorded.rchId} /> : text('rchId', 'RCH ID (12 digits, optional)', { numeric: true, max: 12 })}
       {text('aadhaarLast4', 'Aadhaar (last 4 digits)', {
         numeric: true,
         max: 4,
         hint: /^\d{4}$/.test(String(aadhaar ?? '')) ? `Recorded as ${maskedAadhaar(String(aadhaar))} — never the full number` : 'Only the last 4 digits — never the full number',
       })}
-      {recorded.abhaNumber ? <InfoRow label="ABHA number" value={recorded.abhaNumber} /> : text('abhaNumber', 'ABHA number (14 digits)', { numeric: true, max: 14 })}
-      {recorded.abhaAddress ? <InfoRow label="ABHA address" value={recorded.abhaAddress} /> : text('abhaAddress', 'ABHA address', { placeholder: 'name@abdm' })}
+      {recorded.abhaNumber ? <InfoRow label="ABHA number" value={recorded.abhaNumber} /> : text('abhaNumber', 'ABHA number (14 digits, optional)', { numeric: true, max: 14 })}
+      {recorded.abhaAddress ? <InfoRow label="ABHA address" value={recorded.abhaAddress} /> : text('abhaAddress', 'ABHA address (optional)', { placeholder: 'name@abdm' })}
 
       <Controller control={control} name="lang" render={({ field }) => <OptionChips label="Preferred language" options={Object.keys(LANGUAGES)} value={field.value} onChange={(v) => v && field.onChange(v)} />} />
 
