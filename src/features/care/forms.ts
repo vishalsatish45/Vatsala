@@ -322,7 +322,8 @@ export const gplaOf = (v: { g: string; p: string; l: string; a: string }) => ({ 
 export const REGISTER_STEPS = [
   ['name', 'dob', 'ageOnly', 'age', 'phone', 'altPhone', 'email', 'marital', 'husbandName', 'husbandPhone', 'addressLine', 'village', 'district', 'state', 'pincode',
     'rchId', 'aadhaarLast4', 'abhaNumber', 'abhaAddress', 'lang', 'ecName', 'ecRelation', 'ecPhone', 'returningId'],
-  ['registeredOn', 'g', 'p', 'l', 'a', 'previous', 'conditions', 'otherCondition', 'allergies', 'medicines', 'blood', 'height', 'weight', 'tags', 'tagNote', 'intensity', 'teamId'],
+  ['registeredOn', 'g', 'p', 'l', 'a', 'previous'],
+  ['conditions', 'otherCondition', 'allergies', 'medicines', 'blood', 'height', 'weight', 'tags', 'tagNote', 'intensity', 'teamId'],
 ] as const;
 
 /**

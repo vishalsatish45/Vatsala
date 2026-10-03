@@ -35,7 +35,7 @@ import { AppText, Button, Card, Chip, DatePicker, Field, OptionChips, ProgressBa
 
 const CONDITIONS = ['Hypertension', 'Diabetes', 'Heart disease', 'Kidney disease', 'Thyroid disorder', 'Epilepsy', 'Asthma', 'TB', OTHER_CONDITION];
 const BLOOD = [...BLOOD_GROUPS, 'Unknown'];
-const STEPS = ['Mother details', 'Obstetric summary'];
+const STEPS = ['Mother details', 'Obstetric summary', 'History & risk'];
 
 type Lookup = { phone: string; state: 'searching' | 'none' | 'found' | 'error'; match?: MotherMatch; message?: string; decision?: 'same' | 'different' };
 
@@ -200,6 +200,11 @@ function RegisterScreen() {
             ))}
             {previous.fields.length < MAX_PREVIOUS && <Chip label="Add a previous pregnancy" icon={Plus} onPress={() => previous.append(blankPrevious())} />}
           </Card>
+        </>
+      )}
+
+      {step === 2 && (
+        <>
 
           <Card style={{ gap: space.md }}>
             <AppText variant="title">History</AppText>
