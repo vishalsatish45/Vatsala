@@ -41,6 +41,7 @@ export * from './SyncStatus';
 export * from './EmptyState';
 export * from './LockScreen';
 export * from './DatePicker';
+export * from './DateField';
 export * from './AncBadge';
 export * from './DropdownSection';
 export * from './LinkCard';

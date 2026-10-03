@@ -5,7 +5,7 @@ import { Controller, useWatch, type Control, type FieldPath } from 'react-hook-f
 import type { MotherDetails } from '@/data/payloads';
 import { fmtDay } from '@/data/selectors';
 import { EC_RELATIONS, LANGUAGES, MARITAL_STATUSES, ageOn, calendarDay, maskedAadhaar, type MotherForm } from '@/features/care/forms';
-import { AppText, Card, Chip, DatePicker, Field, InfoRow, OptionChips, space } from '@/ui';
+import { AppText, Card, Chip, DateField, Field, InfoRow, OptionChips, space } from '@/ui';
 
 type Recorded = { rchId?: string; abhaNumber?: string; abhaAddress?: string };
 
@@ -76,15 +76,24 @@ export function MotherFields({
 
       {text('name', 'Full name', { placeholder: 'e.g. Asha R' })}
 
-      {section('Date of birth')}
       {!ageOnly && (
-        <>
-          <AppText variant="bodyMedium">
-            {dob ? `${fmtDay(calendarDay(dob))} · ${ageOn(calendarDay(dob), now)} yrs` : 'Tap a day (« » change the year)'}
-          </AppText>
-          <Controller control={control} name="dob" render={({ field }) => <DatePicker value={field.value} initial={initialDob} yearNav onChange={field.onChange} />} />
-        </>
+        <Controller
+          control={control}
+          name="dob"
+          render={({ field, fieldState }) => (
+            <DateField
+              label="Date of birth"
+              value={field.value}
+              onChange={field.onChange}
+              initial={initialDob}
+              yearNav
+              hint={dob ? `${fmtDay(calendarDay(dob))} · ${ageOn(calendarDay(dob), now)} yrs` : 'Type it, or tap the calendar'}
+              error={fieldState.error && fieldState.isTouched ? fieldState.error.message : undefined}
+            />
+          )}
+        />
       )}
+      {ageOnly && section('Date of birth')}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
         {!ageOnly && <Controller control={control} name="dobEstimated" render={({ field }) => <Chip label="Date of birth is approximate" variant={field.value ? 'selected' : 'soft'} onPress={() => field.onChange(!field.value)} />} />}
         <Controller control={control} name="ageOnly" render={({ field }) => <Chip label="Only her age is known" variant={field.value ? 'selected' : 'soft'} onPress={() => field.onChange(!field.value)} />} />

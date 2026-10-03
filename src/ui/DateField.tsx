@@ -1,0 +1,87 @@
+import { useState } from 'react';
+import { View } from 'react-native';
+import { CalendarDays } from 'lucide-react-native';
+
+import { DatePicker } from './DatePicker';
+import { Field } from './Field';
+import { PressableScale } from './PressableScale';
+import { palette, space } from './tokens';
+
+type Props = {
+  label: string;
+  /** A local-midnight date (as DatePicker gives); undefined = not entered. */
+  value: Date | undefined;
+  onChange: (d: Date | undefined) => void;
+  /** Month the calendar opens on when nothing is entered. */
+  initial?: Date;
+  /** Year jumps in the calendar (a date of birth). */
+  yearNav?: boolean;
+  hint?: string;
+  error?: string;
+};
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const toText = (d: Date) => `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}`;
+
+/** Digits typed as DDMMYYYY, shown with dashes as they arrive ("0305" → "03-05"). */
+function withDashes(raw: string) {
+  const digits = raw.replace(/\D/g, '').slice(0, 8);
+  return [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4)].filter(Boolean).join('-');
+}
+
+/** DD-MM-YYYY as a local date; an impossible day (31-02-2026) is refused, never rolled over. */
+function parse(text: string): Date | undefined {
+  const m = text.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  if (!m) return undefined;
+  const [day, month, year] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const d = new Date(year, month - 1, day);
+  return d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day ? d : undefined;
+}
+
+/**
+ * A date typed as DD-MM-YYYY or picked on the calendar (the icon opens it). Both stay in step: picking fills the box,
+ * a complete typed date moves the calendar.
+ */
+export function DateField({ label, value, onChange, initial, yearNav, hint, error }: Props) {
+  const [text, setText] = useState(value ? toText(value) : '');
+  const [calendar, setCalendar] = useState(false);
+
+  // A value set from outside (the calendar, a restored draft, a returning mother) shows in the box.
+  const [seen, setSeen] = useState(value);
+  if (value?.getTime() !== seen?.getTime()) {
+    setSeen(value);
+    if (value && parse(text)?.getTime() !== value.getTime()) setText(toText(value));
+  }
+
+  function type(raw: string) {
+    const next = withDashes(raw);
+    setText(next);
+    const d = parse(next);
+    if (d) onChange(d);
+    else if (value) onChange(undefined);
+  }
+
+  const incomplete = text.length > 0 && text.length < 10;
+  const impossible = text.length === 10 && !parse(text);
+
+  return (
+    <View style={{ gap: space.sm }}>
+      <Field
+        label={label}
+        value={text}
+        onChangeText={type}
+        placeholder="DD-MM-YYYY"
+        keyboardType="number-pad"
+        maxLength={10}
+        hint={impossible ? undefined : (incomplete ? 'Type it as DD-MM-YYYY' : hint)}
+        error={impossible ? 'Not a real date' : error}
+        accessory={
+          <PressableScale onPress={() => setCalendar((c) => !c)} accessibilityRole="button" accessibilityLabel={calendar ? 'Hide calendar' : 'Pick on a calendar'} hitSlop={10}>
+            <CalendarDays size={22} color={calendar ? palette.rose600 : palette.inkSoft} />
+          </PressableScale>
+        }
+      />
+      {calendar && <DatePicker key={value ? `${value.getFullYear()}-${value.getMonth()}` : 'none'} value={value} initial={initial} yearNav={yearNav} onChange={(d) => onChange(new Date(d.getFullYear(), d.getMonth(), d.getDate()))} />}
+    </View>
+  );
+}
