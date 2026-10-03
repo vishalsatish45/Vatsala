@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, ScrollView, StyleSheet, View } from 'react-native';
+import { Linking, ScrollView, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Phone, PhoneCall, Volume2, VolumeX } from 'lucide-react-native';
@@ -13,7 +13,7 @@ import { wellbeingFor } from '@/features/family/wellbeing';
 import { speech, speechLocale } from '@/features/voice/engines';
 import { VoiceField } from '@/features/voice/VoiceField';
 import { isRemote } from '@/lib/supabase';
-import { AppText, Button, Chip, GlassSurface, Screen, TopBar, palette, radius, space } from '@/ui';
+import { AppText, Button, Chip, GlassSurface, LoadingDots, Screen, TopBar, palette, radius, space } from '@/ui';
 
 type Turn = { id: number; question: string; answer?: FamilyAnswer; error?: string };
 
@@ -119,7 +119,7 @@ export default function Ask() {
             <GlassSurface strong radius={radius.lg} style={styles.bubble}>
               {!turn.answer && !turn.error && (
                 <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'center' }}>
-                  <ActivityIndicator color={palette.rose500} />
+                  <LoadingDots size={8} />
                   <AppText tone="secondary">{t('family.ask.thinking')}</AppText>
                 </View>
               )}

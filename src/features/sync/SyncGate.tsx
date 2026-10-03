@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { CircleAlert, X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOutbox } from '@/data/outbox';
 import { refresh, useSync } from '@/data/sync';
 import { isRemote } from '@/lib/supabase';
-import { AppText, Button, GlassSurface, palette, space } from '@/ui';
+import { AppText, Button, GlassSurface, LoadingDots, palette, space } from '@/ui';
 
 /**
  * Supabase mode: holds a face's screens until its first load from the server (they would otherwise flash empty),
@@ -21,7 +21,7 @@ export function SyncGate({ children }: { children: ReactNode }) {
   return (
     <View style={styles.center}>
       {phase === 'loading' ? (
-        <ActivityIndicator color={palette.rose500} size="large" />
+        <LoadingDots size={14} />
       ) : (
         <View style={{ gap: space.md, alignItems: 'center' }}>
           <AppText variant="title" align="center">

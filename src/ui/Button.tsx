@@ -1,8 +1,9 @@
 import type { LucideIcon } from 'lucide-react-native';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { AppText } from './AppText';
+import { LoadingDots } from './LoadingDots';
 import { PressableScale } from './PressableScale';
 import { elevation, palette, radius } from './tokens';
 
@@ -22,7 +23,7 @@ export function Button({ label, onPress, variant = 'primary', icon: Icon, disabl
   const fg = variant === 'primary' ? palette.white : palette.ink;
   const content = (
     <View style={styles.content}>
-      {loading ? <ActivityIndicator color={fg} /> : Icon && <Icon size={18} color={fg} strokeWidth={2} />}
+      {loading ? <LoadingDots size={7} color={fg} /> : Icon && <Icon size={18} color={fg} strokeWidth={2} />}
       <AppText variant="headline" style={{ color: fg }}>
         {label}
       </AppText>

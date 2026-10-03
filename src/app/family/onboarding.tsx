@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Bell, HeartHandshake, MessageCircle, MessageSquareText, ShieldCheck, Stethoscope, type LucideIcon } from 'lucide-react-native';
 
@@ -11,7 +11,7 @@ import { useOnboardingDetails, type DetailsState } from '@/features/family/onboa
 import { useFamily } from '@/features/family/useFamily';
 import { LANGUAGES, localeFor } from '@/lib/i18n';
 import { useSession } from '@/state/session';
-import { AppText, Button, Card, Chip, GlassSurface, InfoRow, PressableScale, ProgressBar, Screen, palette, space } from '@/ui';
+import { AppText, Button, Card, Chip, GlassSurface, InfoRow, LoadingDots, PressableScale, ProgressBar, Screen, palette, space } from '@/ui';
 
 const TOTAL = 4;
 
@@ -144,7 +144,7 @@ function DetailsCard({ state, lang }: { state: DetailsState; lang: string }) {
   if (state.status === 'loading' || state.status === 'noAccess') {
     return (
       <Card style={styles.centered}>
-        <ActivityIndicator color={palette.rose600} />
+        <LoadingDots color={palette.rose600} />
         <AppText tone="secondary">{t('on.detailsLoading')}</AppText>
       </Card>
     );

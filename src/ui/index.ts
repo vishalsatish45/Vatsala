@@ -41,6 +41,7 @@ export * from './TrendLine';
 export * from './SyncStatus';
 export * from './EmptyState';
 export * from './LockScreen';
+export * from './LoadingDots';
 export * from './DatePicker';
 export * from './DateField';
 export * from './AncBadge';
