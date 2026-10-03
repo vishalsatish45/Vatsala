@@ -6,7 +6,7 @@
  * possible" typing guards ("Check value"); nothing here grades, colours or interprets a reading.
  */
 import { z } from 'zod';
-import { daysBetween, localDay, PREGNANCY_DAYS } from '@domain/gestation';
+import { addDays, daysBetween, localDay, PREGNANCY_DAYS } from '@domain/gestation';
 import { expectedComponents, type ComponentState } from '@domain/schedules';
 
 import { BLOOD_GROUPS, PREVIOUS_MODES, PREVIOUS_OUTCOMES } from '@/data/codes';
@@ -270,6 +270,41 @@ export function registerDating(v: DatingValues): RegisterDating | undefined {
 /** Days of gestation the dating gives on a day (calendar arithmetic only). */
 export const gaDaysOn = (d: RegisterDating, day: Date) => PREGNANCY_DAYS - daysBetween(day, eddFor(d));
 
+/** Registration step 2 "Present pregnancy": LMP, EDD and POG (weeks + days, on the registration day) as typed. */
+export type PresentFields = { presentLmp?: Date; presentEdd?: Date; pogWeeks: string; pogDays: string };
+
+/** The POG typed, in days, or undefined (weeks 0–42, days 0–6; days may be left empty). */
+export function pogTyped(v: PresentFields): number | undefined {
+  if (!v.pogWeeks.trim()) return undefined;
+  if (!wholeIn(v.pogWeeks, 0, 42) || (v.pogDays.trim() !== '' && !wholeIn(v.pogDays, 0, 6))) return undefined;
+  return Number(v.pogWeeks) * 7 + Number(v.pogDays || 0);
+}
+
+/**
+ * The dating the Present pregnancy card gives (calendar arithmetic only), or undefined while it is empty:
+ * an LMP alone (or with its own LMP + 280 EDD) dates by LMP; an LMP with a different EDD keeps the doctor's EDD and
+ * records the LMP; an EDD alone is the doctor's EDD; a POG alone gives EDD = registration day + (280 − POG).
+ */
+export function presentDating(v: PresentFields, reg: Date): RegisterDating | undefined {
+  const lmp = v.presentLmp && calendarDay(v.presentLmp);
+  const edd = v.presentEdd && calendarDay(v.presentEdd);
+  if (lmp) return !edd || edd.getTime() === eddFor({ method: 'lmp', lmp }).getTime() ? { method: 'lmp', lmp } : { method: 'clinician', edd, lmp };
+  if (edd) return { method: 'clinician', edd };
+  const pog = pogTyped(v);
+  return pog === undefined ? undefined : { method: 'clinician', edd: addDays(reg, PREGNANCY_DAYS - pog), note: 'From the POG at registration' };
+}
+
+/** The Present pregnancy checks: an LMP not in the future, a readable POG, and a dating of 0–42 weeks at registration. */
+function checkPresent(v: PresentFields, ctx: z.RefinementCtx, now: Date, reg: Date) {
+  const at = (path: string, message: string) => ctx.addIssue({ code: 'custom', path: [path], message });
+  if (v.presentLmp && calendarDay(v.presentLmp).getTime() > calendarDay(now).getTime()) return at('presentLmp', 'The LMP cannot be in the future');
+  if (!v.presentLmp && !v.presentEdd && v.pogWeeks.trim() && pogTyped(v) === undefined) return at('pogWeeks', 'POG: 0–42 weeks and 0–6 days');
+  const d = presentDating(v, reg);
+  if (!d) return;
+  const ga = gaDaysOn(d, reg);
+  if (ga < 0 || ga > 42 * 7 + 6) at(v.presentLmp ? 'presentLmp' : v.presentEdd ? 'presentEdd' : 'pogWeeks', 'This gives a POG outside 0–42 weeks on the registration date');
+}
+
 /**
  * The checks every dating gets (server app.check_dating): a complete dating, no LMP or scan in the future, and a
  * gestational age of 0–45 weeks on `on` (the registration day for an import row, today when the doctor dates her).
@@ -322,7 +357,7 @@ export const gplaOf = (v: { g: string; p: string; l: string; a: string }) => ({ 
 export const REGISTER_STEPS = [
   ['name', 'dob', 'ageOnly', 'age', 'phone', 'altPhone', 'email', 'marital', 'husbandName', 'husbandPhone', 'addressLine', 'village', 'district', 'state', 'pincode',
     'rchId', 'aadhaarLast4', 'abhaNumber', 'abhaAddress', 'lang', 'ecName', 'ecRelation', 'ecPhone', 'returningId'],
-  ['registeredOn', 'g', 'p', 'l', 'a', 'previous'],
+  ['registeredOn', 'g', 'p', 'l', 'a', 'previous', 'presentLmp', 'presentEdd', 'pogWeeks', 'pogDays'],
   ['conditions', 'otherCondition', 'allergies', 'medicines', 'blood', 'height', 'weight', 'tags', 'tagNote', 'intensity', 'teamId'],
 ] as const;
 
@@ -339,6 +374,10 @@ export function makeRegisterSchema(now: Date, opts: { units?: readonly string[];
       returningId: z.string().optional(),
       registeredOn: z.date(),
       ...z.object(datingFields).partial().shape,
+      presentLmp: z.date().optional(),
+      presentEdd: z.date().optional(),
+      pogWeeks: text,
+      pogDays: text,
       g: text,
       p: text,
       l: text,
@@ -363,6 +402,7 @@ export function makeRegisterSchema(now: Date, opts: { units?: readonly string[];
       const reg = calendarDay(v.registeredOn);
       if (reg.getTime() > calendarDay(now).getTime()) at(['registeredOn'], 'The registration date cannot be in the future');
       if (opts.dating) checkDating({ ...blankDating(now), ...v }, ctx, now, { day: reg, label: 'on the registration date' });
+      else checkPresent(v, ctx, now, reg);
 
       // Obstetric summary (pregnancies: G 1–20, P/L/A 0–20, P + A ≤ G − 1 for a current pregnancy).
       if (!wholeIn(v.g, 1, 20)) at(['g'], 'G: a whole number from 1 to 20');
@@ -395,7 +435,8 @@ export function makeRegisterSchema(now: Date, opts: { units?: readonly string[];
         existingMotherId: v.returningId ? asMotherId(v.returningId) : undefined,
         // Today → this moment; a back-entered day → noon of that day (so the date is the same in every time zone).
         registeredOn: sameDay ? now : new Date(v.registeredOn.getFullYear(), v.registeredOn.getMonth(), v.registeredOn.getDate(), 12),
-        dating: opts.dating ? registerDating({ ...blankDating(now), ...v }) : undefined,
+        // Import rows carry their own dating; the form's Present pregnancy card is optional (undated → dated later)
+        dating: opts.dating ? registerDating({ ...blankDating(now), ...v }) : presentDating(v, reg),
         gpla: gplaOf(v),
         history: {
           conditions: [...v.conditions.filter((c) => c !== OTHER_CONDITION), ...(v.conditions.includes(OTHER_CONDITION) ? [v.otherCondition.trim()] : [])],
@@ -426,6 +467,8 @@ export type RegisterForm = z.input<ReturnType<typeof makeRegisterSchema>>;
 export const blankRegisterForm = (now: Date): RegisterForm => ({
   ...blankMother(),
   registeredOn: now,
+  pogWeeks: '',
+  pogDays: '',
   g: '',
   p: '',
   l: '',

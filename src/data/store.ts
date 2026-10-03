@@ -517,7 +517,7 @@ export const useDb = create<Db>()((set, get) => {
       mchId: isRemote ? 'MCH id pending' : `MCH-${now.getFullYear()}-${String(seq).padStart(6, '0')}`,
       motherId,
       registeredOn: input.registeredOn,
-      lmp: input.dating?.method === 'lmp' ? input.dating.lmp : undefined,
+      lmp: input.dating?.method === 'lmp' || input.dating?.method === 'clinician' ? input.dating.lmp : undefined,
       edd: plan.edd,
       eddSource: input.dating?.method,
       gpla: input.gpla,

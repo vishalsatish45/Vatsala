@@ -83,7 +83,8 @@ export function datingPayload(input: RedateInput) {
 export type RegisterDating =
   | { method: 'lmp'; lmp: Date; lmpCertain?: boolean; note?: string }
   | { method: 'scan'; scanOn: Date; gaAtScanDays: number; note?: string }
-  | { method: 'clinician'; edd: Date; note?: string };
+  /** `lmp`: an LMP documented alongside an EDD the doctor set (e.g. corrected by a scan); recorded, not used to date. */
+  | { method: 'clinician'; edd: Date; lmp?: Date; note?: string };
 
 /** A mother's details as the forms produce them: empty strings / undefined = not documented. */
 export type MotherDetails = Omit<Mother, 'id' | 'ipNo'>;
@@ -95,8 +96,8 @@ export type RegisterInput = {
   existingMotherId?: MotherId;
   registeredOn: Date;
   /**
-   * Absent from the registration form: the doctor records the dating later (redate_pregnancy, first dating). A
-   * register import still carries each row's LMP.
+   * From the form's optional Present pregnancy card (LMP / EDD / POG), or each import row's LMP. Absent: the doctor
+   * records the dating later (redate_pregnancy, first dating).
    */
   dating?: RegisterDating;
   gpla: Pregnancy['gpla'];
@@ -113,7 +114,12 @@ export type RegisterInput = {
 
 /** `register_pregnancy.dating`: the re-dating keys plus lmp_certain for an LMP dating. */
 export function registerDatingPayload(d: RegisterDating) {
-  return { ...datingPayload(d), lmp_certain: d.method === 'lmp' ? d.lmpCertain : undefined };
+  return {
+    ...datingPayload(d),
+    lmp_certain: d.method === 'lmp' ? d.lmpCertain : undefined,
+    // An LMP documented with the doctor's EDD travels with it (the server stores it; the EDD dates the pregnancy)
+    ...(d.method === 'clinician' && d.lmp ? { lmp: isoDay(d.lmp) } : {}),
+  };
 }
 
 /**
