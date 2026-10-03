@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { Linking, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Controller, useWatch } from 'react-hook-form';
-import { Phone, MessageCircle } from 'lucide-react-native';
+import { CalendarClock, Phone, MessageCircle } from 'lucide-react-native';
 import { addDays } from '@domain/gestation';
 
 import { MISSED_OUTCOMES } from '@/data/catalogue';
@@ -9,13 +10,13 @@ import { asTaskId } from '@/data/ids';
 import { ago, fmtDay, motherOf, taskState } from '@/data/selectors';
 import { useDb } from '@/data/store';
 import type { Task } from '@/data/types';
-import { taskOutcomeSchema } from '@/features/care/forms';
+import { calendarDay, taskOutcomeSchema } from '@/features/care/forms';
 import { useActor } from '@/features/care/nav';
 import { comingSoon } from '@/lib/comingSoon';
 import { useNow } from '@/lib/clock';
 import { useZodForm } from '@/lib/forms';
 import { useSubmitOnce } from '@/lib/useSubmitOnce';
-import { AppText, Button, Card, Chip, InfoRow, IntensityPill, OptionChips, Screen, StatusBadge, TopBar, space } from '@/ui';
+import { AppText, Button, Card, Chip, DatePicker, Field, InfoRow, IntensityPill, OptionChips, Screen, StatusBadge, TopBar, space } from '@/ui';
 
 /** CT-96 Task / missed-visit recovery: call, remind, reschedule, log outcome (PRD F-23). */
 export default function TaskDetail() {
@@ -59,6 +60,8 @@ export default function TaskDetail() {
         </View>
       </View>
 
+      {!t.completedAt && !t.cancelledAt && <ChangeDate key={`date_${t.id}`} task={t} />}
+
       <OutcomeForm key={t.id} task={t} />
 
       {t.contactAttempts.length > 0 && (
@@ -74,6 +77,45 @@ export default function TaskDetail() {
 
       {p && <Chip label={`Open ${m?.name}`} onPress={() => router.push({ pathname: '/care/p/[id]', params: { id: p.id } })} />}
     </Screen>
+  );
+}
+
+/** The doctor moves a planned visit to another day, with the reason the server records (override_task "reschedule"). */
+function ChangeDate({ task }: { task: Task }) {
+  const reschedule = useDb((s) => s.rescheduleTask);
+  const now = useNow();
+  const by = useActor();
+  const [open, setOpen] = useState(false);
+  const [day, setDay] = useState<Date>();
+  const [reason, setReason] = useState('');
+  const { busy, once } = useSubmitOnce();
+  const ready = !!day && reason.trim().length > 0;
+  const save = once(() => {
+    if (!day || !reason.trim()) return;
+    // The day tapped on the calendar, as the UTC-midnight day the server is sent
+    reschedule(task.id, calendarDay(day), reason.trim(), by, now);
+    router.back();
+  });
+
+  if (!open) return <Button variant="secondary" label={`Change visit date · now ${fmtDay(task.dueBy)}`} icon={CalendarClock} onPress={() => setOpen(true)} />;
+  return (
+    <Card style={{ gap: space.md }}>
+      <AppText variant="title">Change visit date</AppText>
+      <AppText variant="caption" tone="secondary">
+        Now due {fmtDay(task.dueBy)}. Pick the new day (today or later).
+      </AppText>
+      <DatePicker value={day} initial={task.dueBy} minDate={now} onChange={setDay} />
+      {day && <AppText variant="bodyMedium">New date: {fmtDay(calendarDay(day))}</AppText>}
+      <Field label="Reason (recorded)" value={reason} onChangeText={setReason} placeholder="e.g. Mother travelling that week" />
+      <View style={{ flexDirection: 'row', gap: space.sm }}>
+        <View style={{ flex: 1 }}>
+          <Button variant="secondary" label="Cancel" onPress={() => setOpen(false)} />
+        </View>
+        <View style={{ flex: 2 }}>
+          <Button label="Save new date" disabled={busy || !ready} onPress={save} />
+        </View>
+      </View>
+    </Card>
   );
 }
 
