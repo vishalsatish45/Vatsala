@@ -64,7 +64,8 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   langs: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginTop: space.md },
-  hero: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.md, paddingVertical: space.lg },
+  // The tagline sits close under the wordmark, as in the artwork
+  hero: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.xxs, paddingVertical: space.lg },
   lockup: { width: '100%', flexShrink: 1, maxHeight: 238, aspectRatio: 458 / 600 },
   tagline: { color: palette.brandBlush, textTransform: 'uppercase', letterSpacing: 0.6 },
   // Clear of the artwork's bottom florals, and inset from the screen edges
