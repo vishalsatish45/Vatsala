@@ -107,7 +107,7 @@ import {
   space,
 } from "@/ui";
 
-type Tab = "overview" | "visits" | "tests" | "history" | "details";
+type Tab = "overview" | "visits" | "tests" | "history" | "notes" | "details";
 
 function dueAction(d: DueItem) {
   switch (d.kind) {
@@ -372,6 +372,7 @@ export default function PatientView() {
           { value: "visits", label: "Visits", count: visits.length },
           { value: "tests", label: "Tests", count: invs.length },
           { value: "history", label: "History" },
+          { value: "notes", label: "Notes", count: notes.length },
           { value: "details", label: "Details" },
         ]}
       />
@@ -668,9 +669,14 @@ export default function PatientView() {
             kind="pregnancy"
             canWrite={treating && !closed}
           />
+        </>
+      )}
 
+      {tab === "notes" && (
+        <View style={{ gap: space.md }}>
           <Section title={`Notes${notes.length ? ` · ${notes.length}` : ""}`}>
             {!closed && <NoteForm key={p.id} pregnancy={p} />}
+            {notes.length === 0 && <AppText tone="secondary">No notes yet.</AppText>}
             {notes.map((n) => {
               const body = (
                 <Card style={{ gap: 4 }}>
@@ -713,7 +719,7 @@ export default function PatientView() {
               );
             })}
           </Section>
-        </>
+        </View>
       )}
 
       {tab === "visits" && (
