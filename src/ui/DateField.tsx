@@ -5,7 +5,7 @@ import { CalendarDays } from 'lucide-react-native';
 import { DatePicker } from './DatePicker';
 import { Field } from './Field';
 import { PressableScale } from './PressableScale';
-import { parse, plausibleDigits, toText, withDashes } from './dateDigits';
+import { editDate, parse, toText, withDashes } from './dateDigits';
 import { palette, space } from './tokens';
 
 type Props = {
@@ -28,23 +28,26 @@ type Props = {
 export function DateField({ label, value, onChange, initial, yearNav, hint, error }: Props) {
   const [text, setText] = useState(value ? toText(value) : '');
   const [calendar, setCalendar] = useState(false);
+  // The cursor, so an edit in the middle stays where it was made (the dashes are not editable)
+  const [sel, setSel] = useState({ start: text.length, end: text.length });
 
   // A value set from outside (the calendar, a restored draft, a returning mother) shows in the box.
   const [seen, setSeen] = useState(value);
   const digitsOf = (s: string) => s.replace(/\D/g, '').slice(0, 8);
   if (value?.getTime() !== seen?.getTime()) {
     setSeen(value);
-    if (value && parse(withDashes(digitsOf(text)))?.getTime() !== value.getTime()) setText(toText(value));
+    if (value && parse(withDashes(digitsOf(text)))?.getTime() !== value.getTime()) {
+      setText(toText(value));
+      setSel({ start: 10, end: 10 });
+    }
   }
 
   function type(raw: string) {
-    const digits = digitsOf(raw);
-    // Typing at the end: dashes are added as the digits arrive, and a day over 31 or a month over 12 is not taken.
-    // An edit in the middle is kept exactly as typed (so the cursor stays where it is); it is tidied on leaving the box.
-    const atEnd = raw.startsWith(text) && raw.length > text.length;
-    if (atEnd && !plausibleDigits(digits)) return;
-    setText(atEnd ? withDashes(digits) : raw.replace(/[^\d-]/g, '').slice(0, 10));
-    const d = digits.length === 8 ? parse(withDashes(digits)) : undefined;
+    const next = editDate(text, raw, sel.end);
+    if (!next) return; // a day over 31 or a month over 12 typed at the end is not taken
+    setText(next.text);
+    setSel({ start: next.caret, end: next.caret });
+    const d = parse(next.text);
     if (d) onChange(d);
     else if (value) onChange(undefined);
   }
@@ -59,7 +62,8 @@ export function DateField({ label, value, onChange, initial, yearNav, hint, erro
         label={label}
         value={text}
         onChangeText={type}
-        onBlur={() => setText(withDashes(typed))}
+        selection={sel}
+        onSelectionChange={(e) => setSel(e.nativeEvent.selection)}
         placeholder="DD-MM-YYYY"
         keyboardType="number-pad"
         maxLength={10}
