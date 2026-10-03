@@ -63,9 +63,9 @@ export function assignmentLabel(db: Pick<DbState, 'teams' | 'staff'>, a: CareAss
 
 /**
  * Care-team rows for a pregnancy (obstetric and paediatric) or a baby (paediatric), each with "Change" for the
- * clinicians the server lets reassign it.
+ * clinicians the server lets reassign it (`readOnly`: the summary only, e.g. the patient Overview).
  */
-export function CareTeamRows({ subjectId, specialties }: { subjectId: SubjectId; specialties: CareSpecialty[] }) {
+export function CareTeamRows({ subjectId, specialties, readOnly }: { subjectId: SubjectId; specialties: CareSpecialty[]; readOnly?: boolean }) {
   const db = useDb();
   const me = useCareMe();
   const [editing, setEditing] = useState<CareSpecialty>();
@@ -77,7 +77,7 @@ export function CareTeamRows({ subjectId, specialties }: { subjectId: SubjectId;
         return (
           <View key={sp} style={{ gap: 4 }}>
             <InfoRow label={SPECIALTY_LABEL[sp]} value={assignmentLabel(db, a) ?? 'Not assigned'} />
-            {canReassign(me, a) && (
+            {!readOnly && canReassign(me, a) && (
               <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
                 <Chip label={`Change ${sp === 'obstetrics' ? 'obstetric' : 'paediatric'} team`} icon={Users} onPress={() => setEditing(sp)} />
               </View>

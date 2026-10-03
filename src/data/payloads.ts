@@ -6,9 +6,24 @@
 import { addDays, daysBetween, eddFromLmp, gestationalAge, PREGNANCY_DAYS } from '@domain/gestation';
 import type { Intensity } from '@domain/schedules';
 
-import { previousModeCodes, previousOutcomeCodes } from './codes';
+import { counsellingCodes, previousLabel, previousModeCodes, previousOutcomeCodes, splitComplaints } from './codes';
 import { e164, isoDay } from './remote';
-import type { AccessOverride, BabyId, CaregiverScopes, DoseSlot, EieKind, Id, Mother, MotherId, Pregnancy, PregnancyId, TeamId } from './types';
+import type {
+  AccessOverride,
+  BabyId,
+  CaregiverScopes,
+  DoseSlot,
+  EieKind,
+  Id,
+  Mother,
+  MotherId,
+  NewbornObs,
+  Pregnancy,
+  PregnancyId,
+  PrevPregnancy,
+  TeamId,
+  Visit,
+} from './types';
 
 // ── Re-dating ─────────────────────────────────────────────────────────────────────
 
@@ -246,6 +261,127 @@ export function prescribePayload(id: Id, subject: Subject, input: PrescriptionIn
     instructions: input.instructions?.trim() || undefined,
     start_on: isoDay(today),
   };
+}
+
+// ── Visits, newborn observations and their corrections ────────────────────────────
+
+const VITAL_CODES: [keyof Visit['vitals'], string][] = [
+  ['weightKg', 'weight'],
+  ['bpSys', 'bp_sys'],
+  ['bpDia', 'bp_dia'],
+  ['pulse', 'pulse'],
+  ['fundalHeightCm', 'fundal_height'],
+  ['fhr', 'fhr'],
+  ['presentation', 'presentation'],
+  ['urineAlbumin', 'urine_albumin'],
+  ['urineSugar', 'urine_sugar'],
+  ['oedema', 'oedema'],
+  ['fetalMovements', 'fetal_movements'],
+];
+
+/** A visit's values as coded observations, exactly as entered (numbers as numbers, choices as text). */
+export function visitObservationRows(vitals: Visit['vitals']) {
+  return VITAL_CODES.flatMap(([k, code]) => {
+    const v = vitals[k];
+    if (v === undefined || v === '') return [];
+    return [typeof v === 'number' ? { code, value_num: v } : { code, value_text: v }];
+  });
+}
+
+/** What a visit records (record_visit and correct_visit share these keys). */
+export type VisitRecord = Pick<Visit, 'vitals' | 'checklist' | 'complaints' | 'counselling' | 'note'>;
+
+/** The recorded part of a visit payload: observations, checklist, complaint and counselling codes, completeness. */
+export function visitBody(input: VisitRecord, at: Date, edd: Date | undefined) {
+  const counted = Object.values(input.checklist).filter((c) => c.state !== 'na');
+  const { codes, note: complaintsNote } = splitComplaints(input.complaints);
+  return {
+    at: at.toISOString(),
+    ga_days: edd && gestationalAge(edd, at).totalDays,
+    observations: visitObservationRows(input.vitals),
+    checklist: Object.entries(input.checklist).map(([component, c]) => ({ component, state: c.state, reason: c.reason })),
+    complaints: codes,
+    complaints_note: complaintsNote,
+    counselling: (input.counselling ?? []).flatMap((l) => counsellingCodes.code(l) ?? []),
+    note: input.note,
+    completeness: counted.length ? Math.round((counted.filter((c) => c.state === 'done').length / counted.length) * 1000) / 1000 : undefined,
+  };
+}
+
+/** `correct_visit`: the visit `oldId` replaced by `newId` (the server withdraws the old version as "Corrected"). */
+export function correctVisitPayload(oldId: Id, newId: Id, input: VisitRecord, at: Date, edd: Date | undefined) {
+  return { id: oldId, encounter_id: newId, ...visitBody(input, at, edd) };
+}
+
+/** A newborn observation's values as coded observations, exactly as recorded. */
+export function newbornObservationRows(o: Omit<NewbornObs, 'id' | 'babyId' | 'at' | 'by' | 'note'>) {
+  return [
+    o.weightG !== undefined && { code: 'nb_weight', value_num: o.weightG },
+    o.tempC !== undefined && { code: 'nb_temp', value_num: o.tempC },
+    o.respRate !== undefined && { code: 'nb_resp_rate', value_num: o.respRate },
+    o.feeding && { code: 'nb_feeding', value_text: o.feeding },
+    o.jaundice && { code: 'nb_jaundice', value_text: o.jaundice },
+    o.lengthCm !== undefined && { code: 'nb_length', value_num: o.lengthCm },
+    o.headCircCm !== undefined && { code: 'nb_head_circ', value_num: o.headCircCm },
+  ].filter((x): x is { code: string; value_num: number } | { code: string; value_text: string } => !!x);
+}
+
+/** `correct_newborn_obs`: the observation `oldId` replaced by `newId`. */
+export function correctNewbornPayload(oldId: Id, newId: Id, o: Omit<NewbornObs, 'id' | 'babyId' | 'by'>) {
+  return { id: oldId, encounter_id: newId, at: o.at.toISOString(), observations: newbornObservationRows(o), note: o.note?.trim() || undefined };
+}
+
+/** "11.2 g/dL" → a number and its unit; anything else is kept as text, exactly as entered. */
+export function resultValue(value: string, unit?: string) {
+  const m = value.trim().match(/^(-?\d+(?:\.\d+)?)\s*([^\d\s][^\d]*)?$/);
+  return m ? { value_num: Number(m[1]), unit: unit ?? m[2]?.trim() } : { value_text: value.trim(), unit };
+}
+
+/** A result as entered, corrected: the value (and unit), the note and the date tested. */
+export type ResultCorrection = { value: string; unit?: string; note?: string; testedAt: Date };
+
+/** `correct_result`: the shown result `resultId` replaced by `newId` (the test's version is stamped by the outbox). */
+export function correctResultPayload(resultId: Id, newId: Id, c: ResultCorrection) {
+  return { result_id: resultId, id: newId, ...resultValue(c.value, c.unit), note: c.note?.trim() || undefined, reported_at: c.testedAt.toISOString() };
+}
+
+/** A documented history entry, corrected (as documented). */
+export type FactCorrection =
+  | { kind: 'condition'; label: string }
+  | { kind: 'allergy'; substance: string }
+  | { kind: 'previous_pregnancy'; previous: PrevPregnancy };
+
+/** `correct_fact`: exactly the keys of the entry's kind (outcome and mode as codes; a label without one is sent as typed). */
+export function correctFactPayload(oldId: Id, newId: Id, c: FactCorrection) {
+  const base = { kind: c.kind, id: oldId, new_id: newId };
+  switch (c.kind) {
+    case 'condition':
+      return { ...base, label: c.label.trim() };
+    case 'allergy':
+      return { ...base, substance: c.substance.trim() };
+    case 'previous_pregnancy': {
+      const x = c.previous;
+      return {
+        ...base,
+        year: x.year,
+        outcome: previousOutcomeCodes.code(x.outcome) ?? x.outcome,
+        mode: x.mode ? (previousModeCodes.code(x.mode) ?? x.mode) : undefined,
+        gestation_weeks: x.gestationWeeks,
+        complications: x.complications?.length ? x.complications : undefined,
+        note: x.note?.trim() || undefined,
+      };
+    }
+  }
+}
+
+/** The label a corrected history entry is listed with. */
+export function factLabel(c: FactCorrection) {
+  return c.kind === 'condition' ? c.label.trim() : c.kind === 'allergy' ? c.substance.trim() : previousLabel(c.previous);
+}
+
+/** `reschedule_investigation`: the test's new due window (calendar days) and why it moved. */
+export function rescheduleTestPayload(id: Id, dueFrom: Date, dueBy: Date, reason: string, at: Date) {
+  return { id, due_from: isoDay(dueFrom), due_by: isoDay(dueBy), reason: reason.trim(), at: at.toISOString() };
 }
 
 // ── Entered in error, caregivers, notifications, overrides ────────────────────────

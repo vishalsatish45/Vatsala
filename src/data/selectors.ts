@@ -6,7 +6,7 @@ import { addDays, daysBetween, formatGA, gestationalAge } from '@domain/gestatio
 import { GRACE_DAYS, taskStatus, type TaskStatus } from '@domain/schedules';
 
 import type { DbState } from './store';
-import { REFERRAL_ENDED, type Baby, type Intensity, type Investigation, type Pregnancy, type Referral, type SubjectId, type Task, type TeamId } from './types';
+import { REFERRAL_ENDED, type Baby, type Intensity, type Investigation, type Pregnancy, type Referral, type SubjectId, type Task, type TeamId, type Visit } from './types';
 
 // ── helpers ─────────────────────────────────────────────────────────────────────
 
@@ -132,6 +132,37 @@ export function stillDue(db: DbState, p: Pregnancy, now: Date): DueItem[] {
   }
   const order: Record<TaskStatus, number> = { missed: 0, overdue: 1, due: 2, upcoming: 3, done: 4 };
   return items.sort((a, b) => order[a.status] - order[b.status]);
+}
+
+/** A planned ANC visit as the Visits tab lists it: its dates and its status from dates and completion only. */
+export type AncSlot = { task: Task; status: TaskStatus; label: string };
+
+/**
+ * Visits tab (CT-20): the visits recorded for this pregnancy (newest first) and its scheduled ANC visits (every
+ * planned anc_visit task not cancelled, by due date) with their status — due, upcoming, overdue, missed or done.
+ * Statuses come from dates and completion only, never from a reading.
+ */
+export function visitsTab(db: DbState, pregnancyId: string, now: Date): { recorded: Visit[]; scheduled: AncSlot[] } {
+  const recorded = db.visits.filter((v) => v.pregnancyId === pregnancyId).sort((a, b) => b.at.getTime() - a.at.getTime());
+  const scheduled = db.tasks
+    .filter((t) => t.subjectId === pregnancyId && t.kind === 'anc_visit' && !t.cancelledAt)
+    .sort((a, b) => a.dueBy.getTime() - b.dueBy.getTime())
+    .map((task): AncSlot => {
+      const status = taskState(db, task, now);
+      const window = task.dueFrom && task.dueFrom.getTime() !== task.dueBy.getTime() ? `${fmtDate(task.dueFrom)} – ${fmtDate(task.dueBy)}` : fmtDay(task.dueBy);
+      const label =
+        status === 'done'
+          ? `Done · seen ${fmtDay(task.completedAt ?? task.dueBy)}`
+          : status === 'missed'
+            ? `Missed · was due ${fmtDay(task.dueBy)}`
+            : status === 'overdue'
+              ? `Overdue · was due ${fmtDay(task.dueBy)}`
+              : status === 'due'
+                ? `Due · ${window}`
+                : `Upcoming · ${window}`;
+      return { task, status, label };
+    });
+  return { recorded, scheduled };
 }
 
 export function nextVisit(db: DbState, subjectId: string, now: Date) {

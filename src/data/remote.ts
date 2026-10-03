@@ -570,6 +570,7 @@ export async function loadCareSnapshot(db: SupabaseClient): Promise<Snapshot> {
         complaints: [...e.complaints.map(complaintCodes.label), ...(e.complaints_note ? [e.complaints_note] : [])],
         counselling: e.counselling.map(counsellingCodes.label),
         note: opt(e.note),
+        fromRegistration: e.kind === 'registration' || undefined,
       };
     });
 
