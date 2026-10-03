@@ -983,47 +983,6 @@ export default function PatientView() {
             </Card>
           </Section>
 
-          <Section title="Dating scan / EDD">
-            <Card>
-              <InfoRow
-                label="EDD"
-                value={
-                  p.edd
-                    ? `${fmtDay(p.edd)} (${(p.eddSource ?? "lmp").toUpperCase()})`
-                    : DATING_NOT_RECORDED
-                }
-              />
-              {!!p.lmp && <InfoRow label="LMP" value={fmtDay(p.lmp)} />}
-            </Card>
-            {treating && ongoing && (
-              <Button
-                variant="secondary"
-                icon={CalendarClock}
-                label={p.edd ? "Re-date (EDD)" : "Record dating scan / EDD"}
-                onPress={() =>
-                  router.push({
-                    pathname: "/care/p/[id]/redate",
-                    params: { id: p.id },
-                  })
-                }
-              />
-            )}
-          </Section>
-
-          <Section title="Record access">
-            <ListRow
-              leading={<Eye size={20} color={palette.lav600} />}
-              title="Who viewed this record"
-              subtitle="Every opening is logged"
-              onPress={() =>
-                router.push({
-                  pathname: "/care/p/[id]/access",
-                  params: { id: p.id },
-                })
-              }
-            />
-          </Section>
-
           <Section title="Emergency access">
             <Card style={{ gap: 4 }}>
               <View
@@ -1104,7 +1063,6 @@ export default function PatientView() {
         {treating && ongoing && (
           <>
             <MenuRow icon={Camera} label="Capture paper record" onPress={go({ pathname: "/care/capture", params: { id: p.id } })} />
-            <MenuRow icon={CalendarClock} label={p.edd ? "Re-date (EDD)" : "Record dating scan / EDD"} onPress={go({ pathname: "/care/p/[id]/redate", params: { id: p.id } })} />
           </>
         )}
 
