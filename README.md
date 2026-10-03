@@ -1,6 +1,6 @@
 # Vatsala
 
-Vatsala is an Android app that helps a hospital follow a mother and her baby from the first antenatal visit
+Vatsala is a mobile app (Android and iOS) that helps a hospital follow a mother and her baby from the first antenatal visit
 to the baby's last vaccine at two years. The hospital team and the family use the same app and see the
 same plan.
 
@@ -79,7 +79,7 @@ Every patient in the app is synthetic.
 
 ## Try it
 
-You'll need an Android phone (64-bit) with internet. Install the APK, then sign in with one of these numbers
+The demo build is an Android APK, so you'll need an Android phone (64-bit) with internet. Install it, then sign in with one of these numbers
 and the code **123456**:
 
 | Number | Who | Opens |
@@ -109,7 +109,8 @@ overdue, simulate going offline, and reset the demo data.
 
 ## How it's built
 
-- **App:** Expo SDK 57 / React Native 0.86, Expo Router and TypeScript. State lives in Zustand and TanStack
+- **App:** Expo SDK 57 / React Native 0.86, Expo Router and TypeScript. One codebase targets Android and
+  iOS. We've built and tested it on Android phones. State lives in Zustand and TanStack
   Query, and forms use React Hook Form with Zod.
 - **Backend:** Supabase (Postgres with row-level security, phone OTP sign-in, Realtime, Storage, Edge
   Functions and pg_cron).
@@ -159,6 +160,8 @@ files for access rules, every database function and the scheduled jobs.
 - WhatsApp and SMS reminders: families can choose them, but only app notifications are sent so far.
 - The Kannada and Hindi text, and the health-education content, still need review by native speakers and
   clinicians.
+- iOS hasn't been tested on a device yet. The code is shared, but an iPhone build needs an Apple developer
+  account, and iOS push notifications need Apple credentials.
 - The APK is signed with a development key. It's fine for testing, but not ready for the Play Store.
 
 ## More
