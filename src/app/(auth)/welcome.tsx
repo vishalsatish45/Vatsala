@@ -14,10 +14,12 @@ function Door({ icon: Icon, title, sub, onPress }: { icon: LucideIcon; title: st
     <PressableScale onPress={onPress} accessibilityRole="button" accessibilityLabel={title}>
       <GlassSurface strong style={styles.door}>
         <View style={styles.doorIcon}>
-          <Icon size={26} color={palette.rose600} strokeWidth={1.8} />
+          <Icon size={20} color={palette.rose600} strokeWidth={1.8} />
         </View>
         <View style={{ flex: 1, gap: 2 }}>
-          <AppText variant="headline">{title}</AppText>
+          <AppText variant="headline" style={styles.doorTitle}>
+            {title}
+          </AppText>
           <AppText variant="caption" tone="secondary">
             {sub}
           </AppText>
@@ -53,7 +55,7 @@ export default function Welcome() {
         </AppText>
       </View>
 
-      <View style={[styles.doors, { paddingBottom: insets.bottom + space.lg }]}>
+      <View style={[styles.doors, { paddingBottom: insets.bottom + 88 }]}>
         <Door icon={HeartHandshake} title={t('auth.familyDoor')} sub={t('auth.familyDoorSub')} onPress={() => router.push({ pathname: '/phone', params: { door: 'family' } })} />
         <Door icon={Stethoscope} title={t('auth.careDoor')} sub={t('auth.careDoorSub')} onPress={() => router.push({ pathname: '/phone', params: { door: 'care' } })} />
       </View>
@@ -67,7 +69,9 @@ const styles = StyleSheet.create({
   hero: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.md, paddingVertical: space.lg },
   lockup: { width: '100%', flexShrink: 1, maxHeight: 280, aspectRatio: 452 / 596 },
   tagline: { color: palette.brandBlush, textTransform: 'uppercase', letterSpacing: 0.6 },
-  doors: { gap: space.sm },
-  door: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.lg },
-  doorIcon: { width: 52, height: 52, borderRadius: 16, backgroundColor: palette.rose50, alignItems: 'center', justifyContent: 'center' },
+  // Clear of the artwork's bottom florals, and inset from the screen edges
+  doors: { gap: space.xs, paddingHorizontal: space.md },
+  door: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.sm, paddingHorizontal: space.md },
+  doorTitle: { fontSize: 16, lineHeight: 22 },
+  doorIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: palette.rose50, alignItems: 'center', justifyContent: 'center' },
 });
