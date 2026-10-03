@@ -4,6 +4,7 @@ import { ChevronRight, FlaskConical, Stethoscope, Syringe, type LucideIcon } fro
 
 import { AppText } from './AppText';
 import { GlassSurface } from './GlassSurface';
+import { Sparkles } from './illustrations';
 import { PressableScale } from './PressableScale';
 import { palette, radius, space } from './tokens';
 
@@ -30,6 +31,9 @@ export function UpcomingCard({ kind, eyebrow, title, when, place, onPress }: Pro
   const visit = kind === 'visit';
   const body = (
     <View style={styles.row}>
+      <View style={styles.art} pointerEvents="none">
+        <Sparkles size={34} color={visit ? palette.ink : palette.lav600} />
+      </View>
       <View style={[styles.badge, { backgroundColor: visit ? 'rgba(255,255,255,0.7)' : palette.lav100 }]}>
         <Icon size={22} color={visit ? palette.rose600 : palette.lav600} strokeWidth={1.9} />
       </View>
@@ -72,6 +76,7 @@ const styles = StyleSheet.create({
   card: { borderRadius: radius.lg, paddingVertical: space.sm, paddingHorizontal: space.md, overflow: 'hidden' },
   testCard: { borderLeftWidth: 5, borderLeftColor: palette.lav400 },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  art: { position: 'absolute', right: -4, top: -6 },
   badge: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   when: { fontSize: 17, lineHeight: 22 },
 });
