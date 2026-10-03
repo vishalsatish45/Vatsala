@@ -122,8 +122,8 @@ export function MotherFields({
         max: 4,
         hint: /^\d{4}$/.test(String(aadhaar ?? '')) ? `Recorded as ${maskedAadhaar(String(aadhaar))} — never the full number` : 'Only the last 4 digits — never the full number',
       })}
-      {recorded.abhaNumber ? <InfoRow label="ABHA number" value={recorded.abhaNumber} /> : text('abhaNumber', 'ABHA number (14 digits, optional)', { numeric: true, max: 14 })}
-      {recorded.abhaAddress ? <InfoRow label="ABHA address" value={recorded.abhaAddress} /> : text('abhaAddress', 'ABHA address (optional)', { placeholder: 'name@abdm' })}
+      {recorded.abhaNumber ? <InfoRow label="Ayushman Bharat Health Account (ABHA) number" value={recorded.abhaNumber} /> : text('abhaNumber', 'Ayushman Bharat Health Account (ABHA) number (14 digits, optional)', { numeric: true, max: 14 })}
+      {recorded.abhaAddress ? <InfoRow label="Ayushman Bharat Health Account (ABHA) address" value={recorded.abhaAddress} /> : text('abhaAddress', 'Ayushman Bharat Health Account (ABHA) address (optional)', { placeholder: 'name@abdm' })}
 
       <Controller control={control} name="lang" render={({ field }) => <OptionChips label="Preferred language" options={Object.keys(LANGUAGES)} value={field.value} onChange={(v) => v && field.onChange(v)} />} />
 
