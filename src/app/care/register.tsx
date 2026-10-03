@@ -84,6 +84,8 @@ function RegisterScreen() {
   const lookupBlocks = lookup?.phone === values.phone && (lookup.match?.activePregnancy || lookup.decision === 'different' || (lookup.state === 'found' && !lookup.decision));
   const valid = REGISTER_STEPS.map((fields, i) => !issueIn(fields) && (i > 0 || !lookupBlocks));
   const stepIssue = issueIn(REGISTER_STEPS[step]!)?.message;
+  // Shown under G/P/L/A once all four are filled in
+  const gplaIssue = [values.g, values.p, values.l, values.a].every((x) => x !== '') ? issueIn(['g', 'p', 'l', 'a'])?.message : undefined;
   const last = step === STEPS.length - 1;
 
   async function lookUp(phone: string) {
@@ -123,6 +125,13 @@ function RegisterScreen() {
       blob="none"
       header={<TopBar back title="Register pregnancy" />}
       footer={
+        <View style={{ gap: space.xs }}>
+          {/* Why "Next" is off, where it is always visible */}
+          {!!stepIssue && (
+            <AppText variant="caption" tone="overdue" align="center">
+              To continue: {stepIssue}
+            </AppText>
+          )}
         <View style={styles.footer}>
           {step > 0 && (
             <View style={{ flex: 1 }}>
@@ -136,6 +145,7 @@ function RegisterScreen() {
               <Button label="Register" disabled={busy || !valid.every(Boolean)} onPress={handleSubmit(create)} />
             )}
           </View>
+        </View>
         </View>
       }
     >
@@ -173,8 +183,13 @@ function RegisterScreen() {
               ))}
             </View>
             <AppText variant="caption" tone="secondary">
-              Gravida · Para · Living · Abortions
+              Gravida · Para · Living · Abortions (G counts this pregnancy)
             </AppText>
+            {!!gplaIssue && (
+              <AppText variant="caption" tone="overdue">
+                {gplaIssue}
+              </AppText>
+            )}
             <Chip label={`Registered on ${fmtDay(calendarDay(values.registeredOn))}${regOpen ? '' : ' · change (back-entry)'}`} onPress={() => setRegOpen((x) => !x)} />
             {regOpen && <Controller control={control} name="registeredOn" render={({ field }) => <DatePicker value={field.value} onChange={field.onChange} />} />}
           </Card>
@@ -277,11 +292,6 @@ function RegisterScreen() {
         </>
       )}
 
-      {!!stepIssue && (
-        <AppText variant="caption" tone="secondary">
-          To continue: {stepIssue}
-        </AppText>
-      )}
     </Screen>
   );
 }
