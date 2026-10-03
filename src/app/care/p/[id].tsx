@@ -1007,26 +1007,6 @@ export default function PatientView() {
             </Card>
           </Section>
 
-          {treating && (p.status === "active" || delivered) && (
-            <Section title="Outcome">
-              <Button
-                variant="secondary"
-                label={
-                  delivered
-                    ? motherDischarge && !motherDischarge.completedAt
-                      ? "Close episode (after discharge)"
-                      : "Close episode"
-                    : "End of pregnancy care"
-                }
-                onPress={() =>
-                  router.push({
-                    pathname: "/care/p/[id]/end",
-                    params: { id: p.id },
-                  })
-                }
-              />
-            </Section>
-          )}
         </>
       )}
 
