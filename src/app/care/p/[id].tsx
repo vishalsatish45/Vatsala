@@ -25,7 +25,7 @@ import {
   Tags,
   type LucideIcon,
 } from "lucide-react-native";
-import { gestationalAge } from "@domain/gestation";
+import { gestationalAge, trimester } from "@domain/gestation";
 
 import { tagLabel } from "@/data/catalogue";
 import { endReasonCodes } from "@/data/codes";
@@ -101,6 +101,7 @@ import {
   StatTile,
   StatusBadge,
   SyncBadge,
+  type TLEvent,
   TopBar,
   UnderlineTabs,
   palette,
@@ -108,6 +109,8 @@ import {
 } from "@/ui";
 
 type Tab = "overview" | "visits" | "tests" | "history" | "notes" | "details";
+type HistoryTab = "documented" | "t1" | "t2" | "t3";
+const TRIMESTER_WEEKS = { t1: "Weeks 0–13", t2: "Weeks 14–27", t3: "Week 28 onwards" } as const;
 
 function dueAction(d: DueItem) {
   switch (d.kind) {
@@ -146,6 +149,7 @@ export default function PatientView() {
   const [endingAdmission, setEndingAdmission] = useState(false);
   const [menu, setMenu] = useState(false);
   const [menuTab, setMenuTab] = useState<"actions" | "referrals">("actions");
+  const [historyTab, setHistoryTab] = useState<HistoryTab>("documented");
   const by = useActor();
   const me = useCareMe();
 
@@ -168,6 +172,22 @@ export default function PatientView() {
   const last = visits[0];
   const invs = db.investigations.filter((i) => i.subjectId === p.id);
   const refs = db.referrals.filter((r) => r.pregnancyId === p.id);
+  // History tab: the care timeline split by her gestational age on each event's day (calendar trimesters);
+  // the baby's events and anything past 42 weeks (after the birth) come last.
+  const byTrimester = { t1: [], t2: [], t3: [], after: [] } as Record<"t1" | "t2" | "t3" | "after", TLEvent[]>;
+  if (p.edd) {
+    for (const e of continuityEvents(db, p.id, now, "care")) {
+      const ev: TLEvent = {
+        ...e,
+        title: e.kind === "tag" ? `Tagged: ${tagLabel(e.sub ?? "")}` : e.label,
+        sub: e.kind === "tag" ? undefined : e.sub,
+        anc: e.kind === "visit" || e.kind === "planned_visit",
+      };
+      const ga = gestationalAge(p.edd, e.at);
+      if (e.lane === "baby" || ga.totalDays > 42 * 7 + 6) byTrimester.after.push(ev);
+      else byTrimester[`t${trimester(ga)}`].push(ev);
+    }
+  }
   // A menu item closes the menu, then opens its screen
   const go = (to: Parameters<typeof router.push>[0]) => () => {
     setMenu(false);
@@ -818,6 +838,53 @@ export default function PatientView() {
       {tab === "tests" && <TestsTab invs={invs} now={now} />}
 
       {tab === "history" && (
+        <UnderlineTabs
+          value={historyTab}
+          onChange={setHistoryTab}
+          tabs={[
+            { value: "documented", label: "Documented history" },
+            { value: "t1", label: "1st trimester", count: byTrimester.t1.length },
+            { value: "t2", label: "2nd trimester", count: byTrimester.t2.length },
+            { value: "t3", label: "3rd trimester", count: byTrimester.t3.length + byTrimester.after.length },
+          ]}
+        />
+      )}
+
+      {tab === "history" && historyTab !== "documented" && (
+        <View style={{ gap: space.md }}>
+          {!p.edd ? (
+            <AppText tone="secondary">
+              {DATING_NOT_RECORDED}: the trimesters are worked out from the EDD once it is recorded.
+            </AppText>
+          ) : (
+            <>
+              <Section title={TRIMESTER_WEEKS[historyTab]}>
+                {byTrimester[historyTab].length === 0 ? (
+                  <AppText tone="secondary">Nothing in this trimester yet.</AppText>
+                ) : (
+                  <ContinuityTimeline
+                    events={byTrimester[historyTab]}
+                    now={now}
+                    fmt={fmtDay}
+                    motherLabel="Mother"
+                    babyLabel="Baby"
+                    todayLabel="Today"
+                    edd={historyTab === "t3" && !delivered ? p.edd : undefined}
+                    eddLabel={`EDD · ${fmtDay(p.edd)}`}
+                  />
+                )}
+              </Section>
+              {historyTab === "t3" && byTrimester.after.length > 0 && (
+                <Section title="After birth">
+                  <ContinuityTimeline events={byTrimester.after} now={now} fmt={fmtDay} motherLabel="Mother" babyLabel="Baby" todayLabel="Today" />
+                </Section>
+              )}
+            </>
+          )}
+        </View>
+      )}
+
+      {tab === "history" && historyTab === "documented" && (
         <>
           <Section title="Documented history">
             <Card style={{ gap: 6 }}>
@@ -875,26 +942,6 @@ export default function PatientView() {
               />
               <InfoRow label="Registered" value={fmtDay(p.registeredOn)} />
             </Card>
-          </Section>
-          <Section title="Care timeline">
-            <ContinuityTimeline
-              events={continuityEvents(db, p.id, now, "care").map((e) => ({
-                ...e,
-                title:
-                  e.kind === "tag"
-                    ? `Tagged: ${tagLabel(e.sub ?? "")}`
-                    : e.label,
-                sub: e.kind === "tag" ? undefined : e.sub,
-                anc: e.kind === "visit" || e.kind === "planned_visit",
-              }))}
-              now={now}
-              fmt={fmtDay}
-              motherLabel="Mother"
-              babyLabel="Baby"
-              todayLabel="Today"
-              edd={delivered ? undefined : p.edd}
-              eddLabel={p.edd ? `EDD · ${fmtDay(p.edd)}` : DATING_NOT_RECORDED}
-            />
           </Section>
         </>
       )}
