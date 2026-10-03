@@ -8,8 +8,11 @@ import {
   Camera,
   ClipboardCheck,
   ClipboardPlus,
+  CircleCheck,
   DoorOpen,
+  EllipsisVertical,
   Eye,
+  FileText,
   FolderOpen,
   GitPullRequestArrow,
   HeartPulse,
@@ -20,6 +23,7 @@ import {
   Send,
   ShieldAlert,
   Tags,
+  type LucideIcon,
 } from "lucide-react-native";
 import { gestationalAge } from "@domain/gestation";
 
@@ -85,6 +89,7 @@ import {
   ChecklistRow,
   ContinuityTimeline,
   Field,
+  GlassIconButton,
   GlassSurface,
   InfoRow,
   IntensityPill,
@@ -92,6 +97,7 @@ import {
   PressableScale,
   Screen,
   Section,
+  Sheet,
   StatTile,
   StatusBadge,
   SyncBadge,
@@ -138,6 +144,8 @@ export default function PatientView() {
   const [eie, setEie] = useState<EieTarget>();
   const [fact, setFact] = useState<DocumentedFact>();
   const [endingAdmission, setEndingAdmission] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [menuTab, setMenuTab] = useState<"actions" | "referrals">("actions");
   const by = useActor();
   const me = useCareMe();
 
@@ -160,6 +168,11 @@ export default function PatientView() {
   const last = visits[0];
   const invs = db.investigations.filter((i) => i.subjectId === p.id);
   const refs = db.referrals.filter((r) => r.pregnancyId === p.id);
+  // A menu item closes the menu, then opens its screen
+  const go = (to: Parameters<typeof router.push>[0]) => () => {
+    setMenu(false);
+    router.push(to);
+  };
   const logs = db.selfLogs
     .filter((l) => l.motherId === m.id)
     .sort((a, b) => b.at.getTime() - a.at.getTime());
@@ -231,14 +244,10 @@ export default function PatientView() {
           back
           title={m.name}
           right={
-            <Chip
-              label="Handoff"
-              onPress={() =>
-                router.push({
-                  pathname: "/care/p/[id]/handoff",
-                  params: { id: p.id },
-                })
-              }
+            <GlassIconButton
+              icon={EllipsisVertical}
+              accessibilityLabel="More: handoff, clinical actions, referrals"
+              onPress={() => setMenu(true)}
             />
           }
         />
@@ -654,117 +663,6 @@ export default function PatientView() {
             </Card>
           </Section>
 
-          {treating && (ongoing || (delivered && motherDischarge)) && (
-            <Section title="Clinical actions">
-              <View style={styles.actions}>
-                {ongoing && (
-                  <Button
-                    variant="secondary"
-                    icon={Baby}
-                    label={
-                      p.status === "admitted"
-                        ? "Record delivery"
-                        : "Admit / record delivery"
-                    }
-                    onPress={() =>
-                      router.push({
-                        pathname: "/care/p/[id]/deliver",
-                        params: { id: p.id },
-                      })
-                    }
-                  />
-                )}
-                {p.status === "admitted" && (
-                  <Button
-                    variant="secondary"
-                    icon={DoorOpen}
-                    label="End admission (no delivery)"
-                    onPress={() => setEndingAdmission(true)}
-                  />
-                )}
-                {delivered && motherDischarge && (
-                  <Button
-                    variant="secondary"
-                    icon={ClipboardCheck}
-                    label={
-                      motherDischarge.completedAt
-                        ? "Discharge checklist (completed)"
-                        : `Mother's discharge checklist · ${motherDischarge.items.filter((i) => !i.state).length} open`
-                    }
-                    onPress={() =>
-                      router.push({
-                        pathname: "/care/discharge/[id]",
-                        params: { id: p.id },
-                      })
-                    }
-                  />
-                )}
-                {delivered && motherDischarge?.completedAt && (
-                  <Button
-                    variant="secondary"
-                    label="Close episode"
-                    onPress={() =>
-                      router.push({
-                        pathname: "/care/p/[id]/end",
-                        params: { id: p.id },
-                      })
-                    }
-                  />
-                )}
-              </View>
-            </Section>
-          )}
-
-          <Section title={`Referrals${refs.length ? ` · ${refs.length}` : ""}`}>
-            {treating && !closed && (
-              <Button
-                variant="secondary"
-                label="New referral"
-                icon={GitPullRequestArrow}
-                onPress={() =>
-                  router.push({
-                    pathname: "/care/p/[id]/refer",
-                    params: { id: p.id },
-                  })
-                }
-              />
-            )}
-            {refs.length === 0 && (
-              <AppText tone="secondary">No referrals.</AppText>
-            )}
-            {refs.map((r) => (
-              <ListRow
-                key={r.id}
-                title={`${r.department} · ${referralStatusLabel(r.status)}`}
-                subtitle={r.reason}
-                meta={
-                  <View style={{ flexDirection: "row", gap: 4 }}>
-                    {REFERRAL_STEPS.map((st, i) => (
-                      <View
-                        key={st}
-                        style={[
-                          styles.step,
-                          {
-                            backgroundColor:
-                              i <= REFERRAL_STEPS.indexOf(r.status)
-                                ? palette.rose500
-                                : palette.softBorder,
-                          },
-                        ]}
-                      />
-                    ))}
-                  </View>
-                }
-                onPress={() =>
-                  router.push({
-                    pathname: "/care/referral/[id]",
-                    params: { id: r.id },
-                  })
-                }
-              />
-            ))}
-          </Section>
-
           <PrescriptionsCard
             subjectId={p.id}
             kind="pregnancy"
@@ -1136,6 +1034,88 @@ export default function PatientView() {
         visible={endingAdmission}
         onClose={() => setEndingAdmission(false)}
       />
+      {/* The "⋮" menu: handoff, clinical actions and referrals */}
+      <Sheet visible={menu} onClose={() => setMenu(false)} title={m.name}>
+        <UnderlineTabs
+          value={menuTab}
+          onChange={setMenuTab}
+          tabs={[
+            { value: "actions", label: "Actions" },
+            { value: "referrals", label: "Referrals", count: refs.length },
+          ]}
+        />
+        {menuTab === "actions" && (
+          <>
+        <MenuRow icon={FileText} label="Handoff summary" onPress={go({ pathname: "/care/p/[id]/handoff", params: { id: p.id } })} />
+
+        {treating && (ongoing || (delivered && motherDischarge)) && (
+          <>
+            <AppText variant="label" tone="secondary" style={styles.menuGroup}>
+              Clinical actions
+            </AppText>
+            {ongoing && (
+              <MenuRow
+                icon={Baby}
+                label={p.status === "admitted" ? "Record delivery" : "Admit / record delivery"}
+                onPress={go({ pathname: "/care/p/[id]/deliver", params: { id: p.id } })}
+              />
+            )}
+            {p.status === "admitted" && (
+              <MenuRow
+                icon={DoorOpen}
+                label="End admission (no delivery)"
+                onPress={() => {
+                  setMenu(false);
+                  setEndingAdmission(true);
+                }}
+              />
+            )}
+            {delivered && motherDischarge && (
+              <MenuRow
+                icon={ClipboardCheck}
+                label={
+                  motherDischarge.completedAt
+                    ? "Discharge checklist (completed)"
+                    : `Mother's discharge checklist · ${motherDischarge.items.filter((i) => !i.state).length} open`
+                }
+                onPress={go({ pathname: "/care/discharge/[id]", params: { id: p.id } })}
+              />
+            )}
+            {delivered && motherDischarge?.completedAt && (
+              <MenuRow icon={CircleCheck} label="Close episode" onPress={go({ pathname: "/care/p/[id]/end", params: { id: p.id } })} />
+            )}
+          </>
+        )}
+          </>
+        )}
+
+        {menuTab === "referrals" && (
+          <>
+        {treating && !closed && (
+          <MenuRow icon={GitPullRequestArrow} label="New referral" onPress={go({ pathname: "/care/p/[id]/refer", params: { id: p.id } })} />
+        )}
+        {refs.length === 0 && <AppText tone="secondary">No referrals.</AppText>}
+        {refs.map((r) => (
+          <ListRow
+            key={r.id}
+            title={`${r.department} · ${referralStatusLabel(r.status)}`}
+            subtitle={r.reason}
+            meta={
+              <View style={{ flexDirection: "row", gap: 4 }}>
+                {REFERRAL_STEPS.map((st, i) => (
+                  <View
+                    key={st}
+                    style={[styles.step, { backgroundColor: i <= REFERRAL_STEPS.indexOf(r.status) ? palette.rose500 : palette.softBorder }]}
+                  />
+                ))}
+              </View>
+            }
+            onPress={go({ pathname: "/care/referral/[id]", params: { id: r.id } })}
+          />
+        ))}
+          </>
+        )}
+      </Sheet>
     </Screen>
   );
 }
@@ -1286,6 +1266,8 @@ function NoteForm({ pregnancy }: { pregnancy: Pregnancy }) {
 }
 
 const styles = StyleSheet.create({
+  menuRow: { flexDirection: "row", alignItems: "center", gap: space.md, paddingVertical: 14, paddingHorizontal: space.md, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.55)" },
+  menuGroup: { marginTop: space.sm },
   header: { alignItems: "center", gap: 6 },
   gaRow: { flexDirection: "row", alignItems: "flex-end" },
   chips: {
@@ -1333,3 +1315,15 @@ const styles = StyleSheet.create({
   footer: { flexDirection: "row", gap: space.sm },
   step: { width: 18, height: 5, borderRadius: 3 },
 });
+
+/** One item in the "⋮" menu. */
+function MenuRow({ icon: Icon, label, onPress }: { icon: LucideIcon; label: string; onPress: () => void }) {
+  return (
+    <PressableScale onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={styles.menuRow}>
+      <Icon size={20} color={palette.rose600} strokeWidth={1.8} />
+      <AppText variant="bodyMedium" style={{ flex: 1 }}>
+        {label}
+      </AppText>
+    </PressableScale>
+  );
+}
