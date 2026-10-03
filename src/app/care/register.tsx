@@ -207,8 +207,8 @@ function RegisterScreen() {
             {values.conditions.includes(OTHER_CONDITION) && (
               <Controller control={control} name="otherCondition" render={({ field }) => <Field label="Other condition (as documented)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
             )}
-            <Controller control={control} name="allergies" render={({ field }) => <Field label="Allergies (comma separated)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
-            <Controller control={control} name="medicines" render={({ field }) => <Field label="Current medicines (comma separated, as documented)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+            <Controller control={control} name="allergies" render={({ field }) => <Field label="Allergies" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
+            <Controller control={control} name="medicines" render={({ field }) => <Field label="Current medicines (as documented)" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
             <Controller control={control} name="blood" render={({ field }) => <OptionChips label="Blood group (if known)" options={BLOOD} value={field.value} onChange={field.onChange} />} />
             <View style={styles.row}>
               <Controller control={control} name="height" render={({ field }) => <Field flex label="Height (if measured)" unit="cm" keyboardType="decimal-pad" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />} />
