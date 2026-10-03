@@ -60,6 +60,12 @@ export function formatGA(ga: GestationalAge): string {
   return `${ga.weeks}+${ga.days}`;
 }
 
+/** "32 weeks 2 days" (whole weeks alone: "40 weeks"). */
+export function formatGAWords(ga: GestationalAge): string {
+  const weeks = `${ga.weeks} ${ga.weeks === 1 ? 'week' : 'weeks'}`;
+  return ga.days ? `${weeks} ${ga.days} ${ga.days === 1 ? 'day' : 'days'}` : weeks;
+}
+
 export type Trimester = 1 | 2 | 3;
 
 /** Calendar trimester by completed weeks: 1 (<14), 2 (14–27), 3 (≥28). */

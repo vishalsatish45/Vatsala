@@ -4,6 +4,7 @@ import {
   daysBetween,
   eddFromLmp,
   formatGA,
+  formatGAWords,
   gestationalAge,
   lmpFromEdd,
   localDay,
@@ -38,6 +39,9 @@ describe('gestationalAge', () => {
   });
   it('is 40+0 on the EDD', () => {
     expect(formatGA(gestationalAge(edd, edd))).toBe('40+0');
+    expect(formatGAWords(gestationalAge(edd, d('2026-09-28')))).toBe('33 weeks 2 days');
+    expect(formatGAWords(gestationalAge(edd, edd))).toBe('40 weeks');
+    expect(formatGAWords({ weeks: 1, days: 1, totalDays: 8 })).toBe('1 week 1 day');
   });
   it('ignores time of day', () => {
     const a = gestationalAge(edd, new Date('2026-09-28T00:00:01Z'));

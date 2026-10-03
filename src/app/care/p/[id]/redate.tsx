@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Controller, useWatch } from 'react-hook-form';
-import { formatGA, gestationalAge } from '@domain/gestation';
+import { formatGAWords, gestationalAge } from '@domain/gestation';
 
 import { asPregnancyId } from '@/data/ids';
 import { eddFor } from '@/data/payloads';
@@ -114,7 +114,7 @@ function DatingScreen({ pregnancyId }: { pregnancyId: ReturnType<typeof asPregna
             <AppText variant="label" tone="secondary">Current EDD ({SOURCE[p.eddSource ?? 'lmp']})</AppText>
             <AppText variant="title">{fmtDay(p.edd)}</AppText>
             <AppText variant="caption" tone="secondary">
-              GA today {formatGA(gestationalAge(p.edd, now))}
+              GA today {formatGAWords(gestationalAge(p.edd, now))}
             </AppText>
           </Card>
         )}
@@ -122,7 +122,7 @@ function DatingScreen({ pregnancyId }: { pregnancyId: ReturnType<typeof asPregna
           <AppText variant="label" tone="secondary">{first ? 'EDD' : 'New EDD'} ({SOURCE[method]})</AppText>
           <AppText variant="title">{newEdd ? fmtDay(newEdd) : '—'}</AppText>
           <AppText variant="caption" tone="secondary">
-            {newEdd ? `GA today ${formatGA(gestationalAge(newEdd, now))}` : 'Enter the dating'}
+            {newEdd ? `GA today ${formatGAWords(gestationalAge(newEdd, now))}` : 'Enter the dating'}
           </AppText>
         </Card>
       </View>

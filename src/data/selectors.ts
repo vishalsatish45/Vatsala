@@ -2,7 +2,7 @@
  * Read models derived from the store (PRD §11.3 views). Operational only: statuses come
  * from dates and completion — never from clinical values (PRD §2.2).
  */
-import { addDays, daysBetween, formatGA, gestationalAge } from '@domain/gestation';
+import { addDays, daysBetween, formatGAWords, gestationalAge } from '@domain/gestation';
 import { GRACE_DAYS, taskStatus, type TaskStatus } from '@domain/schedules';
 
 import type { DbState } from './store';
@@ -54,7 +54,7 @@ export const activeTags = (db: DbState, subjectId: string) => db.tags.filter((t)
 export const DATING_NOT_RECORDED = 'Dating not recorded';
 
 export function gaLabel(p: Pick<Pregnancy, 'edd'>, now: Date) {
-  return p.edd ? `${formatGA(gestationalAge(p.edd, now))} weeks` : DATING_NOT_RECORDED;
+  return p.edd ? formatGAWords(gestationalAge(p.edd, now)) : DATING_NOT_RECORDED;
 }
 
 /** Days from `now` to the EDD; undefined while undated (an undated pregnancy is never "due soon"). */

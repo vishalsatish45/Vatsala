@@ -4,7 +4,7 @@
  * sentences, each citing source records. No interpretation, no clinical adjectives,
  * no recommendations. Shown as "AI draft · unverified" until a clinician verifies it.
  */
-import { formatGA, gestationalAge } from '@domain/gestation';
+import { formatGAWords, gestationalAge } from '@domain/gestation';
 
 import { tagLabel } from '@/data/catalogue';
 import { activeTags, fmtDate, fmtDay, nextVisit, stillDue } from '@/data/selectors';
@@ -25,7 +25,7 @@ export function buildBrief(db: DbState, pregnancyId: string, now: Date): Brief {
 
   s.push({
     text: p.edd
-      ? `${p.status === 'delivered' ? 'Delivered' : `${formatGA(gestationalAge(p.edd, now))} weeks`}. G${p.gpla.g}P${p.gpla.p}L${p.gpla.l}A${p.gpla.a}. EDD ${fmtDay(p.edd)} (${(p.eddSource ?? 'lmp').toUpperCase()}).`
+      ? `${p.status === 'delivered' ? 'Delivered' : formatGAWords(gestationalAge(p.edd, now))}. G${p.gpla.g}P${p.gpla.p}L${p.gpla.l}A${p.gpla.a}. EDD ${fmtDay(p.edd)} (${(p.eddSource ?? 'lmp').toUpperCase()}).`
       : `${p.status === 'delivered' ? 'Delivered' : 'Dating not recorded'}. G${p.gpla.g}P${p.gpla.p}L${p.gpla.l}A${p.gpla.a}.`,
     sources: [{ label: 'Registration', kind: 'registration', id: p.id }],
   });

@@ -3,7 +3,7 @@ import { Alert, StyleSheet, Switch, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Controller, useWatch } from "react-hook-form";
 import { Trash2 } from "lucide-react-native";
-import { addDays, gestationalAge } from "@domain/gestation";
+import { addDays, formatGAWords, gestationalAge } from "@domain/gestation";
 import {
   ancIntervalWeeks,
   completeness,
@@ -238,7 +238,7 @@ function VisitFormScreen({ id, visit }: { id: PregnancyId; visit?: Visit }) {
         <AppText tone="secondary">
           {p.mchId} ·{" "}
           {p.edd
-            ? `${ga.weeks}+${ga.days} weeks at the visit`
+            ? `${formatGAWords(ga)} at the visit`
             : DATING_NOT_RECORDED}
         </AppText>
         {visit && (

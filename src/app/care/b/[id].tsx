@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Baby, ClipboardCheck, NotebookPen, Scale, Syringe, Tags, Timer } from 'lucide-react-native';
-import { daysBetween, formatGA } from '@domain/gestation';
+import { daysBetween, formatGAWords } from '@domain/gestation';
 
 import { asBabyId } from '@/data/ids';
 import { tagLabel } from '@/data/catalogue';
@@ -87,7 +87,7 @@ export default function NewbornView() {
         )}
         <View style={styles.chips}>
           <Chip label={`Born ${fmtDay(b.dob)} · ${fmtTime(b.dob)}`} variant="glass" />
-          <Chip label={`GA at birth ${formatGA({ weeks: Math.floor(b.gaAtBirthDays / 7), days: b.gaAtBirthDays % 7, totalDays: b.gaAtBirthDays })}`} variant="glass" />
+          <Chip label={`GA at birth ${formatGAWords({ weeks: Math.floor(b.gaAtBirthDays / 7), days: b.gaAtBirthDays % 7, totalDays: b.gaAtBirthDays })}`} variant="glass" />
         </View>
         <View style={styles.chips}>
           {tags.map((t) => (

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Alert, Switch, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Controller, useWatch, type Control } from 'react-hook-form';
-import { gestationalAge, formatGA } from '@domain/gestation';
+import { gestationalAge, formatGAWords } from '@domain/gestation';
 
 import { asPregnancyId } from '@/data/ids';
 import { DATING_NOT_RECORDED, fmtDay, fmtTime, motherOf } from '@/data/selectors';
@@ -91,7 +91,7 @@ function DeliveryFormScreen({ id }: { id: PregnancyId }) {
       <View style={{ gap: 4 }}>
         <AppText variant="display">{m.name}</AppText>
         <AppText tone="secondary">
-          {p.mchId} · {!p.edd ? DATING_NOT_RECORDED : at ? `GA at birth ${formatGA(gestationalAge(p.edd, at))} weeks` : 'Enter the time of birth'}
+          {p.mchId} · {!p.edd ? DATING_NOT_RECORDED : at ? `GA at birth ${formatGAWords(gestationalAge(p.edd, at))}` : 'Enter the time of birth'}
         </AppText>
       </View>
 
