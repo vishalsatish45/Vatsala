@@ -54,7 +54,18 @@ export default function Otp() {
     }
   }
 
-  const masked = phone ? `+91 ${phone.slice(0, 5)} ${phone.slice(5)}` : '';
+  // The boxes cover a hidden input. After the keyboard is dismissed the input is still focused, and focusing it again
+  // does not bring the keyboard back on Android — so drop the focus and take it again.
+  function openKeyboard() {
+    const i = input.current;
+    if (!i) return;
+    if (i.isFocused()) {
+      i.blur();
+      setTimeout(() => i.focus(), 50);
+    } else i.focus();
+  }
+
+  const masked = phone ?`+91 ${phone.slice(0, 5)} ${phone.slice(5)}` : '';
 
   return (
     <Screen header={<TopBar back />} backdrop={<BrandBackdrop faint />} footer={<Button label={t('auth.verify')} onPress={() => verify()} disabled={code.length !== LEN} loading={loading} />}>
@@ -63,7 +74,7 @@ export default function Otp() {
         <AppText tone="secondary">{t('auth.otpSub', { phone: masked })}</AppText>
       </View>
 
-      <Pressable onPress={() => input.current?.focus()} style={styles.boxes} accessibilityLabel={t('auth.otpTitle')}>
+      <Pressable onPress={openKeyboard} style={styles.boxes} accessibilityLabel={t('auth.otpTitle')}>
         {Array.from({ length: LEN }, (_, i) => {
           const focused = i === code.length;
           return (
