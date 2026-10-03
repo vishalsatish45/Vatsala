@@ -242,19 +242,6 @@ function ResultCorrectionForm({
   );
   return (
     <View style={{ gap: space.sm }}>
-      <Controller
-        control={control}
-        name="value"
-        render={({ field, fieldState }) => (
-          <Field
-            label="Result (as reported)"
-            value={field.value}
-            onChangeText={field.onChange}
-            onBlur={field.onBlur}
-            error={fieldState.error?.message}
-          />
-        )}
-      />
       {inv.kind === "scan" && (
         <Controller
           control={control}
@@ -273,6 +260,19 @@ function ResultCorrectionForm({
           )}
         />
       )}
+      <Controller
+        control={control}
+        name="value"
+        render={({ field, fieldState }) => (
+          <Field
+            label="Result (as reported)"
+            value={field.value}
+            onChangeText={field.onChange}
+            onBlur={field.onBlur}
+            error={fieldState.error?.message}
+          />
+        )}
+      />
       <Controller
         control={control}
         name="note"
@@ -394,21 +394,6 @@ function ResultForm({ inv }: { inv: Investigation }) {
   );
   return (
     <>
-      <Controller
-        control={control}
-        name="value"
-        render={({ field }) => (
-          <Field
-            label="Result"
-            value={field.value}
-            onChangeText={field.onChange}
-            onBlur={field.onBlur}
-            placeholder={
-              inv.kind === "scan" ? "e.g. Report documented" : "e.g. 11.2 g/dL"
-            }
-          />
-        )}
-      />
       {inv.kind === "scan" && (
         <Controller
           control={control}
@@ -427,6 +412,21 @@ function ResultForm({ inv }: { inv: Investigation }) {
           )}
         />
       )}
+      <Controller
+        control={control}
+        name="value"
+        render={({ field }) => (
+          <Field
+            label="Result"
+            value={field.value}
+            onChangeText={field.onChange}
+            onBlur={field.onBlur}
+            placeholder={
+              inv.kind === "scan" ? "e.g. Report documented" : "e.g. 11.2 g/dL"
+            }
+          />
+        )}
+      />
       <Controller
         control={control}
         name="note"
